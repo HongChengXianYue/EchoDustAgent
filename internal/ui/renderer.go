@@ -1,0 +1,220 @@
+package ui
+
+import (
+	"fmt"
+	"io"
+	"strings"
+
+	"local-agent/internal/runtimeevent"
+	"local-agent/internal/tools"
+)
+
+type BlockRenderer struct {
+	output io.Writer
+}
+
+func NewBlockRenderer(output io.Writer) *BlockRenderer {
+	return &BlockRenderer{output: output}
+}
+
+func (r *BlockRenderer) HandleEvent(event runtimeevent.Event) {
+	switch event.Type {
+	case runtimeevent.TypeAssistantMessage:
+		r.block(event.Message, "")
+	case runtimeevent.TypeToolCall:
+		r.renderToolCall(event)
+	case runtimeevent.TypeToolResult:
+		r.renderToolResult(event)
+	case runtimeevent.TypeFinal:
+		r.renderFinal(event.Message)
+	case runtimeevent.TypeError:
+		r.block("Error", event.Error)
+	case runtimeevent.TypeApprovalRequest:
+		r.block("Approval requested", approvalDetail(event))
+	case runtimeevent.TypeApprovalDecision:
+		r.block("Approval "+event.Decision, event.Reason)
+	}
+}
+
+func (r *BlockRenderer) renderToolCall(event runtimeevent.Event) {
+	if event.Tool == "run_command" {
+		command := jsonArgString(event.Args, "command")
+		if command == "" {
+			command = compactJSON(event.Args, 200)
+		}
+		r.block("Running "+command, "")
+		return
+	}
+	if isEditTool(event.Tool) {
+		return
+	}
+	if isExploreTool(event.Tool) {
+		return
+	}
+	r.block("Tool "+event.Tool, compactJSON(event.Args, 200))
+}
+
+func (r *BlockRenderer) renderToolResult(event runtimeevent.Event) {
+	if event.Result == nil {
+		return
+	}
+	result := *event.Result
+	switch {
+	case event.Tool == "run_command":
+		title := "Ran " + commandTitle(event.Args)
+		if result.Status == "error" {
+			title = "Failed " + commandTitle(event.Args)
+		}
+		r.block(title, "")
+		printIndented(r.output, "  └ ", summarizeResultOutput(result))
+	case isExploreTool(event.Tool):
+		r.block("Explored", exploreDetail(event))
+		if strings.TrimSpace(result.Output) != "" {
+			printIndented(r.output, "  └ ", truncate(result.Output, 2000))
+		}
+	case isEditTool(event.Tool):
+		r.renderFileChanges(result)
+	default:
+		title := "Tool " + event.Tool
+		if result.Status == "error" {
+			title = "Failed " + event.Tool
+		}
+		r.block(title, result.Summary)
+		if strings.TrimSpace(result.Output) != "" {
+			printIndented(r.output, "  └ ", truncate(result.Output, 2000))
+		}
+	}
+}
+
+func (r *BlockRenderer) renderFileChanges(result tools.Result) {
+	if len(result.Changes) == 0 {
+		title := "Edited"
+		if result.Status == "error" {
+			title = "Edit failed"
+		}
+		r.block(title, result.Summary)
+		if strings.TrimSpace(result.Output) != "" {
+			printIndented(r.output, "  └ ", truncate(result.Output, 2000))
+		}
+		return
+	}
+
+	added, removed := changeTotals(result.Changes)
+	if len(result.Changes) == 1 {
+		change := result.Changes[0]
+		title := changeVerb(change) + " " + change.Path + fmt.Sprintf(" (+%d -%d)", change.AddedLines, change.RemovedLines)
+		r.block(title, "")
+		if strings.TrimSpace(change.Preview) != "" {
+			printIndented(r.output, "  └ ", truncate(change.Preview, 2000))
+		}
+		return
+	}
+
+	r.block(fmt.Sprintf("Edited %d files (+%d -%d)", len(result.Changes), added, removed), "")
+	for _, change := range result.Changes {
+		fmt.Fprintf(r.output, "  └ %s %s (+%d -%d)\n", changeVerb(change), change.Path, change.AddedLines, change.RemovedLines)
+		if strings.TrimSpace(change.Preview) != "" {
+			printIndented(r.output, "    ", truncate(change.Preview, 800))
+		}
+	}
+}
+
+func (r *BlockRenderer) renderFinal(message string) {
+	if strings.TrimSpace(message) == "" {
+		return
+	}
+	fmt.Fprintln(r.output, separatorLine())
+	fmt.Fprintln(r.output, strings.TrimSpace(message))
+}
+
+func (r *BlockRenderer) block(title string, detail string) {
+	fmt.Fprintln(r.output, separatorLine())
+	printIndented(r.output, "• ", strings.TrimSpace(title))
+	if strings.TrimSpace(detail) != "" {
+		printIndented(r.output, "  └ ", strings.TrimSpace(detail))
+	}
+}
+
+func isExploreTool(tool string) bool {
+	switch tool {
+	case "list_files", "read_file", "search_files":
+		return true
+	default:
+		return false
+	}
+}
+
+func isEditTool(tool string) bool {
+	switch tool {
+	case "write_file", "replace_in_file", "apply_patch":
+		return true
+	default:
+		return false
+	}
+}
+
+func exploreDetail(event runtimeevent.Event) string {
+	switch event.Tool {
+	case "list_files":
+		path := jsonArgString(event.Args, "path")
+		if path == "" {
+			path = "."
+		}
+		return "List " + path
+	case "read_file":
+		path := jsonArgString(event.Args, "path")
+		if path == "" {
+			path = "(missing path)"
+		}
+		return "Read " + path
+	case "search_files":
+		query := jsonArgString(event.Args, "query")
+		path := jsonArgString(event.Args, "path")
+		if path == "" {
+			path = "."
+		}
+		return "Search " + query + " in " + path
+	default:
+		return compactJSON(event.Args, 200)
+	}
+}
+
+func commandTitle(args []byte) string {
+	command := jsonArgString(args, "command")
+	if command == "" {
+		return compactJSON(args, 200)
+	}
+	return command
+}
+
+func summarizeResultOutput(result tools.Result) string {
+	if strings.TrimSpace(result.Output) != "" {
+		return truncate(result.Output, 4000)
+	}
+	if strings.TrimSpace(result.Summary) != "" {
+		return result.Summary
+	}
+	return "(no output)"
+}
+
+func changeVerb(change tools.FileChange) string {
+	switch strings.ToLower(change.Action) {
+	case "added", "add":
+		return "Added"
+	case "deleted", "delete":
+		return "Deleted"
+	default:
+		return "Edited"
+	}
+}
+
+func approvalDetail(event runtimeevent.Event) string {
+	if event.Tool == "" {
+		return event.Reason
+	}
+	detail := event.Tool + " [" + string(event.Category) + "]"
+	if event.Reason != "" {
+		detail += ": " + event.Reason
+	}
+	return detail
+}

@@ -22,6 +22,9 @@ func TestFileToolsRoundTrip(t *testing.T) {
 	if err != nil || result.Status != "success" {
 		t.Fatalf("write result = %#v err = %v", result, err)
 	}
+	if len(result.Changes) != 1 || result.Changes[0].Action != "added" || result.Changes[0].AddedLines != 2 {
+		t.Fatalf("write changes = %#v, want added file metadata", result.Changes)
+	}
 
 	read := &ReadFileTool{Workdir: workdir}
 	result, err = read.Execute(ctx, mustJSON(t, map[string]any{"path": "notes/todo.txt"}))
@@ -37,6 +40,9 @@ func TestFileToolsRoundTrip(t *testing.T) {
 	}))
 	if err != nil || result.Status != "success" {
 		t.Fatalf("replace result = %#v err = %v", result, err)
+	}
+	if len(result.Changes) != 1 || result.Changes[0].Action != "edited" || result.Changes[0].AddedLines != 1 || result.Changes[0].RemovedLines != 1 {
+		t.Fatalf("replace changes = %#v, want edited file metadata", result.Changes)
 	}
 
 	search := &SearchFilesTool{Workdir: workdir}
@@ -87,9 +93,6 @@ func TestApplyPatchTool(t *testing.T) {
 -old
 +new
 `
-	// The patch command expects exactly two leading plus signs in the new-file
-	// header; build the string this way so the test fixture remains readable.
-	patch = strings.Replace(patch, "++++ b/file.txt", "+++ b/file.txt", 1)
 
 	tool := &ApplyPatchTool{Workdir: workdir}
 	result, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{"patch": patch}))
@@ -102,6 +105,9 @@ func TestApplyPatchTool(t *testing.T) {
 	}
 	if string(data) != "new\n" {
 		t.Fatalf("file content = %q, want new", string(data))
+	}
+	if len(result.Changes) != 1 || result.Changes[0].Path != "file.txt" || result.Changes[0].AddedLines != 1 || result.Changes[0].RemovedLines != 1 {
+		t.Fatalf("patch changes = %#v, want file.txt (+1 -1)", result.Changes)
 	}
 }
 

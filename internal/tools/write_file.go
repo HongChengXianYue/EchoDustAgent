@@ -45,11 +45,30 @@ func (t *WriteFileTool) Execute(ctx context.Context, args json.RawMessage) (Resu
 	if err != nil {
 		return Error(err.Error()), nil
 	}
+	oldContent, readErr := os.ReadFile(path)
+	action := "added"
+	removedLines := 0
+	if readErr == nil {
+		action = "edited"
+		removedLines = countLines(string(oldContent))
+	} else if !os.IsNotExist(readErr) {
+		return Error(readErr.Error()), nil
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return Error(err.Error()), nil
 	}
 	if err := os.WriteFile(path, []byte(params.Content), 0644); err != nil {
 		return Error(err.Error()), nil
 	}
-	return Success(fmt.Sprintf("wrote %s (%d bytes)", displayPath(t.Workdir, path), len(params.Content)), ""), nil
+	result := Success(fmt.Sprintf("wrote %s (%d bytes)", displayPath(t.Workdir, path), len(params.Content)), "")
+	result.Changes = []FileChange{
+		{
+			Path:         displayPath(t.Workdir, path),
+			Action:       action,
+			AddedLines:   countLines(params.Content),
+			RemovedLines: removedLines,
+			Preview:      addedContentPreview(params.Content, 20),
+		},
+	}
+	return result, nil
 }

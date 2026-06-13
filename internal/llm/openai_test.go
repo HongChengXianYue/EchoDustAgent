@@ -91,6 +91,38 @@ func TestOpenAICompatibleClientSendsNativeToolSpecAndParsesToolCall(t *testing.T
 	}
 }
 
+func TestOpenAICompatibleClientOmitsToolControlsWhenNoTools(t *testing.T) {
+	client := NewOpenAICompatibleClient("https://example.test/v1", "test-key", "test-model")
+	client.Client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		var req map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if _, ok := req["tools"]; ok {
+			t.Fatalf("tools present in no-tool request: %#v", req["tools"])
+		}
+		if _, ok := req["tool_choice"]; ok {
+			t.Fatalf("tool_choice present in no-tool request: %#v", req["tool_choice"])
+		}
+		if _, ok := req["parallel_tool_calls"]; ok {
+			t.Fatalf("parallel_tool_calls present in no-tool request: %#v", req["parallel_tool_calls"])
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"choices":[{"message":{"content":"hello"}}]}`)),
+		}, nil
+	})}
+
+	resp, err := client.ChatWithTools(context.Background(), []Message{{Role: "user", Content: "hello"}}, nil)
+	if err != nil {
+		t.Fatalf("ChatWithTools() error = %v", err)
+	}
+	if resp.Content != "hello" {
+		t.Fatalf("content = %q, want hello", resp.Content)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {

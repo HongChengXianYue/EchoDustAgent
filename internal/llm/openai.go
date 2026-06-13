@@ -30,13 +30,17 @@ func NewOpenAICompatibleClient(baseURL, apiKey, model string) *OpenAICompatibleC
 }
 
 func (c *OpenAICompatibleClient) ChatWithTools(ctx context.Context, messages []Message, tools []FunctionTool) (*ChatResponse, error) {
-	body, err := json.Marshal(chatCompletionRequest{
-		Model:             c.Model,
-		Messages:          messages,
-		Tools:             buildToolSpecs(tools),
-		ToolChoice:        "auto",
-		ParallelToolCalls: boolPtr(false),
-	})
+	reqBody := chatCompletionRequest{
+		Model:    c.Model,
+		Messages: messages,
+		Tools:    buildToolSpecs(tools),
+	}
+	if len(tools) > 0 {
+		reqBody.ToolChoice = "auto"
+		reqBody.ParallelToolCalls = boolPtr(false)
+	}
+
+	body, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, err
 	}

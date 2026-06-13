@@ -14,16 +14,51 @@ type Tool interface {
 	Execute(ctx context.Context, args json.RawMessage) (Result, error)
 }
 
+type Category string
+
+const (
+	CategoryReadOnly Category = "read_only"
+	CategoryWrite    Category = "write"
+	CategoryCommand  Category = "command"
+)
+
+type CategoryProvider interface {
+	Category() Category
+}
+
+func CategoryOf(tool Tool) Category {
+	if provider, ok := tool.(CategoryProvider); ok {
+		return provider.Category()
+	}
+	switch tool.Name() {
+	case "run_command":
+		return CategoryCommand
+	case "write_file", "replace_in_file", "apply_patch":
+		return CategoryWrite
+	default:
+		return CategoryReadOnly
+	}
+}
+
 type Spec struct {
 	Name        string
 	Description string
 	Parameters  json.RawMessage
 }
 
+type FileChange struct {
+	Path         string `json:"path"`
+	Action       string `json:"action,omitempty"`
+	AddedLines   int    `json:"added_lines,omitempty"`
+	RemovedLines int    `json:"removed_lines,omitempty"`
+	Preview      string `json:"preview,omitempty"`
+}
+
 type Result struct {
-	Status  string `json:"status"`
-	Summary string `json:"summary,omitempty"`
-	Output  string `json:"output,omitempty"`
+	Status  string       `json:"status"`
+	Summary string       `json:"summary,omitempty"`
+	Output  string       `json:"output,omitempty"`
+	Changes []FileChange `json:"changes,omitempty"`
 }
 
 func Success(summary, output string) Result {

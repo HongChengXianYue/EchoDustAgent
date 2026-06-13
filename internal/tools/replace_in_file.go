@@ -66,5 +66,15 @@ func (t *ReplaceInFileTool) Execute(ctx context.Context, args json.RawMessage) (
 	if err := os.WriteFile(path, []byte(updated), 0644); err != nil {
 		return Error(err.Error()), nil
 	}
-	return Success(fmt.Sprintf("replaced %d occurrence(s) in %s", count, displayPath(t.Workdir, path)), ""), nil
+	result := Success(fmt.Sprintf("replaced %d occurrence(s) in %s", count, displayPath(t.Workdir, path)), "")
+	result.Changes = []FileChange{
+		{
+			Path:         displayPath(t.Workdir, path),
+			Action:       "edited",
+			AddedLines:   countLines(params.NewText) * count,
+			RemovedLines: countLines(params.OldText) * count,
+			Preview:      replacementPreview(params.OldText, params.NewText, 20),
+		},
+	}
+	return result, nil
 }

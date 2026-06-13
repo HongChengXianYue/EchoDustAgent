@@ -58,7 +58,9 @@ func (t *ApplyPatchTool) Execute(ctx context.Context, args json.RawMessage) (Res
 	if err != nil {
 		return Result{Status: "error", Summary: err.Error(), Output: text}, nil
 	}
-	return Success("patch applied", text), nil
+	result := Success("patch applied", text)
+	result.Changes = parseUnifiedDiffChanges(params.Patch)
+	return result, nil
 }
 
 func patchStripLevel(patchText string) (int, error) {

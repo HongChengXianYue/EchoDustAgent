@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -11,6 +10,7 @@ import (
 	"local-agent/internal/config"
 	"local-agent/internal/llm"
 	"local-agent/internal/tools"
+	"local-agent/internal/ui"
 )
 
 func main() {
@@ -29,20 +29,20 @@ func main() {
 	tools.RegisterBuiltins(registry, workdir)
 	client := llm.NewOpenAICompatibleClient(cfg.BaseURL, cfg.APIKey, cfg.Model)
 	codingAgent := agent.New(client, registry, cfg.MaxSteps)
+	codingAgent.SetRenderer(ui.NewBlockRenderer(os.Stdout))
 
 	fmt.Println("local-agent started")
 	fmt.Println("workdir:", workdir)
 	fmt.Println("model:", cfg.Model)
 	fmt.Println("type exit or quit to stop")
 
-	scanner := bufio.NewScanner(os.Stdin)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	prompt := ui.NewPrompt(os.Stdin, os.Stdout)
 	for {
-		fmt.Print("> ")
-		if !scanner.Scan() {
+		line, ok := prompt.ReadLine("› ")
+		if !ok {
 			break
 		}
-		input := strings.TrimSpace(scanner.Text())
+		input := strings.TrimSpace(line)
 		if input == "" {
 			continue
 		}
@@ -50,14 +50,6 @@ func main() {
 			return
 		}
 
-		answer, err := codingAgent.Run(context.Background(), input)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			continue
-		}
-		fmt.Println(answer)
-	}
-	if err := scanner.Err(); err != nil {
-		fmt.Fprintln(os.Stderr, "input error:", err)
+		_, _ = codingAgent.Run(context.Background(), input)
 	}
 }
