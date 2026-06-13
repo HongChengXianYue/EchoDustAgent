@@ -108,7 +108,7 @@ func (s *lineState) applyKey(key string) (string, bool, bool) {
 	case "":
 		return "", false, true
 	default:
-		for _, r := range []rune(key) {
+		for _, r := range key {
 			s.runes = append(s.runes[:s.cursor], append([]rune{r}, s.runes[s.cursor:]...)...)
 			s.cursor++
 		}

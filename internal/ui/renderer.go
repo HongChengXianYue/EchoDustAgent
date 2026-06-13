@@ -5,22 +5,30 @@ import (
 	"io"
 	"strings"
 
+	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/glamour/ansi"
+	"github.com/charmbracelet/glamour/styles"
 	"local-agent/internal/runtimeevent"
 	"local-agent/internal/tools"
 )
 
 type BlockRenderer struct {
-	output io.Writer
+	output           io.Writer
+	markdownRenderer *glamour.TermRenderer
 }
 
 func NewBlockRenderer(output io.Writer) *BlockRenderer {
-	return &BlockRenderer{output: output}
+	renderer, _ := newMarkdownRenderer()
+	return &BlockRenderer{output: output, markdownRenderer: renderer}
 }
 
 func (r *BlockRenderer) HandleEvent(event runtimeevent.Event) {
 	switch event.Type {
 	case runtimeevent.TypeAssistantMessage:
-		r.block(event.Message, "")
+		message := cleanTerminalText(event.Message)
+		if message != "" {
+			r.block(message, "")
+		}
 	case runtimeevent.TypeToolCall:
 		r.renderToolCall(event)
 	case runtimeevent.TypeToolResult:
@@ -120,11 +128,63 @@ func (r *BlockRenderer) renderFileChanges(result tools.Result) {
 }
 
 func (r *BlockRenderer) renderFinal(message string) {
-	if strings.TrimSpace(message) == "" {
+	message = strings.TrimSpace(message)
+	if message == "" {
 		return
 	}
 	fmt.Fprintln(r.output, separatorLine())
-	fmt.Fprintln(r.output, strings.TrimSpace(message))
+	rendered, err := renderMarkdown(r.markdownRenderer, message)
+	if err != nil {
+		fmt.Fprintln(r.output, message)
+		return
+	}
+	fmt.Fprint(r.output, rendered)
+	if !strings.HasSuffix(rendered, "\n") {
+		fmt.Fprintln(r.output)
+	}
+}
+
+func renderMarkdown(renderer *glamour.TermRenderer, message string) (string, error) {
+	if renderer == nil {
+		return glamour.Render(message, "dark")
+	}
+	return renderer.Render(message)
+}
+
+func newMarkdownRenderer() (*glamour.TermRenderer, error) {
+	style := styles.DarkStyleConfig
+	clearHeadingPrefixes(&style)
+	softenCodeBlocks(&style)
+	return glamour.NewTermRenderer(
+		glamour.WithStyles(style),
+		glamour.WithWordWrap(100),
+	)
+}
+
+func clearHeadingPrefixes(style *ansi.StyleConfig) {
+	for _, heading := range []*ansi.StyleBlock{
+		&style.H1,
+		&style.H2,
+		&style.H3,
+		&style.H4,
+		&style.H5,
+		&style.H6,
+	} {
+		heading.Prefix = ""
+		heading.Suffix = ""
+	}
+}
+
+func softenCodeBlocks(style *ansi.StyleConfig) {
+	style.CodeBlock.Theme = ""
+	style.CodeBlock.Chroma = nil
+	style.CodeBlock.BackgroundColor = nil
+	style.CodeBlock.Margin = uintPtr(0)
+	style.CodeBlock.Indent = uintPtr(1)
+}
+
+func uintPtr(v uint) *uint {
+	return &v
 }
 
 func (r *BlockRenderer) block(title string, detail string) {

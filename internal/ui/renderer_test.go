@@ -67,3 +67,63 @@ func TestBlockRendererRendersExploreRunEditAndFinal(t *testing.T) {
 		}
 	}
 }
+
+func TestBlockRendererRendersMarkdownFinalText(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+
+	renderer.HandleEvent(runtimeevent.Event{
+		Type: runtimeevent.TypeFinal,
+		Message: `## 最近一次代码改动总结
+
+**提交信息**: ` + "`Add Codex-style CLI UI`" + `
+
+| 文件 | 作用 |
+|------|------|
+| renderer.go | **块渲染器** |
+
+### 1. 🆕 新增模块
+
+这是一个 **Go CLI Agent**。`,
+	})
+
+	text := out.String()
+	if strings.Contains(text, "###") || strings.Contains(text, "## ") {
+		t.Fatalf("rendered headings should not show markdown heading prefixes:\n%s", text)
+	}
+	for _, want := range []string{
+		"最近一次代码改动总结",
+		"提交信息",
+		"Add Codex-style CLI UI",
+		"文件",
+		"作用",
+		"renderer.go",
+		"块渲染器",
+		"新增模块",
+		"Go CLI Agent",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("output missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestBlockRendererRendersCodeBlocksWithoutHeavyChromaHighlighting(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:    runtimeevent.TypeFinal,
+		Message: "项目结构\n\n```text\ncmd/agent/\ninternal/ui/\n```\n",
+	})
+
+	text := out.String()
+	for _, want := range []string{"项目结构", "cmd/agent/", "internal/ui/"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("output missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "\x1b[38;5;203m") {
+		t.Fatalf("code block should not use heavy red chroma highlighting:\n%q", text)
+	}
+}

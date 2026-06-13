@@ -160,6 +160,9 @@ func TestRunUsesPromptGuidanceInsteadOfHidingToolsForGreeting(t *testing.T) {
 	for _, want := range []string{
 		"Do not inspect the workspace for greetings",
 		"Only call tools when the user asks for a concrete workspace action",
+		"Markdown is allowed for final summaries",
+		"avoid decorative emoji",
+		"do not run a full diff unless the user asks",
 	} {
 		if !strings.Contains(systemPrompt, want) {
 			t.Fatalf("system prompt missing %q:\n%s", want, systemPrompt)

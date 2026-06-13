@@ -34,3 +34,31 @@
 - Main modules: `internal/agent`.
 - Verification: `env GOCACHE=/tmp/local-agent-go-build go test ./...`; `env GOCACHE=/tmp/local-agent-go-build go vet ./...`.
 - Notes: Tools are still exposed to the model; the model is instructed not to use them unless the user asks for concrete workspace work.
+
+## 2026-06-13 - Plain Terminal Answer Style
+
+- Summary: Tightened assistant response style for terminal output and added lightweight renderer cleanup for Markdown headings, tables, bold markers, inline backticks, and decorative emoji.
+- Main modules: `internal/agent`, `internal/ui`.
+- Verification: `env GOCACHE=/tmp/local-agent-go-build go test ./...`; `env GOCACHE=/tmp/local-agent-go-build go vet ./...`.
+- Notes: Tool outputs remain literal; cleanup only applies to assistant process/final text.
+
+## 2026-06-13 - Markdown Final Rendering
+
+- Summary: Replaced final-answer plaintext cleanup with terminal Markdown rendering using `github.com/charmbracelet/glamour`, while keeping lightweight cleanup for intermediate assistant process messages.
+- Main modules: `internal/ui`, `internal/agent`, `go.mod`.
+- Verification: `env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go test ./...`; `env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go vet ./...`.
+- Notes: Final summaries can use Markdown tables/headings and render cleanly in the terminal.
+
+## 2026-06-13 - Markdown Heading Style
+
+- Summary: Added a custom Glamour dark style for final-answer rendering that removes visible Markdown heading prefixes like `###` while keeping table, code, and emphasis rendering.
+- Main modules: `internal/ui`.
+- Verification: `env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go test ./...`; `env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go vet ./...`.
+- Notes: This addresses heading markers showing in terminal-rendered final answers.
+
+## 2026-06-13 - Softer Markdown Code Blocks
+
+- Summary: Disabled Chroma highlighting for final-answer Markdown code blocks so directory trees and plain text blocks render quietly instead of showing heavy red syntax coloring.
+- Main modules: `internal/ui`.
+- Verification: `env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go test ./...`; `env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go vet ./...`.
+- Notes: Inline code and tables still render through Glamour; only fenced code block styling was softened.

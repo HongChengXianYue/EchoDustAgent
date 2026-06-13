@@ -55,6 +55,8 @@ Use the provided function tools when you need workspace information or need to m
 Do not inspect the workspace for greetings, small talk, thanks, or general capability questions.
 Only call tools when the user asks for a concrete workspace action such as reading, listing, searching, editing files, or running commands.
 Do not write JSON tool calls in assistant text. Tool calls must use native function calling only.
+When responding in the terminal, keep final answers concise. Markdown is allowed for final summaries when it improves readability, but avoid decorative emoji and excessive detail.
+When summarizing recent code changes, prefer git log/stat or the worklog first; do not run a full diff unless the user asks for exact diff details.
 When you are done, answer directly and concisely.`),
 			},
 		},
