@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"local-agent/internal/approval"
 	"local-agent/internal/llm"
 	"local-agent/internal/runtimeevent"
 	"local-agent/internal/tools"
@@ -33,8 +34,18 @@ type echoTool struct {
 	calls []json.RawMessage
 }
 
+type namedTool struct {
+	name  string
+	calls []json.RawMessage
+}
+
 type captureRenderer struct {
 	events []runtimeevent.Event
+}
+
+type fakeApprover struct {
+	decision approval.Decision
+	calls    []approval.Request
 }
 
 func (r *captureRenderer) HandleEvent(event runtimeevent.Event) {
@@ -62,6 +73,31 @@ func (t *echoTool) Execute(ctx context.Context, args json.RawMessage) (tools.Res
 		return tools.Error(err.Error()), nil
 	}
 	return tools.Success("echoed", params.Text), nil
+}
+
+func (t *namedTool) Name() string {
+	return t.name
+}
+
+func (t *namedTool) Description() string {
+	return "Named test tool."
+}
+
+func (t *namedTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object"}`)
+}
+
+func (t *namedTool) Execute(ctx context.Context, args json.RawMessage) (tools.Result, error) {
+	t.calls = append(t.calls, append(json.RawMessage(nil), args...))
+	return tools.Success("called", ""), nil
+}
+
+func (a *fakeApprover) Approve(ctx context.Context, request approval.Request) approval.Decision {
+	a.calls = append(a.calls, request)
+	if a.decision == "" {
+		return approval.DecisionAllow
+	}
+	return a.decision
 }
 
 func TestRunExecutesNativeToolCallThenFinal(t *testing.T) {
@@ -268,5 +304,162 @@ func TestRunEmitsToolAndFinalEvents(t *testing.T) {
 	}
 	if renderer.events[2].Result == nil || renderer.events[2].Result.Output != "hello" {
 		t.Fatalf("tool result event = %#v", renderer.events[2])
+	}
+}
+
+func TestRunDoesNotAskApprovalForLowRiskTool(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			ToolCalls: []llm.ToolCall{
+				{
+					ID:   "call_read",
+					Type: "function",
+					Function: llm.ToolFunction{
+						Name:      "read_file",
+						Arguments: `{"path":"README.md"}`,
+					},
+				},
+			},
+		},
+		{Content: "finished"},
+	}}
+	tool := &namedTool{name: "read_file"}
+	registry := tools.NewRegistry()
+	registry.Register(tool)
+	approver := &fakeApprover{decision: approval.DecisionDeny}
+
+	agent := New(client, registry, 3)
+	agent.SetApprover(approver)
+	if _, err := agent.Run(context.Background(), "read README"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(approver.calls) != 0 {
+		t.Fatalf("approval calls = %d, want 0", len(approver.calls))
+	}
+	if len(tool.calls) != 1 {
+		t.Fatalf("tool calls = %d, want 1", len(tool.calls))
+	}
+}
+
+func TestRunDeniesHighRiskToolWithoutExecuting(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			ToolCalls: []llm.ToolCall{
+				{
+					ID:   "call_write",
+					Type: "function",
+					Function: llm.ToolFunction{
+						Name:      "write_file",
+						Arguments: `{"path":"hello.txt","content":"hello"}`,
+					},
+				},
+			},
+		},
+		{Content: "finished"},
+	}}
+	tool := &namedTool{name: "write_file"}
+	registry := tools.NewRegistry()
+	registry.Register(tool)
+	renderer := &captureRenderer{}
+	approver := &fakeApprover{decision: approval.DecisionDeny}
+
+	agent := New(client, registry, 3)
+	agent.SetRenderer(renderer)
+	agent.SetApprover(approver)
+	if _, err := agent.Run(context.Background(), "write file"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(approver.calls) != 1 || approver.calls[0].Category != approval.CategoryWorkspaceWrite {
+		t.Fatalf("approval calls = %#v", approver.calls)
+	}
+	if len(tool.calls) != 0 {
+		t.Fatalf("tool was executed after denial: %d", len(tool.calls))
+	}
+
+	got := make([]runtimeevent.Type, 0, len(renderer.events))
+	for _, event := range renderer.events {
+		got = append(got, event.Type)
+	}
+	want := []runtimeevent.Type{
+		runtimeevent.TypeApprovalRequest,
+		runtimeevent.TypeApprovalDecision,
+		runtimeevent.TypeToolResult,
+		runtimeevent.TypeFinal,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("events = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("events = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestRunAllowsAlwaysDecision(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			ToolCalls: []llm.ToolCall{
+				{
+					ID:   "call_write",
+					Type: "function",
+					Function: llm.ToolFunction{
+						Name:      "write_file",
+						Arguments: `{"path":"hello.txt","content":"hello"}`,
+					},
+				},
+			},
+		},
+		{Content: "finished"},
+	}}
+	tool := &namedTool{name: "write_file"}
+	registry := tools.NewRegistry()
+	registry.Register(tool)
+
+	agent := New(client, registry, 3)
+	agent.SetApprover(&fakeApprover{decision: approval.DecisionAlways})
+	if _, err := agent.Run(context.Background(), "write file"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(tool.calls) != 1 {
+		t.Fatalf("tool calls = %d, want 1", len(tool.calls))
+	}
+}
+
+func TestRunBlocksBlacklistedCommandBeforeApproval(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			ToolCalls: []llm.ToolCall{
+				{
+					ID:   "call_danger",
+					Type: "function",
+					Function: llm.ToolFunction{
+						Name:      "run_command",
+						Arguments: `{"command":"sudo rm -rf /"}`,
+					},
+				},
+			},
+		},
+		{Content: "finished"},
+	}}
+	tool := &namedTool{name: "run_command"}
+	registry := tools.NewRegistry()
+	registry.Register(tool)
+	approver := &fakeApprover{decision: approval.DecisionAllow}
+
+	agent := New(client, registry, 3)
+	agent.SetApprover(approver)
+	if _, err := agent.Run(context.Background(), "danger"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(approver.calls) != 0 {
+		t.Fatalf("blacklisted command should not ask approval: %#v", approver.calls)
+	}
+	if len(tool.calls) != 0 {
+		t.Fatalf("blacklisted command executed: %d", len(tool.calls))
+	}
+	messages := agent.Messages()
+	if got := messages[len(messages)-2]; got.Role != "tool" || !strings.Contains(got.Content, "permanent safety policy") {
+		t.Fatalf("blacklist result message = %#v", got)
 	}
 }

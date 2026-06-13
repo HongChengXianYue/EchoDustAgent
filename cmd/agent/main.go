@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"local-agent/internal/agent"
+	"local-agent/internal/approval"
 	"local-agent/internal/config"
 	"local-agent/internal/llm"
 	"local-agent/internal/tools"
@@ -30,6 +31,7 @@ func main() {
 	client := llm.NewOpenAICompatibleClient(cfg.BaseURL, cfg.APIKey, cfg.Model)
 	codingAgent := agent.New(client, registry, cfg.MaxSteps)
 	codingAgent.SetRenderer(ui.NewBlockRenderer(os.Stdout))
+	codingAgent.SetApprover(approval.NewMemoryApprover(approval.NewTerminalApprover(os.Stdin, os.Stdout)))
 
 	fmt.Println("local-agent started")
 	fmt.Println("workdir:", workdir)

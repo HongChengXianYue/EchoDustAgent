@@ -3,6 +3,7 @@ package runtimeevent
 import (
 	"encoding/json"
 
+	"local-agent/internal/approval"
 	"local-agent/internal/tools"
 )
 
@@ -23,15 +24,15 @@ type Handler interface {
 }
 
 type Event struct {
-	Step       int             `json:"step,omitempty"`
-	Type       Type            `json:"type"`
-	Message    string          `json:"message,omitempty"`
-	Error      string          `json:"error,omitempty"`
-	Tool       string          `json:"tool,omitempty"`
-	Category   tools.Category  `json:"category,omitempty"`
-	Args       json.RawMessage `json:"args,omitempty"`
-	Result     *tools.Result   `json:"result,omitempty"`
-	DurationMS int64           `json:"duration_ms,omitempty"`
-	Decision   string          `json:"decision,omitempty"`
-	Reason     string          `json:"reason,omitempty"`
+	Step       int               `json:"step,omitempty"`
+	Type       Type              `json:"type"`
+	Message    string            `json:"message,omitempty"`
+	Error      string            `json:"error,omitempty"`
+	Tool       string            `json:"tool,omitempty"`
+	Category   approval.Category `json:"category,omitempty"`
+	Args       json.RawMessage   `json:"args,omitempty"`
+	Result     *tools.Result     `json:"result,omitempty"`
+	DurationMS int64             `json:"duration_ms,omitempty"`
+	Decision   string            `json:"decision,omitempty"`
+	Reason     string            `json:"reason,omitempty"`
 }

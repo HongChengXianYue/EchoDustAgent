@@ -7,28 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"local-agent/internal/approval"
 	"local-agent/internal/llm"
 	"local-agent/internal/runtimeevent"
 	"local-agent/internal/tools"
 )
-
-type ApprovalDecision string
-
-const (
-	ApprovalAllow ApprovalDecision = "allow"
-	ApprovalDeny  ApprovalDecision = "deny"
-)
-
-type ApprovalRequest struct {
-	Tool     string
-	Category tools.Category
-	Args     json.RawMessage
-	Reason   string
-}
-
-type Approver interface {
-	Approve(ctx context.Context, request ApprovalRequest) ApprovalDecision
-}
 
 type Agent struct {
 	client   llm.Client
@@ -36,7 +19,7 @@ type Agent struct {
 	messages []llm.Message
 	maxSteps int
 	renderer runtimeevent.Handler
-	approver Approver
+	approver approval.Approver
 }
 
 func New(client llm.Client, registry *tools.Registry, maxSteps int) *Agent {
@@ -67,7 +50,7 @@ func (a *Agent) SetRenderer(renderer runtimeevent.Handler) {
 	a.renderer = renderer
 }
 
-func (a *Agent) SetApprover(approver Approver) {
+func (a *Agent) SetApprover(approver approval.Approver) {
 	a.approver = approver
 }
 
@@ -128,15 +111,20 @@ func (a *Agent) executeToolCall(ctx context.Context, step int, call llm.ToolCall
 		})
 		return result
 	}
-	category := tools.CategoryOf(tool)
 	args := call.ArgumentsJSON()
-	a.emit(runtimeevent.Event{
-		Step:     step,
-		Type:     runtimeevent.TypeToolCall,
-		Tool:     call.Function.Name,
-		Category: category,
-		Args:     args,
-	})
+	category := approval.Classify(call.Function.Name, args)
+	if reason, blocked := approval.BlockReason(call.Function.Name, args); blocked {
+		result := tools.Error("command blocked by permanent safety policy: " + reason)
+		a.emit(runtimeevent.Event{
+			Step:     step,
+			Type:     runtimeevent.TypeToolResult,
+			Tool:     call.Function.Name,
+			Category: category,
+			Args:     args,
+			Result:   &result,
+		})
+		return result
+	}
 	if !a.approveTool(ctx, step, call.Function.Name, category, args) {
 		result := tools.Error("tool execution denied by approval policy")
 		a.emit(runtimeevent.Event{
@@ -149,6 +137,14 @@ func (a *Agent) executeToolCall(ctx context.Context, step int, call llm.ToolCall
 		})
 		return result
 	}
+
+	a.emit(runtimeevent.Event{
+		Step:     step,
+		Type:     runtimeevent.TypeToolCall,
+		Tool:     call.Function.Name,
+		Category: category,
+		Args:     args,
+	})
 
 	startedAt := time.Now()
 	result, err := tool.Execute(ctx, call.ArgumentsJSON())
@@ -170,11 +166,11 @@ func (a *Agent) executeToolCall(ctx context.Context, step int, call llm.ToolCall
 	return result
 }
 
-func (a *Agent) approveTool(ctx context.Context, step int, tool string, category tools.Category, args json.RawMessage) bool {
-	if a.approver == nil {
+func (a *Agent) approveTool(ctx context.Context, step int, tool string, category approval.Category, args json.RawMessage) bool {
+	if !approval.RequiresApproval(category) || a.approver == nil {
 		return true
 	}
-	request := ApprovalRequest{
+	request := approval.Request{
 		Tool:     tool,
 		Category: category,
 		Args:     args,
@@ -198,7 +194,7 @@ func (a *Agent) approveTool(ctx context.Context, step int, tool string, category
 		Decision: string(decision),
 		Reason:   request.Reason,
 	})
-	return decision == ApprovalAllow
+	return decision == approval.DecisionAllow || decision == approval.DecisionAlways
 }
 
 func (a *Agent) emit(event runtimeevent.Event) {

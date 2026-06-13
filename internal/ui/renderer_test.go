@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"local-agent/internal/approval"
 	"local-agent/internal/runtimeevent"
 	"local-agent/internal/tools"
 )
@@ -125,5 +126,56 @@ func TestBlockRendererRendersCodeBlocksWithoutHeavyChromaHighlighting(t *testing
 	}
 	if strings.Contains(text, "\x1b[38;5;203m") {
 		t.Fatalf("code block should not use heavy red chroma highlighting:\n%q", text)
+	}
+}
+
+func TestBlockRendererRendersApprovalRequestDetails(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:     runtimeevent.TypeApprovalRequest,
+		Tool:     "run_command",
+		Category: approval.CategoryNetworkDependency,
+		Args:     json.RawMessage(`{"command":"curl https://example.com"}`),
+		Reason:   "tool execution requested",
+	})
+
+	text := out.String()
+	for _, want := range []string{
+		"Approval requested",
+		"run_command [network_dependency]",
+		"Command: curl https://example.com",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("output missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestBlockRendererSummarizesWriteApprovalArgs(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:     runtimeevent.TypeApprovalRequest,
+		Tool:     "write_file",
+		Category: approval.CategoryWorkspaceWrite,
+		Args:     json.RawMessage(`{"path":"test/古诗.txt","content":"第一行\n第二行"}`),
+		Reason:   "tool execution requested",
+	})
+
+	text := out.String()
+	for _, want := range []string{
+		"write_file [workspace_write]",
+		"Path: test/古诗.txt",
+		"Content: 2 lines",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("output missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "第一行") || strings.Contains(text, "第二行") {
+		t.Fatalf("approval output should summarize write content instead of printing it:\n%s", text)
 	}
 }

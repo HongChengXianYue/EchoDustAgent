@@ -39,6 +39,23 @@ The terminal UI prints assistant process text, tool calls, tool results, edit su
 
 Interactive input supports left/right cursor movement, backspace, and up/down history in TTY sessions. Non-TTY input falls back to plain line reading.
 
+## Approval
+
+Tool calls are classified by risk before execution:
+
+- `read_only`
+- `search_inspect`
+- `build_test`
+- `workspace_write`
+- `vcs_local`
+- `network_dependency`
+- `external_or_destructive`
+- `system_privileged`
+
+Read-only, search, and build/test calls run without prompting. Higher-risk calls show a selectable CLI approval prompt with `allow`, `always`, and `deny`; use arrow keys, `j`/`k`, `tab`, or shortcuts like `a` and `d`. `always` is remembered only for the current process and only for the exact same tool call.
+
+Permanent safety rules run before approval. Commands such as `sudo rm -rf /`, root filesystem deletion, Windows drive deletion, disk formatting, and raw block-device overwrites are blocked outright and cannot be approved.
+
 ## Verify
 
 ```bash

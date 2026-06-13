@@ -14,32 +14,6 @@ type Tool interface {
 	Execute(ctx context.Context, args json.RawMessage) (Result, error)
 }
 
-type Category string
-
-const (
-	CategoryReadOnly Category = "read_only"
-	CategoryWrite    Category = "write"
-	CategoryCommand  Category = "command"
-)
-
-type CategoryProvider interface {
-	Category() Category
-}
-
-func CategoryOf(tool Tool) Category {
-	if provider, ok := tool.(CategoryProvider); ok {
-		return provider.Category()
-	}
-	switch tool.Name() {
-	case "run_command":
-		return CategoryCommand
-	case "write_file", "replace_in_file", "apply_patch":
-		return CategoryWrite
-	default:
-		return CategoryReadOnly
-	}
-}
-
 type Spec struct {
 	Name        string
 	Description string
