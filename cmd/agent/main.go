@@ -29,7 +29,7 @@ func main() {
 	registry := tools.NewRegistry()
 	tools.RegisterBuiltins(registry, workdir)
 	client := llm.NewOpenAICompatibleClient(cfg.BaseURL, cfg.APIKey, cfg.Model)
-	codingAgent := agent.New(client, registry, cfg.MaxSteps)
+	codingAgent := agent.NewWithWorkspace(client, registry, cfg.MaxSteps, workdir)
 	codingAgent.SetRenderer(ui.NewBlockRenderer(os.Stdout))
 	codingAgent.SetApprover(approval.NewMemoryApprover(approval.NewTerminalApprover(os.Stdin, os.Stdout)))
 

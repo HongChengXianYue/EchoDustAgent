@@ -23,6 +23,10 @@ type Agent struct {
 }
 
 func New(client llm.Client, registry *tools.Registry, maxSteps int) *Agent {
+	return NewWithWorkspace(client, registry, maxSteps, "")
+}
+
+func NewWithWorkspace(client llm.Client, registry *tools.Registry, maxSteps int, workspace string) *Agent {
 	if maxSteps <= 0 {
 		maxSteps = 10
 	}
@@ -32,18 +36,30 @@ func New(client llm.Client, registry *tools.Registry, maxSteps int) *Agent {
 		maxSteps: maxSteps,
 		messages: []llm.Message{
 			{
-				Role: "system",
-				Content: strings.TrimSpace(`You are a local coding agent.
-Use the provided function tools when you need workspace information or need to modify files.
-Do not inspect the workspace for greetings, small talk, thanks, or general capability questions.
-Only call tools when the user asks for a concrete workspace action such as reading, listing, searching, editing files, or running commands.
-Do not write JSON tool calls in assistant text. Tool calls must use native function calling only.
-When responding in the terminal, keep final answers concise. Markdown is allowed for final summaries when it improves readability, but avoid decorative emoji and excessive detail.
-When summarizing recent code changes, prefer git log/stat or the worklog first; do not run a full diff unless the user asks for exact diff details.
-When you are done, answer directly and concisely.`),
+				Role:    "system",
+				Content: systemPrompt(workspace),
 			},
 		},
 	}
+}
+
+func systemPrompt(workspace string) string {
+	lines := []string{
+		"You are a local coding agent.",
+		"Use the provided function tools when you need workspace information or need to modify files.",
+		"Use workspace-relative paths for file tools unless the user explicitly asks for an absolute path.",
+		"Run commands in the configured workspace. Do not cd into guessed absolute paths.",
+		"Do not inspect the workspace for greetings, small talk, thanks, or general capability questions.",
+		"Only call tools when the user asks for a concrete workspace action such as reading, listing, searching, editing files, or running commands.",
+		"Do not write JSON tool calls in assistant text. Tool calls must use native function calling only.",
+		"When responding in the terminal, keep final answers concise. Markdown is allowed for final summaries when it improves readability, but avoid decorative emoji and excessive detail.",
+		"When summarizing recent code changes, prefer git log/stat or the worklog first; do not run a full diff unless the user asks for exact diff details.",
+		"When you are done, answer directly and concisely.",
+	}
+	if workspace = strings.TrimSpace(workspace); workspace != "" {
+		lines = append(lines[:1], append([]string{"Current workspace: " + workspace}, lines[1:]...)...)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (a *Agent) SetRenderer(renderer runtimeevent.Handler) {

@@ -196,9 +196,36 @@ func TestRunUsesPromptGuidanceInsteadOfHidingToolsForGreeting(t *testing.T) {
 	for _, want := range []string{
 		"Do not inspect the workspace for greetings",
 		"Only call tools when the user asks for a concrete workspace action",
+		"Use workspace-relative paths",
+		"Do not cd into guessed absolute paths",
 		"Markdown is allowed for final summaries",
 		"avoid decorative emoji",
 		"do not run a full diff unless the user asks",
+	} {
+		if !strings.Contains(systemPrompt, want) {
+			t.Fatalf("system prompt missing %q:\n%s", want, systemPrompt)
+		}
+	}
+}
+
+func TestNewWithWorkspaceAddsCurrentWorkspaceToSystemPrompt(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{Content: "done"},
+	}}
+	registry := tools.NewRegistry()
+	agent := NewWithWorkspace(client, registry, 3, "/tmp/local-agent-work")
+
+	if _, err := agent.Run(context.Background(), "what is this workspace?"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(client.messages) != 1 || len(client.messages[0]) == 0 {
+		t.Fatalf("missing messages: %#v", client.messages)
+	}
+	systemPrompt := client.messages[0][0].Content
+	for _, want := range []string{
+		"Current workspace: /tmp/local-agent-work",
+		"Use workspace-relative paths for file tools",
+		"Run commands in the configured workspace",
 	} {
 		if !strings.Contains(systemPrompt, want) {
 			t.Fatalf("system prompt missing %q:\n%s", want, systemPrompt)
