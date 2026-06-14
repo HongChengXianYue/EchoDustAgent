@@ -198,7 +198,7 @@ func (r *BlockRenderer) block(title string, detail string) {
 
 func isExploreTool(tool string) bool {
 	switch tool {
-	case "list_files", "read_file", "search_files":
+	case "list_files", "find_files", "read_file", "search_files":
 		return true
 	default:
 		return false
@@ -222,6 +222,13 @@ func exploreDetail(event runtimeevent.Event) string {
 			path = "."
 		}
 		return "List " + path
+	case "find_files":
+		query := jsonArgString(event.Args, "query")
+		path := jsonArgString(event.Args, "path")
+		if path == "" {
+			path = "."
+		}
+		return "Find " + query + " in " + path
 	case "read_file":
 		path := jsonArgString(event.Args, "path")
 		if path == "" {

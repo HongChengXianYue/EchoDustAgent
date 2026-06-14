@@ -29,14 +29,15 @@ func (a *TerminalApprover) Approve(ctx context.Context, request Request) Decisio
 	if !isInteractiveInput(a.input) {
 		return DecisionDeny
 	}
-	return chooseApproval(a.reader, a.input, a.output)
+	return chooseApproval(a.reader, a.input, a.output, request)
 }
 
-func chooseApproval(reader *bufio.Reader, input io.Reader, output io.Writer) Decision {
+func chooseApproval(reader *bufio.Reader, input io.Reader, output io.Writer, request Request) Decision {
 	raw := enterRawMode(input)
 	defer raw.restore()
 
-	options := []string{"Allow", "Always allow exact call", "Deny"}
+	decisions := DecisionOptions(request)
+	options := approvalOptionLabels(request, decisions)
 	selected := 0
 	renderApprovalOptions(output, options, selected, false)
 
@@ -56,9 +57,16 @@ func chooseApproval(reader *bufio.Reader, input io.Reader, output io.Writer) Dec
 			selected = (selected + 1) % len(options)
 			renderApprovalOptions(output, options, selected, true)
 		case "a", "A", "y", "Y":
-			raw.restore()
-			fmt.Fprintln(output)
-			return DecisionAllow
+			if optionIndex(decisions, DecisionAllow) >= 0 {
+				raw.restore()
+				fmt.Fprintln(output)
+				return DecisionAllow
+			}
+			if optionIndex(decisions, DecisionAlways) >= 0 {
+				raw.restore()
+				fmt.Fprintln(output)
+				return DecisionAlways
+			}
 		case "d", "D", "n", "N", "ctrl_c":
 			raw.restore()
 			fmt.Fprintln(output)
@@ -66,16 +74,39 @@ func chooseApproval(reader *bufio.Reader, input io.Reader, output io.Writer) Dec
 		case "enter":
 			raw.restore()
 			fmt.Fprintln(output)
-			switch selected {
-			case 0:
-				return DecisionAllow
-			case 1:
-				return DecisionAlways
-			default:
-				return DecisionDeny
-			}
+			return decisions[selected]
 		}
 	}
+}
+
+func approvalOptionLabels(request Request, decisions []Decision) []string {
+	labels := make([]string, 0, len(decisions))
+	for _, decision := range decisions {
+		switch decision {
+		case DecisionAllow:
+			labels = append(labels, "Allow once")
+		case DecisionAlways:
+			if request.Scope == ScopeSession && request.Key == "workspace_write" {
+				labels = append(labels, "Always allow workspace writes this session")
+			} else if request.Scope == ScopeLoop {
+				labels = append(labels, "Always allow this loop")
+			} else {
+				labels = append(labels, "Always allow exact call")
+			}
+		case DecisionDeny:
+			labels = append(labels, "Deny")
+		}
+	}
+	return labels
+}
+
+func optionIndex(decisions []Decision, want Decision) int {
+	for i, decision := range decisions {
+		if decision == want {
+			return i
+		}
+	}
+	return -1
 }
 
 func renderApprovalOptions(output io.Writer, options []string, selected int, redraw bool) {

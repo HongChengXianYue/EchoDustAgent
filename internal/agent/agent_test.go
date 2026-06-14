@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"local-agent/internal/approval"
 	"local-agent/internal/llm"
@@ -37,6 +39,15 @@ type echoTool struct {
 type namedTool struct {
 	name  string
 	calls []json.RawMessage
+}
+
+type blockingTool struct {
+	name      string
+	delay     time.Duration
+	mu        sync.Mutex
+	active    int
+	maxActive int
+	calls     []json.RawMessage
 }
 
 type captureRenderer struct {
@@ -90,6 +101,47 @@ func (t *namedTool) Parameters() json.RawMessage {
 func (t *namedTool) Execute(ctx context.Context, args json.RawMessage) (tools.Result, error) {
 	t.calls = append(t.calls, append(json.RawMessage(nil), args...))
 	return tools.Success("called", ""), nil
+}
+
+func (t *blockingTool) Name() string {
+	return t.name
+}
+
+func (t *blockingTool) Description() string {
+	return "Blocking test tool."
+}
+
+func (t *blockingTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object"}`)
+}
+
+func (t *blockingTool) Execute(ctx context.Context, args json.RawMessage) (tools.Result, error) {
+	t.mu.Lock()
+	t.calls = append(t.calls, append(json.RawMessage(nil), args...))
+	t.active++
+	if t.active > t.maxActive {
+		t.maxActive = t.active
+	}
+	t.mu.Unlock()
+
+	time.Sleep(t.delay)
+
+	t.mu.Lock()
+	t.active--
+	t.mu.Unlock()
+	return tools.Success("called", ""), nil
+}
+
+func (t *blockingTool) MaxActive() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.maxActive
+}
+
+func (t *blockingTool) CallCount() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return len(t.calls)
 }
 
 func (a *fakeApprover) Approve(ctx context.Context, request approval.Request) approval.Decision {
@@ -196,8 +248,12 @@ func TestRunUsesPromptGuidanceInsteadOfHidingToolsForGreeting(t *testing.T) {
 	for _, want := range []string{
 		"Do not inspect the workspace for greetings",
 		"Only call tools when the user asks for a concrete workspace action",
+		"multiple tool calls in one assistant turn",
 		"Use workspace-relative paths",
 		"Do not cd into guessed absolute paths",
+		"use find_files first",
+		"Use list_files only when the user asks to inspect one specific directory level",
+		"under the current directory or under the workspace as recursive",
 		"Markdown is allowed for final summaries",
 		"avoid decorative emoji",
 		"do not run a full diff unless the user asks",
@@ -488,5 +544,145 @@ func TestRunBlocksBlacklistedCommandBeforeApproval(t *testing.T) {
 	messages := agent.Messages()
 	if got := messages[len(messages)-2]; got.Role != "tool" || !strings.Contains(got.Content, "permanent safety policy") {
 		t.Fatalf("blacklist result message = %#v", got)
+	}
+}
+
+func TestRunExecutesReadOnlyToolCallsConcurrently(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			ToolCalls: []llm.ToolCall{
+				testToolCall("call_1", "read_file", `{"path":"a.txt"}`),
+				testToolCall("call_2", "read_file", `{"path":"b.txt"}`),
+			},
+		},
+		{Content: "finished"},
+	}}
+	tool := &blockingTool{name: "read_file", delay: 20 * time.Millisecond}
+	registry := tools.NewRegistry()
+	registry.Register(tool)
+
+	agent := New(client, registry, 3)
+	if _, err := agent.Run(context.Background(), "read files"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if tool.CallCount() != 2 {
+		t.Fatalf("tool calls = %d, want 2", tool.CallCount())
+	}
+	if tool.MaxActive() < 2 {
+		t.Fatalf("max active = %d, want concurrent execution", tool.MaxActive())
+	}
+}
+
+func TestRunExecutesWorkspaceWritesToDifferentFilesConcurrentlyAfterSessionApproval(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			ToolCalls: []llm.ToolCall{
+				testToolCall("call_a", "write_file", `{"path":"a.txt","content":"a"}`),
+				testToolCall("call_b", "write_file", `{"path":"b.txt","content":"b"}`),
+			},
+		},
+		{Content: "finished"},
+	}}
+	tool := &blockingTool{name: "write_file", delay: 20 * time.Millisecond}
+	registry := tools.NewRegistry()
+	registry.Register(tool)
+	approver := &fakeApprover{decision: approval.DecisionAlways}
+
+	agent := NewWithWorkspace(client, registry, 3, "/tmp/local-agent-work")
+	agent.SetApprover(approval.NewMemoryApprover(approver))
+	if _, err := agent.Run(context.Background(), "write files"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if tool.CallCount() != 2 {
+		t.Fatalf("tool calls = %d, want 2", tool.CallCount())
+	}
+	if tool.MaxActive() < 2 {
+		t.Fatalf("max active = %d, want different files to run concurrently", tool.MaxActive())
+	}
+	if len(approver.calls) != 1 {
+		t.Fatalf("approval calls = %d, want 1 session approval", len(approver.calls))
+	}
+	request := approver.calls[0]
+	if request.Scope != approval.ScopeSession || request.Key != approval.WorkspaceWriteApprovalKey() {
+		t.Fatalf("approval request = %#v, want session workspace write approval", request)
+	}
+	if len(request.Options) != 2 || request.Options[0] != approval.DecisionAlways || request.Options[1] != approval.DecisionDeny {
+		t.Fatalf("approval options = %#v, want always/deny", request.Options)
+	}
+}
+
+func TestRunSerializesWorkspaceWritesToSameFile(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			ToolCalls: []llm.ToolCall{
+				testToolCall("call_a", "write_file", `{"path":"same.txt","content":"a"}`),
+				testToolCall("call_b", "write_file", `{"path":"same.txt","content":"b"}`),
+			},
+		},
+		{Content: "finished"},
+	}}
+	tool := &blockingTool{name: "write_file", delay: 20 * time.Millisecond}
+	registry := tools.NewRegistry()
+	registry.Register(tool)
+
+	agent := NewWithWorkspace(client, registry, 3, "/tmp/local-agent-work")
+	agent.SetApprover(approval.NewMemoryApprover(&fakeApprover{decision: approval.DecisionAlways}))
+	if _, err := agent.Run(context.Background(), "write same file"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if tool.CallCount() != 2 {
+		t.Fatalf("tool calls = %d, want 2", tool.CallCount())
+	}
+	if tool.MaxActive() != 1 {
+		t.Fatalf("max active = %d, want same file writes serialized", tool.MaxActive())
+	}
+}
+
+func TestRunUsesLoopScopedApprovalForExternalWrites(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			ToolCalls: []llm.ToolCall{
+				testToolCall("call_a", "run_command", `{"command":"echo a > /tmp/out-a"}`),
+				testToolCall("call_b", "run_command", `{"command":"echo b > /tmp/out-b"}`),
+			},
+		},
+		{
+			ToolCalls: []llm.ToolCall{
+				testToolCall("call_c", "run_command", `{"command":"echo c > /tmp/out-c"}`),
+			},
+		},
+		{Content: "finished"},
+	}}
+	tool := &blockingTool{name: "run_command", delay: time.Millisecond}
+	registry := tools.NewRegistry()
+	registry.Register(tool)
+	approver := &fakeApprover{decision: approval.DecisionAlways}
+
+	agent := NewWithWorkspace(client, registry, 4, "/home/project")
+	agent.SetApprover(approval.NewMemoryApprover(approver))
+	if _, err := agent.Run(context.Background(), "write outside workspace"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if tool.CallCount() != 3 {
+		t.Fatalf("tool calls = %d, want 3", tool.CallCount())
+	}
+	if len(approver.calls) != 2 {
+		t.Fatalf("approval calls = %d, want one per loop", len(approver.calls))
+	}
+	for _, request := range approver.calls {
+		if request.Scope != approval.ScopeLoop || request.Key != approval.ExternalWriteApprovalKey() {
+			t.Fatalf("approval request = %#v, want loop external write approval", request)
+		}
+	}
+}
+
+func testToolCall(id string, name string, arguments string) llm.ToolCall {
+	return llm.ToolCall{
+		ID:   id,
+		Type: "function",
+		Function: llm.ToolFunction{
+			Name:      name,
+			Arguments: arguments,
+		},
 	}
 }

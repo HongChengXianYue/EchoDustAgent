@@ -26,6 +26,16 @@ func TestBlockRendererRendersExploreRunEditAndFinal(t *testing.T) {
 		},
 	})
 	renderer.HandleEvent(runtimeevent.Event{
+		Type: runtimeevent.TypeToolResult,
+		Tool: "find_files",
+		Args: json.RawMessage(`{"query":"test"}`),
+		Result: &tools.Result{
+			Status:  "success",
+			Summary: "found",
+			Output:  "[DIR]  internal/test",
+		},
+	})
+	renderer.HandleEvent(runtimeevent.Event{
 		Type: runtimeevent.TypeToolCall,
 		Tool: "run_command",
 		Args: json.RawMessage(`{"command":"pwd"}`),
@@ -58,6 +68,7 @@ func TestBlockRendererRendersExploreRunEditAndFinal(t *testing.T) {
 	for _, want := range []string{
 		"• Explored",
 		"List .",
+		"Find test in .",
 		"• Running pwd",
 		"• Ran pwd",
 		"• Added hello.txt (+2 -0)",

@@ -51,6 +51,15 @@ func TestFileToolsRoundTrip(t *testing.T) {
 		t.Fatalf("search result = %#v err = %v", result, err)
 	}
 
+	if err := os.MkdirAll(filepath.Join(workdir, "internal", "test"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	find := &FindFilesTool{Workdir: workdir}
+	result, err = find.Execute(ctx, mustJSON(t, map[string]any{"query": "test"}))
+	if err != nil || !strings.Contains(result.Output, "[DIR]  internal/test") {
+		t.Fatalf("find result = %#v err = %v", result, err)
+	}
+
 	list := &ListFilesTool{Workdir: workdir}
 	result, err = list.Execute(ctx, mustJSON(t, map[string]any{"path": "."}))
 	if err != nil || !strings.Contains(result.Output, "notes/") {
@@ -133,6 +142,15 @@ func TestSchemaObjectOmitsRequiredWhenNoFieldsAreRequired(t *testing.T) {
 	required, ok := decoded["required"].([]any)
 	if !ok || len(required) != 1 || required[0] != "path" {
 		t.Fatalf("required = %#v, want [path]", decoded["required"])
+	}
+}
+
+func TestRegisterBuiltinsIncludesFindFiles(t *testing.T) {
+	registry := NewRegistry()
+	RegisterBuiltins(registry, t.TempDir())
+
+	if _, ok := registry.Get("find_files"); !ok {
+		t.Fatal("find_files was not registered")
 	}
 }
 

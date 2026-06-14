@@ -28,11 +28,22 @@ const (
 	DecisionDeny   Decision = "deny"
 )
 
+type Scope string
+
+const (
+	ScopeOnce    Scope = "once"
+	ScopeLoop    Scope = "loop"
+	ScopeSession Scope = "session"
+)
+
 type Request struct {
 	Tool     string
 	Category Category
 	Args     json.RawMessage
 	Reason   string
+	Scope    Scope
+	Key      string
+	Options  []Decision
 }
 
 type Approver interface {
@@ -49,8 +60,18 @@ func RequiresApproval(category Category) bool {
 }
 
 func CacheKey(request Request) string {
+	if request.Key != "" {
+		return request.Key
+	}
 	args := normalizedArgs(request.Tool, request.Args)
 	return request.Tool + "\x00" + string(request.Category) + "\x00" + args
+}
+
+func DecisionOptions(request Request) []Decision {
+	if len(request.Options) > 0 {
+		return append([]Decision(nil), request.Options...)
+	}
+	return []Decision{DecisionAllow, DecisionAlways, DecisionDeny}
 }
 
 func normalizedArgs(tool string, args json.RawMessage) string {

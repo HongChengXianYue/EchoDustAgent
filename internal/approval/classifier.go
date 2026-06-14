@@ -8,7 +8,7 @@ import (
 
 func Classify(tool string, args json.RawMessage) Category {
 	switch tool {
-	case "list_files", "read_file":
+	case "list_files", "find_files", "read_file":
 		return CategoryReadOnly
 	case "search_files":
 		return CategorySearchInspect

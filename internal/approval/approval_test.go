@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -18,6 +19,7 @@ func TestClassifyBuiltInTools(t *testing.T) {
 		want Category
 	}{
 		{name: "read file", tool: "read_file", want: CategoryReadOnly},
+		{name: "find files", tool: "find_files", want: CategoryReadOnly},
 		{name: "search files", tool: "search_files", want: CategorySearchInspect},
 		{name: "write file", tool: "write_file", want: CategoryWorkspaceWrite},
 		{name: "git commit", tool: "run_command", args: commandArgs("git commit -m test"), want: CategoryVCSLocal},
@@ -70,6 +72,58 @@ func TestPermanentBlacklistDoesNotBlockOrdinaryCommands(t *testing.T) {
 	}
 }
 
+func TestAnalyzeWriteTargets(t *testing.T) {
+	workspace := "/tmp/workspace"
+	tests := []struct {
+		name     string
+		tool     string
+		args     json.RawMessage
+		category Category
+		external bool
+		targets  []string
+	}{
+		{
+			name:     "write file inside workspace",
+			tool:     "write_file",
+			args:     json.RawMessage(`{"path":"notes/a.txt"}`),
+			category: CategoryWorkspaceWrite,
+			targets:  []string{filepath.Join(workspace, "notes/a.txt")},
+		},
+		{
+			name:     "write file outside workspace",
+			tool:     "write_file",
+			args:     json.RawMessage(`{"path":"../outside.txt"}`),
+			category: CategoryWorkspaceWrite,
+			external: true,
+			targets:  []string{"/tmp/outside.txt"},
+		},
+		{
+			name:     "relative command redirection inside workspace",
+			tool:     "run_command",
+			args:     commandArgs("echo hello > report.txt"),
+			category: CategoryWorkspaceWrite,
+			targets:  []string{filepath.Join(workspace, "report.txt")},
+		},
+		{
+			name:     "absolute command redirection outside workspace",
+			tool:     "run_command",
+			args:     commandArgs("echo hello > /tmp/report.txt"),
+			category: CategoryExternalOrDestructive,
+			external: true,
+			targets:  []string{"/tmp/report.txt"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := AnalyzeWrite(tt.tool, tt.args, workspace, tt.category)
+			if !got.Writes || got.External != tt.external || strings.Join(got.Targets, "\n") != strings.Join(tt.targets, "\n") {
+				t.Fatalf("AnalyzeWrite() = %#v, want external=%v targets=%v", got, tt.external, tt.targets)
+			}
+		})
+	}
+}
+
 func TestMemoryApproverAlwaysIsExactToRequest(t *testing.T) {
 	next := &sequenceApprover{decisions: []Decision{DecisionAlways, DecisionDeny}}
 	approver := NewMemoryApprover(next)
@@ -114,7 +168,7 @@ func TestChooseApprovalSelection(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			input := strings.NewReader(tt.input)
 			var output bytes.Buffer
-			got := chooseApproval(bufio.NewReader(input), input, &output)
+			got := chooseApproval(bufio.NewReader(input), input, &output, Request{})
 			if got != tt.want {
 				t.Fatalf("chooseApproval() = %q, want %q", got, tt.want)
 			}
@@ -129,8 +183,28 @@ func TestChooseApprovalSelection(t *testing.T) {
 
 func TestChooseApprovalRejectsEOF(t *testing.T) {
 	var output bytes.Buffer
-	if got := chooseApproval(bufio.NewReader(eofReader{}), eofReader{}, &output); got != DecisionDeny {
+	if got := chooseApproval(bufio.NewReader(eofReader{}), eofReader{}, &output, Request{}); got != DecisionDeny {
 		t.Fatalf("chooseApproval() = %q, want deny", got)
+	}
+}
+
+func TestChooseApprovalCanLimitOptions(t *testing.T) {
+	request := Request{
+		Scope:   ScopeSession,
+		Key:     WorkspaceWriteApprovalKey(),
+		Options: []Decision{DecisionAlways, DecisionDeny},
+	}
+
+	input := strings.NewReader("\n")
+	var output bytes.Buffer
+	if got := chooseApproval(bufio.NewReader(input), input, &output, request); got != DecisionAlways {
+		t.Fatalf("chooseApproval() = %q, want always", got)
+	}
+	if !strings.Contains(output.String(), "Always allow workspace writes this session") {
+		t.Fatalf("output = %q, want session workspace option", output.String())
+	}
+	if strings.Contains(output.String(), "Allow once") {
+		t.Fatalf("output = %q, did not expect allow option", output.String())
 	}
 }
 
