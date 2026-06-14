@@ -268,6 +268,52 @@ func TestBlockRendererLiveFrameUsesCRLF(t *testing.T) {
 	}
 }
 
+func TestBlockRendererLimitsExpandedLiveFrame(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+	renderer.rewriteFrame = true
+	renderer.liveFrameMaxLines = 10
+	renderer.liveFrameMaxWidth = 60
+
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:  runtimeevent.TypeTodoUpdate,
+		Todos: []runtimeevent.TodoItem{{Text: "Read files", Status: runtimeevent.TodoInProgress}},
+	})
+	renderer.ToggleTools()
+	for i := 0; i < 10; i++ {
+		renderer.HandleEvent(runtimeevent.Event{
+			Type: runtimeevent.TypeToolResult,
+			Tool: "read_file",
+			Args: json.RawMessage(`{"path":"README.md"}`),
+			Result: &tools.Result{
+				Status: "success",
+				Output: strings.Repeat("abcdefghijklmnopqrstuvwxyz0123456789", 10),
+			},
+		})
+	}
+
+	frame := latestFrame(out.String())
+	normalized := strings.ReplaceAll(frame, "\r\n", "\n")
+	if got := countLines(normalized); got > renderer.liveFrameMaxLines {
+		t.Fatalf("live frame line count = %d, want <= %d:\n%q", got, renderer.liveFrameMaxLines, frame)
+	}
+	if strings.Count(normalized, "abcdefghijklmnopqrstuvwxyz0123456789") > 2 {
+		t.Fatalf("expanded live frame should not repeat full long tool outputs:\n%s", normalized)
+	}
+	if !strings.Contains(normalized, "truncated") && !strings.Contains(normalized, "hidden") {
+		t.Fatalf("bounded live frame should explain hidden or truncated content:\n%s", normalized)
+	}
+}
+
+func latestFrame(output string) string {
+	index := strings.LastIndex(output, "\x1b[J")
+	if index < 0 {
+		return output
+	}
+	return output[index+len("\x1b[J"):]
+}
+
 func TestBlockRendererRendersApprovalRequestDetails(t *testing.T) {
 	var out bytes.Buffer
 	renderer := NewBlockRenderer(&out)

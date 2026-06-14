@@ -56,6 +56,92 @@ func separatorLine() string {
 	return strings.Repeat("─", 80)
 }
 
+func limitTerminalText(text string, maxLines int, maxWidth int) string {
+	text = strings.TrimRight(text, "\n")
+	if text == "" {
+		return ""
+	}
+
+	lines := strings.Split(text, "\n")
+	if maxLines > 0 && len(lines) > maxLines {
+		keep := maxLines - 1
+		if keep < 0 {
+			keep = 0
+		}
+		lines = append(lines[:keep], "… truncated")
+	}
+
+	if maxWidth > 0 {
+		for i, line := range lines {
+			lines[i] = truncateDisplayLine(line, maxWidth)
+		}
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func truncateDisplayLine(line string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return line
+	}
+
+	var out strings.Builder
+	width := 0
+	truncated := false
+	containsANSI := false
+	visibleLimit := maxWidth
+	if visibleLimit > 1 {
+		visibleLimit--
+	}
+
+	for i := 0; i < len(line); {
+		if line[i] == '\x1b' {
+			next := copyANSISequence(&out, line, i)
+			if next > i {
+				containsANSI = true
+				i = next
+				continue
+			}
+		}
+
+		r, size := utf8.DecodeRuneInString(line[i:])
+		if r == utf8.RuneError && size == 1 {
+			i++
+			continue
+		}
+		cellWidth := runeCellWidth(r)
+		if width+cellWidth > visibleLimit {
+			truncated = true
+			break
+		}
+		out.WriteRune(r)
+		width += cellWidth
+		i += size
+	}
+
+	if !truncated {
+		return line
+	}
+	out.WriteRune('…')
+	if containsANSI {
+		out.WriteString("\x1b[0m")
+	}
+	return out.String()
+}
+
+func copyANSISequence(out *strings.Builder, text string, start int) int {
+	if start+1 >= len(text) || text[start+1] != '[' {
+		return start
+	}
+	for i := start + 2; i < len(text); i++ {
+		b := text[i]
+		if b >= 0x40 && b <= 0x7e {
+			out.WriteString(text[start : i+1])
+			return i + 1
+		}
+	}
+	return start
+}
+
 func truncate(text string, limit int) string {
 	if limit <= 0 || len(text) <= limit {
 		return text

@@ -55,10 +55,12 @@ During a concrete task, the terminal UI keeps `Todo` above the tools area and re
 The terminal UI prints assistant process text, tool calls, tool results, edit summaries, and final answers in block form:
 
 - `Todo`: current task list.
-- `Tools`: collapsed by default; press `Ctrl+E` during the current run to expand or collapse detailed tool progress.
+- `Tools`: collapsed by default; press `Ctrl+E` during the current run to expand or collapse recent tool progress.
 - `Explored`: read/list/find/search tools when `Tools` is expanded.
 - `Running` and `Ran`: shell commands.
 - `Added` or `Edited`: file-writing tools with line-count summaries.
+
+The live `Todo`/`Tools` frame is bounded to the terminal viewport. Expanded tool details show recent events and truncate long lines/output so toggling does not leave repeated snapshots in scrollback.
 
 Interactive input supports left/right cursor movement, backspace, and up/down history in TTY sessions. Non-TTY input falls back to plain line reading.
 

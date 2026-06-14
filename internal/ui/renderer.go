@@ -12,22 +12,32 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/ansi"
 	"github.com/charmbracelet/glamour/styles"
+	"golang.org/x/term"
 	"local-agent/internal/runtimeevent"
 	"local-agent/internal/tools"
 )
 
+const (
+	defaultLiveFrameMaxLines  = 24
+	defaultLiveFrameMaxWidth  = 100
+	liveFrameHeightMargin     = 6
+	maxExpandedLiveToolEvents = 6
+)
+
 type BlockRenderer struct {
-	output           io.Writer
-	markdownRenderer *glamour.TermRenderer
-	mu               sync.Mutex
-	inRun            bool
-	expandedTools    bool
-	rewriteFrame     bool
-	renderedFrame    bool
-	frameLines       int
-	todos            []runtimeevent.TodoItem
-	toolEvents       []runtimeevent.Event
-	keyWatcher       *toggleKeyWatcher
+	output            io.Writer
+	markdownRenderer  *glamour.TermRenderer
+	mu                sync.Mutex
+	inRun             bool
+	expandedTools     bool
+	rewriteFrame      bool
+	renderedFrame     bool
+	frameLines        int
+	liveFrameMaxLines int
+	liveFrameMaxWidth int
+	todos             []runtimeevent.TodoItem
+	toolEvents        []runtimeevent.Event
+	keyWatcher        *toggleKeyWatcher
 }
 
 func NewBlockRenderer(output io.Writer) *BlockRenderer {
@@ -39,9 +49,34 @@ func NewInteractiveBlockRenderer(input io.Reader, output io.Writer) *BlockRender
 	renderer := NewBlockRenderer(output)
 	if outputFile, ok := output.(*os.File); ok && isTerminal(outputFile) {
 		renderer.rewriteFrame = true
+		renderer.liveFrameMaxLines, renderer.liveFrameMaxWidth = liveFrameBounds(outputFile)
 	}
 	renderer.keyWatcher = newToggleKeyWatcher(input, renderer.ToggleTools)
 	return renderer
+}
+
+func liveFrameBounds(output *os.File) (int, int) {
+	width, height, err := term.GetSize(int(output.Fd()))
+	if err != nil {
+		return defaultLiveFrameMaxLines, defaultLiveFrameMaxWidth
+	}
+
+	maxLines := defaultLiveFrameMaxLines
+	if height > liveFrameHeightMargin {
+		maxLines = height - liveFrameHeightMargin
+	}
+	if maxLines > defaultLiveFrameMaxLines {
+		maxLines = defaultLiveFrameMaxLines
+	}
+	if maxLines < 4 {
+		maxLines = 4
+	}
+
+	maxWidth := defaultLiveFrameMaxWidth
+	if width > 1 {
+		maxWidth = width - 1
+	}
+	return maxLines, maxWidth
 }
 
 func (r *BlockRenderer) HandleEvent(event runtimeevent.Event) {
@@ -160,6 +195,9 @@ func (r *BlockRenderer) renderFrame() {
 	if strings.TrimSpace(text) == "" {
 		return
 	}
+	if r.rewriteFrame {
+		text = r.limitLiveFrameText(text)
+	}
 	if r.rewriteFrame && r.renderedFrame && r.frameLines > 0 {
 		// Cursor-up keeps the current column on most terminals. Return to column
 		// zero first so repeated live-frame redraws do not drift diagonally.
@@ -179,6 +217,18 @@ func (r *BlockRenderer) frameOutputText(text string) string {
 	// so write CRLF explicitly or each new frame line starts at the previous
 	// line's ending column.
 	return strings.ReplaceAll(text, "\n", "\r\n")
+}
+
+func (r *BlockRenderer) limitLiveFrameText(text string) string {
+	maxLines := r.liveFrameMaxLines
+	if maxLines <= 0 {
+		maxLines = defaultLiveFrameMaxLines
+	}
+	maxWidth := r.liveFrameMaxWidth
+	if maxWidth <= 0 {
+		maxWidth = defaultLiveFrameMaxWidth
+	}
+	return limitTerminalText(text, maxLines, maxWidth)
 }
 
 func (r *BlockRenderer) writeTodoBlock(output io.Writer) {
@@ -201,7 +251,11 @@ func (r *BlockRenderer) writeToolsBlock(output io.Writer) {
 			fmt.Fprintln(output, "  └ (waiting)")
 			return
 		}
-		for _, event := range r.toolEvents {
+		events := r.expandedToolEvents()
+		if hidden := len(r.toolEvents) - len(events); hidden > 0 {
+			fmt.Fprintf(output, "  └ … %d earlier event(s) hidden\n", hidden)
+		}
+		for _, event := range events {
 			r.writeToolEvent(output, event)
 		}
 		return
@@ -213,6 +267,13 @@ func (r *BlockRenderer) writeToolsBlock(output io.Writer) {
 		return
 	}
 	fmt.Fprintf(output, "  └ %d event(s), latest: %s\n", len(r.toolEvents), toolEventTitle(r.toolEvents[len(r.toolEvents)-1]))
+}
+
+func (r *BlockRenderer) expandedToolEvents() []runtimeevent.Event {
+	if !r.rewriteFrame || len(r.toolEvents) <= maxExpandedLiveToolEvents {
+		return r.toolEvents
+	}
+	return r.toolEvents[len(r.toolEvents)-maxExpandedLiveToolEvents:]
 }
 
 func (r *BlockRenderer) writeToolEvent(output io.Writer, event runtimeevent.Event) {
