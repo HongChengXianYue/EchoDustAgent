@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -156,6 +157,7 @@ func TestRunExecutesNativeToolCallThenFinal(t *testing.T) {
 	client := &fakeClient{responses: []*llm.ChatResponse{
 		{
 			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_1", "Echo hello"),
 				{
 					ID:   "call_1",
 					Type: "function",
@@ -248,6 +250,7 @@ func TestRunUsesPromptGuidanceInsteadOfHidingToolsForGreeting(t *testing.T) {
 	for _, want := range []string{
 		"Do not inspect the workspace for greetings",
 		"Only call tools when the user asks for a concrete workspace action",
+		"call update_todos before any workspace tool",
 		"multiple tool calls in one assistant turn",
 		"Use workspace-relative paths",
 		"Do not cd into guessed absolute paths",
@@ -303,6 +306,106 @@ func TestRunExposesToolsForWorkspaceTask(t *testing.T) {
 	if len(client.tools) != 1 || len(client.tools[0]) == 0 {
 		t.Fatalf("tools were not exposed for workspace task: %#v", client.tools)
 	}
+	foundTodoTool := false
+	for _, tool := range client.tools[0] {
+		if tool.Name == updateTodosToolName {
+			foundTodoTool = true
+		}
+	}
+	if !foundTodoTool {
+		t.Fatalf("update_todos was not exposed: %#v", client.tools[0])
+	}
+}
+
+func TestRunBlocksWorkspaceToolBeforeTodoList(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			ToolCalls: []llm.ToolCall{
+				testToolCall("call_read", "read_file", `{"path":"README.md"}`),
+			},
+		},
+		{Content: "finished"},
+	}}
+	tool := &namedTool{name: "read_file"}
+	registry := tools.NewRegistry()
+	registry.Register(tool)
+
+	agent := New(client, registry, 3)
+	if _, err := agent.Run(context.Background(), "read README"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(tool.calls) != 0 {
+		t.Fatalf("tool calls = %d, want 0 before todo list", len(tool.calls))
+	}
+	messages := agent.Messages()
+	if got := messages[len(messages)-2]; got.Role != "tool" || !strings.Contains(got.Content, "requires a todo list") {
+		t.Fatalf("missing todo-required tool result: %#v", got)
+	}
+}
+
+func TestRunProcessesTodoBeforeOtherToolsInSameTurn(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			ToolCalls: []llm.ToolCall{
+				testToolCall("call_read", "read_file", `{"path":"README.md"}`),
+				todoToolCall("todo_late", "Read README"),
+			},
+		},
+		{Content: "finished"},
+	}}
+	tool := &namedTool{name: "read_file"}
+	registry := tools.NewRegistry()
+	registry.Register(tool)
+	renderer := &captureRenderer{}
+
+	agent := New(client, registry, 3)
+	agent.SetRenderer(renderer)
+	if _, err := agent.Run(context.Background(), "read README"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(tool.calls) != 1 {
+		t.Fatalf("tool calls = %d, want 1", len(tool.calls))
+	}
+	if len(renderer.events) < 3 || renderer.events[0].Type != runtimeevent.TypeTodoUpdate || renderer.events[1].Type != runtimeevent.TypeToolCall {
+		t.Fatalf("events = %#v, want todo update before tool call", renderer.events)
+	}
+
+	messages := agent.Messages()
+	if messages[len(messages)-3].ToolCallID != "call_read" || messages[len(messages)-2].ToolCallID != "todo_late" {
+		t.Fatalf("tool result message order = %#v", messages)
+	}
+}
+
+func TestRunResetsTodoListForEachUserInput(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_1", "Read once"),
+				testToolCall("call_read_1", "read_file", `{"path":"a.txt"}`),
+			},
+		},
+		{Content: "first finished"},
+		{
+			ToolCalls: []llm.ToolCall{
+				testToolCall("call_read_2", "read_file", `{"path":"b.txt"}`),
+			},
+		},
+		{Content: "second finished"},
+	}}
+	tool := &namedTool{name: "read_file"}
+	registry := tools.NewRegistry()
+	registry.Register(tool)
+
+	agent := New(client, registry, 6)
+	if _, err := agent.Run(context.Background(), "read a"); err != nil {
+		t.Fatalf("first Run() error = %v", err)
+	}
+	if _, err := agent.Run(context.Background(), "read b"); err != nil {
+		t.Fatalf("second Run() error = %v", err)
+	}
+	if len(tool.calls) != 1 {
+		t.Fatalf("tool calls = %d, want only first run to execute", len(tool.calls))
+	}
 }
 
 func TestRunUnknownToolAddsErrorResultAndContinues(t *testing.T) {
@@ -342,6 +445,7 @@ func TestRunEmitsToolAndFinalEvents(t *testing.T) {
 		{
 			Content: "I will echo first.",
 			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_1", "Echo hello"),
 				{
 					ID:   "call_1",
 					Type: "function",
@@ -370,6 +474,7 @@ func TestRunEmitsToolAndFinalEvents(t *testing.T) {
 	}
 	want := []runtimeevent.Type{
 		runtimeevent.TypeAssistantMessage,
+		runtimeevent.TypeTodoUpdate,
 		runtimeevent.TypeToolCall,
 		runtimeevent.TypeToolResult,
 		runtimeevent.TypeFinal,
@@ -382,11 +487,14 @@ func TestRunEmitsToolAndFinalEvents(t *testing.T) {
 			t.Fatalf("events = %v, want %v", got, want)
 		}
 	}
-	if renderer.events[1].Tool != "echo" || string(renderer.events[1].Args) != `{"text":"hello"}` {
-		t.Fatalf("tool call event = %#v", renderer.events[1])
+	if len(renderer.events[1].Todos) != 1 || renderer.events[1].Todos[0].Text != "Echo hello" {
+		t.Fatalf("todo event = %#v", renderer.events[1])
 	}
-	if renderer.events[2].Result == nil || renderer.events[2].Result.Output != "hello" {
-		t.Fatalf("tool result event = %#v", renderer.events[2])
+	if renderer.events[2].Tool != "echo" || string(renderer.events[2].Args) != `{"text":"hello"}` {
+		t.Fatalf("tool call event = %#v", renderer.events[2])
+	}
+	if renderer.events[3].Result == nil || renderer.events[3].Result.Output != "hello" {
+		t.Fatalf("tool result event = %#v", renderer.events[3])
 	}
 }
 
@@ -394,6 +502,7 @@ func TestRunDoesNotAskApprovalForLowRiskTool(t *testing.T) {
 	client := &fakeClient{responses: []*llm.ChatResponse{
 		{
 			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_1", "Read README"),
 				{
 					ID:   "call_read",
 					Type: "function",
@@ -428,6 +537,7 @@ func TestRunDeniesHighRiskToolWithoutExecuting(t *testing.T) {
 	client := &fakeClient{responses: []*llm.ChatResponse{
 		{
 			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_1", "Write file"),
 				{
 					ID:   "call_write",
 					Type: "function",
@@ -464,6 +574,7 @@ func TestRunDeniesHighRiskToolWithoutExecuting(t *testing.T) {
 		got = append(got, event.Type)
 	}
 	want := []runtimeevent.Type{
+		runtimeevent.TypeTodoUpdate,
 		runtimeevent.TypeApprovalRequest,
 		runtimeevent.TypeApprovalDecision,
 		runtimeevent.TypeToolResult,
@@ -483,6 +594,7 @@ func TestRunAllowsAlwaysDecision(t *testing.T) {
 	client := &fakeClient{responses: []*llm.ChatResponse{
 		{
 			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_1", "Write file"),
 				{
 					ID:   "call_write",
 					Type: "function",
@@ -513,6 +625,7 @@ func TestRunBlocksBlacklistedCommandBeforeApproval(t *testing.T) {
 	client := &fakeClient{responses: []*llm.ChatResponse{
 		{
 			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_1", "Run dangerous command"),
 				{
 					ID:   "call_danger",
 					Type: "function",
@@ -551,6 +664,7 @@ func TestRunExecutesReadOnlyToolCallsConcurrently(t *testing.T) {
 	client := &fakeClient{responses: []*llm.ChatResponse{
 		{
 			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_1", "Read files"),
 				testToolCall("call_1", "read_file", `{"path":"a.txt"}`),
 				testToolCall("call_2", "read_file", `{"path":"b.txt"}`),
 			},
@@ -577,6 +691,7 @@ func TestRunExecutesWorkspaceWritesToDifferentFilesConcurrentlyAfterSessionAppro
 	client := &fakeClient{responses: []*llm.ChatResponse{
 		{
 			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_1", "Write files"),
 				testToolCall("call_a", "write_file", `{"path":"a.txt","content":"a"}`),
 				testToolCall("call_b", "write_file", `{"path":"b.txt","content":"b"}`),
 			},
@@ -615,6 +730,7 @@ func TestRunSerializesWorkspaceWritesToSameFile(t *testing.T) {
 	client := &fakeClient{responses: []*llm.ChatResponse{
 		{
 			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_1", "Write same file"),
 				testToolCall("call_a", "write_file", `{"path":"same.txt","content":"a"}`),
 				testToolCall("call_b", "write_file", `{"path":"same.txt","content":"b"}`),
 			},
@@ -642,6 +758,7 @@ func TestRunUsesLoopScopedApprovalForExternalWrites(t *testing.T) {
 	client := &fakeClient{responses: []*llm.ChatResponse{
 		{
 			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_1", "Write outside workspace"),
 				testToolCall("call_a", "run_command", `{"command":"echo a > /tmp/out-a"}`),
 				testToolCall("call_b", "run_command", `{"command":"echo b > /tmp/out-b"}`),
 			},
@@ -674,6 +791,40 @@ func TestRunUsesLoopScopedApprovalForExternalWrites(t *testing.T) {
 			t.Fatalf("approval request = %#v, want loop external write approval", request)
 		}
 	}
+}
+
+func TestParseTodoItemsValidatesInput(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    json.RawMessage
+		wantErr string
+	}{
+		{name: "empty", args: json.RawMessage(`{"items":[]}`), wantErr: "at least one"},
+		{name: "blank text", args: json.RawMessage(`{"items":[{"text":" ","status":"pending"}]}`), wantErr: "non-empty"},
+		{name: "invalid status", args: json.RawMessage(`{"items":[{"text":"Read","status":"started"}]}`), wantErr: "invalid todo status"},
+		{name: "multiple in progress", args: json.RawMessage(`{"items":[{"text":"Read","status":"in_progress"},{"text":"Write","status":"in_progress"}]}`), wantErr: "only one"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := parseTodoItems(tt.args)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("parseTodoItems() error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+
+	items, err := parseTodoItems(json.RawMessage(`{"items":[{"text":" Read ","status":"in_progress"},{"text":"Write","status":"pending"}]}`))
+	if err != nil {
+		t.Fatalf("parseTodoItems() valid error = %v", err)
+	}
+	if len(items) != 2 || items[0].Text != "Read" || items[0].Status != runtimeevent.TodoInProgress {
+		t.Fatalf("items = %#v", items)
+	}
+}
+
+func todoToolCall(id string, text string) llm.ToolCall {
+	return testToolCall(id, updateTodosToolName, fmt.Sprintf(`{"items":[{"text":%q,"status":"in_progress"}]}`, text))
 }
 
 func testToolCall(id string, name string, arguments string) llm.ToolCall {

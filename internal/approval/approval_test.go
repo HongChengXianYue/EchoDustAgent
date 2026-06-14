@@ -18,6 +18,7 @@ func TestClassifyBuiltInTools(t *testing.T) {
 		args json.RawMessage
 		want Category
 	}{
+		{name: "update todos", tool: "update_todos", want: CategoryReadOnly},
 		{name: "read file", tool: "read_file", want: CategoryReadOnly},
 		{name: "find files", tool: "find_files", want: CategoryReadOnly},
 		{name: "search files", tool: "search_files", want: CategorySearchInspect},

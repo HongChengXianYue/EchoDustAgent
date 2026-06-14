@@ -140,6 +140,35 @@ func TestBlockRendererRendersCodeBlocksWithoutHeavyChromaHighlighting(t *testing
 	}
 }
 
+func TestBlockRendererRendersTodoUpdates(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+
+	renderer.HandleEvent(runtimeevent.Event{
+		Type: runtimeevent.TypeTodoUpdate,
+		Todos: []runtimeevent.TodoItem{
+			{Text: "Read files", Status: runtimeevent.TodoCompleted},
+			{Text: "Edit code", Status: runtimeevent.TodoInProgress},
+			{Text: "Run tests", Status: runtimeevent.TodoPending},
+		},
+	})
+
+	text := out.String()
+	for _, want := range []string{
+		"• Todo",
+		"[x] Read files",
+		"[>] Edit code",
+		"[ ] Run tests",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("output missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "Tool update_todos") {
+		t.Fatalf("todo update should not render as a generic tool:\n%s", text)
+	}
+}
+
 func TestBlockRendererRendersApprovalRequestDetails(t *testing.T) {
 	var out bytes.Buffer
 	renderer := NewBlockRenderer(&out)

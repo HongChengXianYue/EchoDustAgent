@@ -40,10 +40,21 @@ The model may return multiple native `tool_calls` in one assistant turn. The age
 - Unknown workspace writes, such as Git index changes, use a workspace-wide lock.
 - Tool result messages are appended back to the conversation in the original tool-call order.
 
+## TODO Workflow
+
+The agent exposes an internal native function tool named `update_todos`. For concrete workspace tasks, the model must create a todo list before calling workspace tools. Each user request gets a fresh todo list; it is not persisted across turns or sessions.
+
+The terminal UI renders todo updates as a `Todo` block:
+
+- `[>]`: in progress
+- `[ ]`: pending
+- `[x]`: completed
+
 ## CLI UI
 
 The terminal UI prints assistant process text, tool calls, tool results, edit summaries, and final answers in block form:
 
+- `Todo`: current task list.
 - `Explored`: read/list/find/search tools.
 - `Running` and `Ran`: shell commands.
 - `Added` or `Edited`: file-writing tools with line-count summaries.

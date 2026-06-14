@@ -16,14 +16,16 @@ import (
 )
 
 type Agent struct {
-	client    llm.Client
-	registry  *tools.Registry
-	messages  []llm.Message
-	maxSteps  int
-	workspace string
-	renderer  runtimeevent.Handler
-	approver  approval.Approver
-	emitMu    sync.Mutex
+	client     llm.Client
+	registry   *tools.Registry
+	messages   []llm.Message
+	maxSteps   int
+	workspace  string
+	renderer   runtimeevent.Handler
+	approver   approval.Approver
+	emitMu     sync.Mutex
+	todos      []runtimeevent.TodoItem
+	todosReady bool
 }
 
 func New(client llm.Client, registry *tools.Registry, maxSteps int) *Agent {
@@ -52,6 +54,7 @@ func systemPrompt(workspace string) string {
 	lines := []string{
 		"You are a local coding agent.",
 		"Use the provided function tools when you need workspace information or need to modify files.",
+		"For concrete workspace tasks, call update_todos before any workspace tool. Keep the todo list current: mark one item in_progress, mark completed items as completed, then move the next item to in_progress.",
 		"You may return multiple tool calls in one assistant turn when the calls are independent.",
 		"Use workspace-relative paths for file tools unless the user explicitly asks for an absolute path.",
 		"Run commands in the configured workspace. Do not cd into guessed absolute paths.",
@@ -81,6 +84,8 @@ func (a *Agent) SetApprover(approver approval.Approver) {
 }
 
 func (a *Agent) Run(ctx context.Context, input string) (string, error) {
+	a.todos = nil
+	a.todosReady = false
 	a.messages = append(a.messages, llm.Message{Role: "user", Content: input})
 
 	for step := 0; step < a.maxSteps; step++ {
@@ -141,20 +146,28 @@ type executedToolCall struct {
 }
 
 func (a *Agent) executeToolCalls(ctx context.Context, step int, calls []llm.ToolCall) []executedToolCall {
+	results := make([]executedToolCall, len(calls))
+	for i, call := range calls {
+		if call.Function.Name == updateTodosToolName {
+			results[i] = a.executeTodoTool(step, i, call)
+		}
+	}
+
 	loopApprovals := map[string]bool{}
 	plans := make([]preparedToolCall, 0, len(calls))
 	for i, call := range calls {
+		if call.Function.Name == updateTodosToolName {
+			continue
+		}
 		plans = append(plans, a.prepareToolCall(ctx, step, i, call, loopApprovals))
 	}
 
-	results := make([]executedToolCall, len(plans))
 	locks := newTargetLocks()
 	var wg sync.WaitGroup
-	for i, plan := range plans {
-		i := i
+	for _, plan := range plans {
 		plan := plan
 		if plan.result != nil {
-			results[i] = executedToolCall{index: plan.index, call: plan.call, result: *plan.result}
+			results[plan.index] = executedToolCall{index: plan.index, call: plan.call, result: *plan.result}
 			continue
 		}
 		wg.Add(1)
@@ -162,7 +175,7 @@ func (a *Agent) executeToolCalls(ctx context.Context, step int, calls []llm.Tool
 			defer wg.Done()
 			unlock := locks.lock(plan.writeImpact.Targets)
 			defer unlock()
-			results[i] = a.executePreparedTool(ctx, step, plan)
+			results[plan.index] = a.executePreparedTool(ctx, step, plan)
 		}()
 	}
 	wg.Wait()
@@ -186,6 +199,19 @@ func (a *Agent) prepareToolCall(ctx context.Context, step int, index int, call l
 	}
 	plan.tool = tool
 	plan.category = approval.Classify(call.Function.Name, plan.args)
+	if !a.todosReady {
+		result := tools.Error("tool execution requires a todo list; call update_todos before workspace tools")
+		a.emit(runtimeevent.Event{
+			Step:     step,
+			Type:     runtimeevent.TypeToolResult,
+			Tool:     call.Function.Name,
+			Category: plan.category,
+			Args:     plan.args,
+			Result:   &result,
+		})
+		plan.result = &result
+		return plan
+	}
 	plan.writeImpact = approval.AnalyzeWrite(call.Function.Name, plan.args, a.workspace, plan.category)
 	if reason, blocked := approval.BlockReason(call.Function.Name, plan.args); blocked {
 		result := tools.Error("command blocked by permanent safety policy: " + reason)
@@ -353,7 +379,8 @@ func (a *Agent) emit(event runtimeevent.Event) {
 
 func (a *Agent) functionTools() []llm.FunctionTool {
 	specs := a.registry.Specs()
-	out := make([]llm.FunctionTool, 0, len(specs))
+	out := make([]llm.FunctionTool, 0, len(specs)+1)
+	out = append(out, todoFunctionTool())
 	for _, spec := range specs {
 		out = append(out, llm.FunctionTool{
 			Name:        spec.Name,

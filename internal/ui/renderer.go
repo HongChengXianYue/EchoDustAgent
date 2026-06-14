@@ -30,6 +30,8 @@ func (r *BlockRenderer) HandleEvent(event runtimeevent.Event) {
 		if message != "" {
 			r.block(message, "")
 		}
+	case runtimeevent.TypeTodoUpdate:
+		r.renderTodos(event.Todos)
 	case runtimeevent.TypeToolCall:
 		r.renderToolCall(event)
 	case runtimeevent.TypeToolResult:
@@ -92,6 +94,27 @@ func (r *BlockRenderer) renderToolResult(event runtimeevent.Event) {
 		if strings.TrimSpace(result.Output) != "" {
 			printIndented(r.output, "  └ ", truncate(result.Output, 2000))
 		}
+	}
+}
+
+func (r *BlockRenderer) renderTodos(items []runtimeevent.TodoItem) {
+	if len(items) == 0 {
+		return
+	}
+	r.block("Todo", "")
+	for _, item := range items {
+		fmt.Fprintf(r.output, "  └ %s %s\n", todoMarker(item.Status), item.Text)
+	}
+}
+
+func todoMarker(status runtimeevent.TodoStatus) string {
+	switch status {
+	case runtimeevent.TodoCompleted:
+		return "[x]"
+	case runtimeevent.TodoInProgress:
+		return "[>]"
+	default:
+		return "[ ]"
 	}
 }
 
