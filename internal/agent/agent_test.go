@@ -366,7 +366,7 @@ func TestRunProcessesTodoBeforeOtherToolsInSameTurn(t *testing.T) {
 	if len(tool.calls) != 1 {
 		t.Fatalf("tool calls = %d, want 1", len(tool.calls))
 	}
-	if len(renderer.events) < 3 || renderer.events[0].Type != runtimeevent.TypeTodoUpdate || renderer.events[1].Type != runtimeevent.TypeToolCall {
+	if len(renderer.events) < 4 || renderer.events[1].Type != runtimeevent.TypeTodoUpdate || renderer.events[2].Type != runtimeevent.TypeToolCall {
 		t.Fatalf("events = %#v, want todo update before tool call", renderer.events)
 	}
 
@@ -473,10 +473,12 @@ func TestRunEmitsToolAndFinalEvents(t *testing.T) {
 		got = append(got, event.Type)
 	}
 	want := []runtimeevent.Type{
+		runtimeevent.TypeRunStart,
 		runtimeevent.TypeAssistantMessage,
 		runtimeevent.TypeTodoUpdate,
 		runtimeevent.TypeToolCall,
 		runtimeevent.TypeToolResult,
+		runtimeevent.TypeRunEnd,
 		runtimeevent.TypeFinal,
 	}
 	if len(got) != len(want) {
@@ -487,14 +489,14 @@ func TestRunEmitsToolAndFinalEvents(t *testing.T) {
 			t.Fatalf("events = %v, want %v", got, want)
 		}
 	}
-	if len(renderer.events[1].Todos) != 1 || renderer.events[1].Todos[0].Text != "Echo hello" {
-		t.Fatalf("todo event = %#v", renderer.events[1])
+	if len(renderer.events[2].Todos) != 1 || renderer.events[2].Todos[0].Text != "Echo hello" {
+		t.Fatalf("todo event = %#v", renderer.events[2])
 	}
-	if renderer.events[2].Tool != "echo" || string(renderer.events[2].Args) != `{"text":"hello"}` {
-		t.Fatalf("tool call event = %#v", renderer.events[2])
+	if renderer.events[3].Tool != "echo" || string(renderer.events[3].Args) != `{"text":"hello"}` {
+		t.Fatalf("tool call event = %#v", renderer.events[3])
 	}
-	if renderer.events[3].Result == nil || renderer.events[3].Result.Output != "hello" {
-		t.Fatalf("tool result event = %#v", renderer.events[3])
+	if renderer.events[4].Result == nil || renderer.events[4].Result.Output != "hello" {
+		t.Fatalf("tool result event = %#v", renderer.events[4])
 	}
 }
 
@@ -574,10 +576,12 @@ func TestRunDeniesHighRiskToolWithoutExecuting(t *testing.T) {
 		got = append(got, event.Type)
 	}
 	want := []runtimeevent.Type{
+		runtimeevent.TypeRunStart,
 		runtimeevent.TypeTodoUpdate,
 		runtimeevent.TypeApprovalRequest,
 		runtimeevent.TypeApprovalDecision,
 		runtimeevent.TypeToolResult,
+		runtimeevent.TypeRunEnd,
 		runtimeevent.TypeFinal,
 	}
 	if len(got) != len(want) {

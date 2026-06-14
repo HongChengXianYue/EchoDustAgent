@@ -10,6 +10,8 @@ import (
 type Type string
 
 const (
+	TypeRunStart         Type = "run_start"
+	TypeRunEnd           Type = "run_end"
 	TypeAssistantMessage Type = "assistant_message"
 	TypeTodoUpdate       Type = "todo_update"
 	TypeToolCall         Type = "tool_call"

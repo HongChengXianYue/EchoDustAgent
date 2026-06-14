@@ -30,7 +30,7 @@ func main() {
 	tools.RegisterBuiltins(registry, workdir)
 	client := llm.NewOpenAICompatibleClient(cfg.BaseURL, cfg.APIKey, cfg.Model)
 	codingAgent := agent.NewWithWorkspace(client, registry, cfg.MaxSteps, workdir)
-	codingAgent.SetRenderer(ui.NewBlockRenderer(os.Stdout))
+	codingAgent.SetRenderer(ui.NewInteractiveBlockRenderer(os.Stdin, os.Stdout))
 	codingAgent.SetApprover(approval.NewMemoryApprover(approval.NewTerminalApprover(os.Stdin, os.Stdout)))
 
 	fmt.Println("local-agent started")

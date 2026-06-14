@@ -44,18 +44,19 @@ The model may return multiple native `tool_calls` in one assistant turn. The age
 
 The agent exposes an internal native function tool named `update_todos`. For concrete workspace tasks, the model must create a todo list before calling workspace tools. Each user request gets a fresh todo list; it is not persisted across turns or sessions.
 
-The terminal UI renders todo updates as a `Todo` block:
+During a concrete task, the terminal UI keeps `Todo` above the tools area and redraws it as progress changes:
 
 - `[>]`: in progress
 - `[ ]`: pending
-- `[x]`: completed
+- `[✓]`: completed
 
 ## CLI UI
 
 The terminal UI prints assistant process text, tool calls, tool results, edit summaries, and final answers in block form:
 
 - `Todo`: current task list.
-- `Explored`: read/list/find/search tools.
+- `Tools`: collapsed by default; press `Ctrl+E` during the current run to expand or collapse detailed tool progress.
+- `Explored`: read/list/find/search tools when `Tools` is expanded.
 - `Running` and `Ran`: shell commands.
 - `Added` or `Edited`: file-writing tools with line-count summaries.
 

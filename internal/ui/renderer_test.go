@@ -156,7 +156,7 @@ func TestBlockRendererRendersTodoUpdates(t *testing.T) {
 	text := out.String()
 	for _, want := range []string{
 		"• Todo",
-		"[x] Read files",
+		"[✓] Read files",
 		"[>] Edit code",
 		"[ ] Run tests",
 	} {
@@ -166,6 +166,105 @@ func TestBlockRendererRendersTodoUpdates(t *testing.T) {
 	}
 	if strings.Contains(text, "Tool update_todos") {
 		t.Fatalf("todo update should not render as a generic tool:\n%s", text)
+	}
+}
+
+func TestBlockRendererCollapsesAndExpandsRunTools(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type: runtimeevent.TypeTodoUpdate,
+		Todos: []runtimeevent.TodoItem{
+			{Text: "Run pwd", Status: runtimeevent.TodoInProgress},
+		},
+	})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type: runtimeevent.TypeToolResult,
+		Tool: "run_command",
+		Args: json.RawMessage(`{"command":"pwd"}`),
+		Result: &tools.Result{
+			Status: "success",
+			Output: "/tmp/work",
+		},
+	})
+
+	collapsed := out.String()
+	for _, want := range []string{"• Todo", "• Tools (collapsed, Ctrl+E to expand)", "latest: Ran pwd"} {
+		if !strings.Contains(collapsed, want) {
+			t.Fatalf("collapsed output missing %q:\n%s", want, collapsed)
+		}
+	}
+	if strings.Contains(collapsed, "/tmp/work") {
+		t.Fatalf("collapsed tools should hide command output:\n%s", collapsed)
+	}
+
+	renderer.ToggleTools()
+	expanded := out.String()
+	for _, want := range []string{"• Tools (expanded, Ctrl+E to collapse)", "Ran pwd", "/tmp/work"} {
+		if !strings.Contains(expanded, want) {
+			t.Fatalf("expanded output missing %q:\n%s", want, expanded)
+		}
+	}
+}
+
+func TestBlockRendererKeepsLatestTodoState(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:  runtimeevent.TypeTodoUpdate,
+		Todos: []runtimeevent.TodoItem{{Text: "Read files", Status: runtimeevent.TodoInProgress}},
+	})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:  runtimeevent.TypeTodoUpdate,
+		Todos: []runtimeevent.TodoItem{{Text: "Read files", Status: runtimeevent.TodoCompleted}},
+	})
+
+	if len(renderer.todos) != 1 || renderer.todos[0].Status != runtimeevent.TodoCompleted {
+		t.Fatalf("renderer todos = %#v, want latest completed state", renderer.todos)
+	}
+}
+
+func TestBlockRendererRedrawReturnsToLineStart(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+	renderer.rewriteFrame = true
+
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:  runtimeevent.TypeTodoUpdate,
+		Todos: []runtimeevent.TodoItem{{Text: "First", Status: runtimeevent.TodoInProgress}},
+	})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:  runtimeevent.TypeTodoUpdate,
+		Todos: []runtimeevent.TodoItem{{Text: "Second", Status: runtimeevent.TodoInProgress}},
+	})
+
+	if !strings.Contains(out.String(), "\r\x1b[") {
+		t.Fatalf("redraw should return to line start before cursor-up; output=%q", out.String())
+	}
+}
+
+func TestBlockRendererLiveFrameUsesCRLF(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+	renderer.rewriteFrame = true
+
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:  runtimeevent.TypeTodoUpdate,
+		Todos: []runtimeevent.TodoItem{{Text: "Read files", Status: runtimeevent.TodoInProgress}},
+	})
+
+	text := out.String()
+	if !strings.Contains(text, "\r\n") {
+		t.Fatalf("live frame output should use CRLF in raw terminal mode; output=%q", text)
+	}
+	if strings.Contains(strings.ReplaceAll(text, "\r\n", ""), "\n") {
+		t.Fatalf("live frame output should not leave bare LF bytes; output=%q", text)
 	}
 }
 

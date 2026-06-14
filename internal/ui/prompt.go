@@ -88,6 +88,8 @@ func (s *lineState) applyKey(key string) (string, bool, bool) {
 		return string(s.runes), true, true
 	case "ctrl_c":
 		return "", true, false
+	case "ctrl_e":
+		return "", false, true
 	case "left":
 		if s.cursor > 0 {
 			s.cursor--

@@ -86,12 +86,14 @@ func (a *Agent) SetApprover(approver approval.Approver) {
 func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 	a.todos = nil
 	a.todosReady = false
+	a.emit(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
 	a.messages = append(a.messages, llm.Message{Role: "user", Content: input})
 
 	for step := 0; step < a.maxSteps; step++ {
 		resp, err := a.client.ChatWithTools(ctx, a.messages, a.functionTools())
 		if err != nil {
 			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeError, Error: err.Error()})
+			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeRunEnd})
 			return "", err
 		}
 		assistantMessage := llm.Message{
@@ -103,6 +105,7 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 
 		if len(resp.ToolCalls) == 0 {
 			final := strings.TrimSpace(resp.Content)
+			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeRunEnd})
 			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeFinal, Message: final})
 			return final, nil
 		}
@@ -119,6 +122,7 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 	}
 	err := fmt.Errorf("agent stopped after %d steps without a final response", a.maxSteps)
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeError, Error: err.Error()})
+	a.emit(runtimeevent.Event{Type: runtimeevent.TypeRunEnd})
 	return "", err
 }
 
