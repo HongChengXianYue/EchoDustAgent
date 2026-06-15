@@ -22,6 +22,8 @@ func readKey(reader *bufio.Reader) (string, error) {
 		return "ctrl_c", nil
 	case 5:
 		return "ctrl_e", nil
+	case 20:
+		return "ctrl_t", nil
 	case 8, 127:
 		return "backspace", nil
 	case 27:

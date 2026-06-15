@@ -56,11 +56,14 @@ The terminal UI prints assistant process text, tool calls, tool results, edit su
 
 - `Todo`: current task list.
 - `Tools`: collapsed by default; press `Ctrl+E` during the current run to expand or collapse recent tool progress.
+- `Full tool log`: press `Ctrl+T` during the current run to open the complete tool log in a full-screen viewer; press `q`, `Esc`, or `Ctrl+T` again to close it.
 - `Explored`: read/list/find/search tools when `Tools` is expanded.
 - `Running` and `Ran`: shell commands.
 - `Added` or `Edited`: file-writing tools with line-count summaries.
 
 The live `Todo`/`Tools` frame is bounded to the terminal viewport. Expanded tool details show recent events and truncate long lines/output so toggling does not leave repeated snapshots in scrollback.
+
+The full-screen tool log viewer uses the alternate terminal screen and supports `↑`/`↓`, `j`/`k`, `PgUp`/`PgDn`, `g`, and `G` for navigation.
 
 Interactive input supports left/right cursor movement, backspace, and up/down history in TTY sessions. Non-TTY input falls back to plain line reading.
 

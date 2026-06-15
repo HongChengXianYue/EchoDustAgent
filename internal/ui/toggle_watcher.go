@@ -10,8 +10,10 @@ import (
 )
 
 type toggleKeyWatcher struct {
-	input    io.Reader
-	onToggle func()
+	input     io.Reader
+	output    io.Writer
+	onToggle  func()
+	onFullLog func(input *os.File, output *os.File)
 
 	mu      sync.Mutex
 	running bool
@@ -19,8 +21,8 @@ type toggleKeyWatcher struct {
 	done    chan struct{}
 }
 
-func newToggleKeyWatcher(input io.Reader, onToggle func()) *toggleKeyWatcher {
-	return &toggleKeyWatcher{input: input, onToggle: onToggle}
+func newToggleKeyWatcher(input io.Reader, output io.Writer, onToggle func(), onFullLog func(input *os.File, output *os.File)) *toggleKeyWatcher {
+	return &toggleKeyWatcher{input: input, output: output, onToggle: onToggle, onFullLog: onFullLog}
 }
 
 func (w *toggleKeyWatcher) Start() {
@@ -36,10 +38,11 @@ func (w *toggleKeyWatcher) Start() {
 	if !ok || !isTerminal(file) {
 		return
 	}
+	outputFile, _ := w.output.(*os.File)
 	w.stop = make(chan struct{})
 	w.done = make(chan struct{})
 	w.running = true
-	go w.run(file, w.stop, w.done)
+	go w.run(file, outputFile, w.stop, w.done)
 }
 
 func (w *toggleKeyWatcher) Stop() {
@@ -62,7 +65,7 @@ func (w *toggleKeyWatcher) Stop() {
 	<-done
 }
 
-func (w *toggleKeyWatcher) run(file *os.File, stop <-chan struct{}, done chan<- struct{}) {
+func (w *toggleKeyWatcher) run(file *os.File, outputFile *os.File, stop <-chan struct{}, done chan<- struct{}) {
 	defer close(done)
 	raw := enterRawMode(file)
 	defer raw.restore()
@@ -92,6 +95,10 @@ func (w *toggleKeyWatcher) run(file *os.File, stop <-chan struct{}, done chan<- 
 			case 5:
 				if w.onToggle != nil {
 					go w.onToggle()
+				}
+			case 20:
+				if w.onFullLog != nil && outputFile != nil && isTerminal(outputFile) {
+					w.onFullLog(file, outputFile)
 				}
 			case 3:
 				if process, err := os.FindProcess(os.Getpid()); err == nil {

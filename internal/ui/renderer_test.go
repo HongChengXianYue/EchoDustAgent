@@ -306,6 +306,39 @@ func TestBlockRendererLimitsExpandedLiveFrame(t *testing.T) {
 	}
 }
 
+func TestBlockRendererFullToolLogKeepsCompleteOutput(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+	longOutput := strings.Repeat("0123456789", 450) + "END_OF_FULL_OUTPUT"
+
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type: runtimeevent.TypeToolResult,
+		Tool: "read_file",
+		Args: json.RawMessage(`{"path":"README.md"}`),
+		Result: &tools.Result{
+			Status: "success",
+			Output: longOutput,
+		},
+	})
+
+	fullLog := renderer.fullToolLogText()
+	if !strings.Contains(fullLog, "END_OF_FULL_OUTPUT") {
+		t.Fatalf("full log should include the complete tool output")
+	}
+	if strings.Contains(fullLog, "… truncated") {
+		t.Fatalf("full log should not use preview truncation:\n%s", fullLog)
+	}
+}
+
+func TestFullLogViewerWrapsLongLines(t *testing.T) {
+	lines := wrapFullLogLines("abcdef", 3)
+	want := []string{"abc", "def"}
+	if strings.Join(lines, "|") != strings.Join(want, "|") {
+		t.Fatalf("wrapped lines = %#v, want %#v", lines, want)
+	}
+}
+
 func latestFrame(output string) string {
 	index := strings.LastIndex(output, "\x1b[J")
 	if index < 0 {

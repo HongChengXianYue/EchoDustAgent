@@ -51,7 +51,7 @@ func NewInteractiveBlockRenderer(input io.Reader, output io.Writer) *BlockRender
 		renderer.rewriteFrame = true
 		renderer.liveFrameMaxLines, renderer.liveFrameMaxWidth = liveFrameBounds(outputFile)
 	}
-	renderer.keyWatcher = newToggleKeyWatcher(input, renderer.ToggleTools)
+	renderer.keyWatcher = newToggleKeyWatcher(input, output, renderer.ToggleTools, renderer.ShowFullToolLog)
 	return renderer
 }
 
@@ -185,6 +185,20 @@ func (r *BlockRenderer) ToggleTools() {
 	}
 	r.expandedTools = !r.expandedTools
 	r.renderFrame()
+}
+
+func (r *BlockRenderer) ShowFullToolLog(input *os.File, output *os.File) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.inRun {
+		return
+	}
+
+	viewer := newFullLogViewer(input, output, r.fullToolLogText())
+	viewer.Run()
+	if r.renderedFrame {
+		r.renderFrame()
+	}
 }
 
 func (r *BlockRenderer) renderFrame() {
@@ -370,6 +384,133 @@ func toolEventDetail(event runtimeevent.Event) string {
 	default:
 		return ""
 	}
+}
+
+func (r *BlockRenderer) fullToolLogText() string {
+	var out strings.Builder
+	fmt.Fprintln(&out, "Full Tool Log")
+	fmt.Fprintf(&out, "%d event(s)\n\n", len(r.toolEvents))
+	if len(r.toolEvents) == 0 {
+		fmt.Fprintln(&out, "(no tool events)")
+		return out.String()
+	}
+
+	for i, event := range r.toolEvents {
+		title := fullToolEventTitle(event)
+		if title == "" {
+			title = "Event"
+		}
+		fmt.Fprintf(&out, "[%d] %s\n", i+1, title)
+		if detail := fullToolEventDetail(event); strings.TrimSpace(detail) != "" {
+			printIndented(&out, "    ", detail)
+		}
+		if i != len(r.toolEvents)-1 {
+			out.WriteByte('\n')
+		}
+	}
+	return out.String()
+}
+
+func fullToolEventTitle(event runtimeevent.Event) string {
+	switch event.Type {
+	case runtimeevent.TypeAssistantMessage:
+		return "Assistant"
+	case runtimeevent.TypeToolCall:
+		if event.Tool == "run_command" {
+			return "Running " + commandTitle(event.Args)
+		}
+		if event.Tool == "" {
+			return "Tool call"
+		}
+		return "Calling " + event.Tool
+	case runtimeevent.TypeToolResult:
+		return toolEventTitle(event)
+	case runtimeevent.TypeApprovalRequest:
+		return "Approval requested"
+	case runtimeevent.TypeApprovalDecision:
+		return "Approval " + event.Decision
+	case runtimeevent.TypeError:
+		return "Error"
+	default:
+		return string(event.Type)
+	}
+}
+
+func fullToolEventDetail(event runtimeevent.Event) string {
+	switch event.Type {
+	case runtimeevent.TypeAssistantMessage:
+		return cleanTerminalText(event.Message)
+	case runtimeevent.TypeToolCall:
+		if event.Tool == "run_command" {
+			if command := jsonArgString(event.Args, "command"); command != "" {
+				return "Command: " + command
+			}
+		}
+		return "Args: " + compactJSON(event.Args, 0)
+	case runtimeevent.TypeToolResult:
+		if event.Result == nil {
+			return ""
+		}
+		result := *event.Result
+		switch {
+		case event.Tool == "run_command":
+			return fullResultOutput(result)
+		case isExploreTool(event.Tool):
+			detail := exploreDetail(event)
+			if strings.TrimSpace(result.Output) != "" {
+				return detail + "\n" + result.Output
+			}
+			return detail
+		case isEditTool(event.Tool):
+			return fullFileChangeDetail(result)
+		default:
+			if strings.TrimSpace(result.Output) != "" {
+				if strings.TrimSpace(result.Summary) != "" {
+					return result.Summary + "\n" + result.Output
+				}
+				return result.Output
+			}
+			return result.Summary
+		}
+	case runtimeevent.TypeApprovalRequest:
+		return approvalDetail(event)
+	case runtimeevent.TypeApprovalDecision:
+		return event.Reason
+	case runtimeevent.TypeError:
+		return event.Error
+	default:
+		return ""
+	}
+}
+
+func fullResultOutput(result tools.Result) string {
+	if strings.TrimSpace(result.Output) != "" {
+		return result.Output
+	}
+	if strings.TrimSpace(result.Summary) != "" {
+		return result.Summary
+	}
+	return "(no output)"
+}
+
+func fullFileChangeDetail(result tools.Result) string {
+	if len(result.Changes) == 0 {
+		if strings.TrimSpace(result.Output) != "" {
+			return result.Output
+		}
+		return result.Summary
+	}
+	var out strings.Builder
+	for _, change := range result.Changes {
+		if len(result.Changes) > 1 {
+			fmt.Fprintf(&out, "%s %s (+%d -%d)\n", changeVerb(change), change.Path, change.AddedLines, change.RemovedLines)
+		}
+		if strings.TrimSpace(change.Preview) != "" {
+			out.WriteString(change.Preview)
+			out.WriteByte('\n')
+		}
+	}
+	return strings.TrimRight(out.String(), "\n")
 }
 
 func (r *BlockRenderer) renderToolCall(event runtimeevent.Event) {

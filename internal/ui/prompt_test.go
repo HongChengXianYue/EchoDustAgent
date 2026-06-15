@@ -46,11 +46,22 @@ func TestReadKeyRecognizesCtrlE(t *testing.T) {
 	}
 }
 
-func TestLineStateIgnoresCtrlE(t *testing.T) {
+func TestReadKeyRecognizesCtrlT(t *testing.T) {
+	key, err := readKey(bufio.NewReader(strings.NewReader("\x14")))
+	if err != nil {
+		t.Fatalf("readKey() error = %v", err)
+	}
+	if key != "ctrl_t" {
+		t.Fatalf("key = %q, want ctrl_t", key)
+	}
+}
+
+func TestLineStateIgnoresCtrlShortcuts(t *testing.T) {
 	state := newLineState(nil)
 	state.applyKey("a")
 	state.applyKey("ctrl_e")
+	state.applyKey("ctrl_t")
 	if got := string(state.runes); got != "a" {
-		t.Fatalf("line = %q, want ctrl_e ignored", got)
+		t.Fatalf("line = %q, want ctrl shortcuts ignored", got)
 	}
 }
