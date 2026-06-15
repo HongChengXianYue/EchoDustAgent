@@ -82,12 +82,24 @@ func (t *UpdateTodosTool) Execute(ctx context.Context, args json.RawMessage) (Re
 		return Error(err.Error()), nil
 	}
 
+	t.setItems(items)
+	return Success(fmt.Sprintf("updated %d todo item(s)", len(items)), ""), nil
+}
+
+func (t *UpdateTodosTool) SetItems(items []TodoItem) error {
+	items, err := validateTodoItems(items)
+	if err != nil {
+		return err
+	}
+	t.setItems(items)
+	return nil
+}
+
+func (t *UpdateTodosTool) setItems(items []TodoItem) {
 	t.mu.Lock()
 	t.items = items
 	t.ready = true
 	t.mu.Unlock()
-
-	return Success(fmt.Sprintf("updated %d todo item(s)", len(items)), ""), nil
 }
 
 func (t *UpdateTodosTool) Reset() {
@@ -114,13 +126,17 @@ func parseTodoItems(args json.RawMessage) ([]TodoItem, error) {
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, fmt.Errorf("invalid todo arguments: %w", err)
 	}
-	if len(params.Items) == 0 {
+	return validateTodoItems(params.Items)
+}
+
+func validateTodoItems(rawItems []TodoItem) ([]TodoItem, error) {
+	if len(rawItems) == 0 {
 		return nil, fmt.Errorf("items must contain at least one todo")
 	}
 
-	items := make([]TodoItem, 0, len(params.Items))
+	items := make([]TodoItem, 0, len(rawItems))
 	inProgress := 0
-	for _, item := range params.Items {
+	for _, item := range rawItems {
 		item.Text = strings.TrimSpace(item.Text)
 		if item.Text == "" {
 			return nil, fmt.Errorf("todo text must be non-empty")

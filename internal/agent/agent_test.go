@@ -300,6 +300,7 @@ func TestRunUsesPromptGuidanceInsteadOfHidingToolsForGreeting(t *testing.T) {
 		"broad codebase analysis",
 		"delegate one or more focused research tasks",
 		"split it into multiple delegate_task calls",
+		"delegating multiple tasks in parallel",
 		"Do not personally inspect many files",
 		"Use workspace-relative paths",
 		"Do not cd into guessed absolute paths",
@@ -976,6 +977,42 @@ func TestDelegateTaskUsesIsolatedSubagentAndReturnsOnlyFinalText(t *testing.T) {
 	}
 	if !foundDelegateResult {
 		t.Fatalf("missing delegate tool result: %#v", agent.Messages())
+	}
+}
+
+func TestDelegateTaskAutoInitializesSubagentTodo(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_parent", "Delegate README research"),
+				delegateTaskToolCall("delegate_1", "Inspect README"),
+			},
+		},
+		{
+			ToolCalls: []llm.ToolCall{
+				testToolCall("child_read", "read_file", `{"path":"README.md"}`),
+			},
+		},
+		{Content: "child final"},
+		{Content: "parent final"},
+	}}
+	readTool := &namedTool{name: "read_file"}
+	registry := tools.NewRegistry()
+	registry.Register(readTool)
+
+	agent := NewWithWorkspace(client, registry, 5, "/tmp/workspace")
+	answer, err := agent.Run(context.Background(), "delegate readme")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if answer != "parent final" {
+		t.Fatalf("answer = %q, want parent final", answer)
+	}
+	if len(readTool.calls) != 1 {
+		t.Fatalf("child read calls = %d, want 1", len(readTool.calls))
+	}
+	if messageSnapshotsContain(client.messages, "requires a todo list") {
+		t.Fatalf("child should not be blocked by todo gate: %#v", client.messages)
 	}
 }
 

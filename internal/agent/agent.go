@@ -22,6 +22,7 @@ type Agent struct {
 	approver        approval.Approver
 	emitMu          sync.Mutex
 	todoTool        *tools.UpdateTodosTool
+	autoTodoText    string
 	options         Options
 	subagentLimiter chan struct{}
 	subagentTool    *delegateTaskTool
@@ -80,6 +81,7 @@ func systemPrompt(workspace string, maxParallelToolCalls int) string {
 		"Use delegate_task for independent read-only research, cross-file investigation, or focused code analysis that can be isolated from the main conversation. Do not use delegate_task for simple direct lookups.",
 		"For broad codebase analysis, architecture review, finding missing project capabilities, or tasks that would require reading many files, delegate one or more focused research tasks before doing your own synthesis.",
 		"When a broad analysis has multiple independent areas, split it into multiple delegate_task calls in the same assistant turn, such as architecture, tools, UI, config, tests, or security.",
+		"When delegating multiple tasks in parallel, keep one top-level todo in_progress for the overall delegation or exactly one subtask in_progress; keep the other planned subtasks pending.",
 		"Do not personally inspect many files for broad analysis before deciding whether to delegate; use subagents to keep the main context small.",
 		"Use workspace-relative paths for file tools unless the user explicitly asks for an absolute path.",
 		"Run commands in the configured workspace. Do not cd into guessed absolute paths.",
@@ -112,6 +114,7 @@ func (a *Agent) SetApprover(approver approval.Approver) {
 func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 	a.pruneTransientToolHistory()
 	a.todoTool.Reset()
+	a.initializeAutoTodo()
 	defer a.pruneTransientToolHistory()
 
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
@@ -166,4 +169,17 @@ func (a *Agent) emit(event runtimeevent.Event) {
 	if a.renderer != nil {
 		a.renderer.HandleEvent(event)
 	}
+}
+
+func (a *Agent) initializeAutoTodo() {
+	text := strings.TrimSpace(a.autoTodoText)
+	if text == "" {
+		return
+	}
+	// Subagents are isolated read-only workers. Seed their internal todo state
+	// so the workspace-tool safety gate does not depend on the model making a
+	// bookkeeping call before its first read/search tool.
+	_ = a.todoTool.SetItems([]tools.TodoItem{
+		{Text: text, Status: tools.TodoInProgress},
+	})
 }

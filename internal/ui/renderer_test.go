@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"local-agent/internal/approval"
 	"local-agent/internal/runtimeevent"
@@ -370,6 +371,64 @@ func TestBlockRendererClearsApprovalPromptLinesOnDecision(t *testing.T) {
 	}
 }
 
+func TestBlockRendererRunEndStopsWatcherOutsideRendererLock(t *testing.T) {
+	var out bytes.Buffer
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	renderer := NewBlockRenderer(&out)
+	renderer.keyWatcher = &toggleKeyWatcher{running: true, stop: stop, done: done}
+	renderer.inRun = true
+	renderer.renderedFrame = true
+	renderer.todos = []runtimeevent.TodoItem{{Text: "Wait for final", Status: runtimeevent.TodoInProgress}}
+
+	finished := make(chan struct{})
+	go func() {
+		renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunEnd})
+		close(finished)
+	}()
+
+	waitForClosed(t, stop, "watcher stop")
+	assertRendererLockAvailable(t, renderer)
+
+	select {
+	case <-finished:
+		t.Fatalf("run end returned before watcher finished")
+	default:
+	}
+	close(done)
+	waitForClosed(t, finished, "run end")
+}
+
+func TestBlockRendererApprovalRequestStopsWatcherOutsideRendererLock(t *testing.T) {
+	var out bytes.Buffer
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	renderer := NewBlockRenderer(&out)
+	renderer.keyWatcher = &toggleKeyWatcher{running: true, stop: stop, done: done}
+	renderer.inRun = true
+
+	finished := make(chan struct{})
+	go func() {
+		renderer.HandleEvent(runtimeevent.Event{
+			Type:      runtimeevent.TypeApprovalRequest,
+			Tool:      "write_file",
+			Category:  approval.CategoryWorkspaceWrite,
+			Args:      json.RawMessage(`{"path":"hello.txt","content":"hello"}`),
+			Decisions: []approval.Decision{approval.DecisionAlways, approval.DecisionDeny},
+		})
+		close(finished)
+	}()
+
+	waitForClosed(t, stop, "watcher stop")
+	assertRendererLockAvailable(t, renderer)
+
+	close(done)
+	waitForClosed(t, finished, "approval request")
+	if renderer.pendingPromptLines == 0 {
+		t.Fatalf("approval request should record pending prompt lines")
+	}
+}
+
 func TestBlockRendererLimitsExpandedLiveFrame(t *testing.T) {
 	var out bytes.Buffer
 	renderer := NewBlockRenderer(&out)
@@ -476,6 +535,26 @@ func latestFrame(output string) string {
 		return output
 	}
 	return output[index+len("\x1b[J"):]
+}
+
+func waitForClosed(t *testing.T, ch <-chan struct{}, name string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("timed out waiting for %s", name)
+	}
+}
+
+func assertRendererLockAvailable(t *testing.T, renderer *BlockRenderer) {
+	t.Helper()
+	locked := make(chan struct{})
+	go func() {
+		renderer.mu.Lock()
+		renderer.mu.Unlock()
+		close(locked)
+	}()
+	waitForClosed(t, locked, "renderer lock")
 }
 
 func TestBlockRendererRendersApprovalRequestDetails(t *testing.T) {

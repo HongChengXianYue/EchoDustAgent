@@ -174,3 +174,17 @@
 - 主要模块：`internal/agent`、`internal/config`、`cmd/agent`、`README.md`、`config.yaml`。
 - 验证：`env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go test ./internal/agent`；`env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go test ./internal/config`；`env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go test ./...`；`env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go vet ./...`；`git diff --check`。
 - 备注：`update_todos` 是当前任务的 UI 控制工具，仍先同步执行，不计入并行工具调用上限。
+
+## 2026-06-15 - Ctrl+T 日志查看退出死锁修复
+
+- 摘要：修复任务运行结束或进入审批请求时，若用户仍停留在 `Ctrl+T` 全量工具日志查看器中，退出查看器后可能卡在 `Ctrl+E` 工具展开区且不显示最终回答的问题；阻塞式停止快捷键监听器时不再持有 UI renderer 锁。
+- 主要模块：`internal/ui`。
+- 验证：`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：新增回归测试覆盖 `run_end` 和审批请求两个路径，确保等待日志查看器关闭时 renderer 锁仍可被查看器退出后的重绘流程获取。
+
+## 2026-06-15 - Subagent 自动 TODO 初始化
+
+- 摘要：子代理启动时自动初始化内部 TODO 状态，避免只读研究子代理在第一次 `read_file`、`list_files`、`find_files` 等 workspace 工具调用前因未显式调用 `update_todos` 被调度层拒绝；同时更新子代理提示词，说明只有需要修订计划时才调用 `update_todos`。
+- 主要模块：`internal/agent`、`internal/tools`。
+- 验证：`go test ./internal/agent ./internal/tools` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：主 Agent 的 TODO 门禁保持不变；新增回归测试覆盖子代理不先调用 `update_todos`、直接执行只读工具的路径。

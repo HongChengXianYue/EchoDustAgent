@@ -94,6 +94,7 @@ func (a *Agent) newSubagent(task string) *Agent {
 	options.Subagents.Enabled = false
 	registry := a.subagentRegistry()
 	subagent := newAgent(a.client, registry, a.options.Subagents.MaxSteps, a.workspace, subagentSystemPrompt(a.workspace, options.MaxParallelToolCalls), options)
+	subagent.autoTodoText = subagentAutoTodoText(task)
 	subagent.SetApprover(denyAllApprover{})
 	if a.renderer != nil {
 		subagent.SetRenderer(subagentEventForwarder{
@@ -128,7 +129,7 @@ func subagentSystemPrompt(workspace string, maxParallelToolCalls int) string {
 	lines := []string{
 		"You are a read-only research subagent.",
 		"Use the provided tools to inspect the workspace and run safe read-only, search, or build/test commands when needed.",
-		"For concrete workspace research, call update_todos before any workspace tool. Keep the todo list current.",
+		"An internal todo is initialized for your delegated task. Use update_todos only if you need to revise that plan, and keep at most one item in_progress.",
 		fmt.Sprintf("Do not return more than %d non-update_todos tool calls in one assistant turn. Multiple calls to the same tool with different arguments count separately.", maxParallelToolCalls),
 		"Do not modify files, do not change git state, do not install dependencies, and do not run privileged or destructive commands.",
 		"Do not spawn another subagent. The delegate_task tool is intentionally unavailable.",
@@ -139,6 +140,14 @@ func subagentSystemPrompt(workspace string, maxParallelToolCalls int) string {
 		lines = append(lines[:1], append([]string{"Current workspace: " + workspace}, lines[1:]...)...)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func subagentAutoTodoText(task string) string {
+	task = strings.TrimSpace(task)
+	if task == "" {
+		return "Research delegated task"
+	}
+	return "Research: " + task
 }
 
 type denyAllApprover struct{}

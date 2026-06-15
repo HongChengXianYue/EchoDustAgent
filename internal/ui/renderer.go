@@ -78,14 +78,21 @@ func liveFrameBounds(output *os.File, options Options) (int, int) {
 }
 
 func (r *BlockRenderer) HandleEvent(event runtimeevent.Event) {
+	switch event.Type {
+	case runtimeevent.TypeRunEnd:
+		r.handleRunEnd()
+		return
+	case runtimeevent.TypeApprovalRequest:
+		r.handleApprovalRequest(event)
+		return
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	switch event.Type {
 	case runtimeevent.TypeRunStart:
 		r.beginRun()
-	case runtimeevent.TypeRunEnd:
-		r.endRun()
 	case runtimeevent.TypeAssistantMessage:
 		if r.inRun {
 			r.toolEvents = append(r.toolEvents, event)
@@ -126,15 +133,6 @@ func (r *BlockRenderer) HandleEvent(event runtimeevent.Event) {
 			return
 		}
 		r.block("Error", event.Error)
-	case runtimeevent.TypeApprovalRequest:
-		if r.inRun {
-			r.stopKeyWatcher()
-			r.toolEvents = append(r.toolEvents, event)
-			r.renderFrame()
-			r.pendingPromptLines = approvalPromptLineCount(event)
-			return
-		}
-		r.block("Approval requested", approvalDetail(event, r.options.ApprovalArgsPreviewChars))
 	case runtimeevent.TypeApprovalDecision:
 		if r.inRun {
 			r.toolEvents = append(r.toolEvents, event)
@@ -157,12 +155,41 @@ func (r *BlockRenderer) beginRun() {
 	r.startKeyWatcher()
 }
 
-func (r *BlockRenderer) endRun() {
+func (r *BlockRenderer) handleRunEnd() {
+	r.mu.Lock()
 	if r.inRun && r.renderedFrame {
 		r.renderFrame()
 	}
-	r.stopKeyWatcher()
 	r.inRun = false
+	r.mu.Unlock()
+
+	// Stop may wait for the Ctrl+T full-log viewer to close. The viewer redraws
+	// through this renderer after closing, so waiting while holding r.mu can
+	// deadlock the final-answer event behind the live log view.
+	r.stopKeyWatcher()
+}
+
+func (r *BlockRenderer) handleApprovalRequest(event runtimeevent.Event) {
+	r.mu.Lock()
+	if !r.inRun {
+		r.block("Approval requested", approvalDetail(event, r.options.ApprovalArgsPreviewChars))
+		r.mu.Unlock()
+		return
+	}
+	r.mu.Unlock()
+
+	// Approval prompts read from the same terminal, so pause the watcher first.
+	// Keep the renderer lock free while Stop waits for an open full-log viewer.
+	r.stopKeyWatcher()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.inRun {
+		return
+	}
+	r.toolEvents = append(r.toolEvents, event)
+	r.renderFrame()
+	r.pendingPromptLines = approvalPromptLineCount(event)
 }
 
 func (r *BlockRenderer) startKeyWatcher() {
