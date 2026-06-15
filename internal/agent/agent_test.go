@@ -296,6 +296,7 @@ func TestRunUsesPromptGuidanceInsteadOfHidingToolsForGreeting(t *testing.T) {
 		"Only call tools when the user asks for a concrete workspace action",
 		"call update_todos before any workspace tool",
 		"multiple tool calls in one assistant turn",
+		"more than 10 non-update_todos tool calls",
 		"broad codebase analysis",
 		"delegate one or more focused research tasks",
 		"split it into multiple delegate_task calls",
@@ -759,6 +760,47 @@ func TestRunExecutesReadOnlyToolCallsConcurrently(t *testing.T) {
 	}
 	if tool.MaxActive() < 2 {
 		t.Fatalf("max active = %d, want concurrent execution", tool.MaxActive())
+	}
+}
+
+func TestRunRejectsToolCallsBeyondParallelLimit(t *testing.T) {
+	toolCalls := []llm.ToolCall{todoToolCall("todo_1", "Read many files")}
+	for i := 0; i < 12; i++ {
+		toolCalls = append(toolCalls, testToolCall(
+			fmt.Sprintf("call_%02d", i),
+			"read_file",
+			fmt.Sprintf(`{"path":"file-%02d.txt"}`, i),
+		))
+	}
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{ToolCalls: toolCalls},
+		{Content: "finished"},
+	}}
+	tool := &blockingTool{name: "read_file", delay: 20 * time.Millisecond}
+	registry := tools.NewRegistry()
+	registry.Register(tool)
+	options := DefaultOptions()
+	options.MaxParallelToolCalls = 10
+
+	agent := NewWithWorkspaceAndOptions(client, registry, 3, "/tmp/local-agent-work", options)
+	if _, err := agent.Run(context.Background(), "read many files"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if tool.CallCount() != 10 {
+		t.Fatalf("tool calls = %d, want 10", tool.CallCount())
+	}
+	if tool.MaxActive() > 10 {
+		t.Fatalf("max active = %d, want <= 10", tool.MaxActive())
+	}
+
+	rejected := 0
+	for _, message := range agent.Messages() {
+		if message.Role == "tool" && strings.Contains(message.Content, "too many parallel tool calls") {
+			rejected++
+		}
+	}
+	if rejected != 2 {
+		t.Fatalf("rejected overflow tool calls = %d, want 2; messages=%#v", rejected, agent.Messages())
 	}
 }
 

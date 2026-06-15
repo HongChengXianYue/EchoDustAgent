@@ -33,7 +33,7 @@ func main() {
 		Timeout:           time.Duration(cfg.LLM.RequestTimeoutSeconds) * time.Second,
 		ParallelToolCalls: cfg.LLM.ParallelToolCalls,
 	})
-	codingAgent := agent.NewWithWorkspaceAndOptions(client, registry, cfg.Agent.MaxSteps, workdir, agentOptions(cfg.Subagents))
+	codingAgent := agent.NewWithWorkspaceAndOptions(client, registry, cfg.Agent.MaxSteps, workdir, agentOptions(cfg.Agent, cfg.Subagents))
 	codingAgent.SetRenderer(ui.NewInteractiveBlockRendererWithOptions(os.Stdin, os.Stdout, uiOptions(cfg.UI)))
 	codingAgent.SetApprover(approval.NewMemoryApprover(approval.NewTerminalApprover(os.Stdin, os.Stdout)))
 
@@ -97,13 +97,14 @@ func uiOptions(cfg config.UIConfig) ui.Options {
 	}
 }
 
-func agentOptions(cfg config.SubagentsConfig) agent.Options {
+func agentOptions(agentCfg config.AgentConfig, subagentsCfg config.SubagentsConfig) agent.Options {
 	return agent.Options{
+		MaxParallelToolCalls: agentCfg.MaxParallelToolCalls,
 		Subagents: agent.SubagentOptions{
-			Enabled:        cfg.Enabled,
-			MaxConcurrent:  cfg.MaxConcurrent,
-			MaxSteps:       cfg.MaxSteps,
-			ResultMaxBytes: cfg.ResultMaxBytes,
+			Enabled:        subagentsCfg.Enabled,
+			MaxConcurrent:  subagentsCfg.MaxConcurrent,
+			MaxSteps:       subagentsCfg.MaxSteps,
+			ResultMaxBytes: subagentsCfg.ResultMaxBytes,
 		},
 	}
 }

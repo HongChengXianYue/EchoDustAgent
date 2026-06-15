@@ -93,7 +93,7 @@ func (a *Agent) newSubagent(task string) *Agent {
 	options := a.options
 	options.Subagents.Enabled = false
 	registry := a.subagentRegistry()
-	subagent := newAgent(a.client, registry, a.options.Subagents.MaxSteps, a.workspace, subagentSystemPrompt(a.workspace), options)
+	subagent := newAgent(a.client, registry, a.options.Subagents.MaxSteps, a.workspace, subagentSystemPrompt(a.workspace, options.MaxParallelToolCalls), options)
 	subagent.SetApprover(denyAllApprover{})
 	if a.renderer != nil {
 		subagent.SetRenderer(subagentEventForwarder{
@@ -121,11 +121,15 @@ func subagentUserInput(params delegateTaskArgs) string {
 	return "Task:\n" + params.Task + "\n\nExpected output:\n" + params.ExpectedOutput
 }
 
-func subagentSystemPrompt(workspace string) string {
+func subagentSystemPrompt(workspace string, maxParallelToolCalls int) string {
+	if maxParallelToolCalls <= 0 {
+		maxParallelToolCalls = DefaultOptions().MaxParallelToolCalls
+	}
 	lines := []string{
 		"You are a read-only research subagent.",
 		"Use the provided tools to inspect the workspace and run safe read-only, search, or build/test commands when needed.",
 		"For concrete workspace research, call update_todos before any workspace tool. Keep the todo list current.",
+		fmt.Sprintf("Do not return more than %d non-update_todos tool calls in one assistant turn. Multiple calls to the same tool with different arguments count separately.", maxParallelToolCalls),
 		"Do not modify files, do not change git state, do not install dependencies, and do not run privileged or destructive commands.",
 		"Do not spawn another subagent. The delegate_task tool is intentionally unavailable.",
 		"Return only your final conclusion with concise evidence such as relevant paths, symbols, or command results.",

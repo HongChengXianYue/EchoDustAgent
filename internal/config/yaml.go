@@ -89,6 +89,8 @@ func applyConfigValue(cfg *Config, key string, value string) error {
 		return setBool(key, value, &cfg.LLM.ParallelToolCalls)
 	case "agent.max_steps":
 		return setPositiveInt(key, value, &cfg.Agent.MaxSteps)
+	case "agent.max_parallel_tool_calls":
+		return setPositiveInt(key, value, &cfg.Agent.MaxParallelToolCalls)
 	case "subagents.enabled":
 		return setBool(key, value, &cfg.Subagents.Enabled)
 	case "subagents.max_concurrent":

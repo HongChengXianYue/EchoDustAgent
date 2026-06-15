@@ -24,7 +24,7 @@ Runtime tuning lives in `config.yaml`. The file keeps operational limits out of 
 Configured areas:
 
 - `llm`: base URL, model, request timeout, and `parallel_tool_calls`.
-- `agent`: maximum ReAct steps per user request.
+- `agent`: maximum ReAct steps per user request and maximum parallel tool calls per assistant turn.
 - `subagents`: delegate-task availability, concurrency, max steps, and result size.
 - `tools`: list/find/read/search limits, command and patch timeouts, output caps, and file-change preview lines.
 - `ui`: separator width, live frame bounds, full-log viewer sizes, polling intervals, Markdown wrap width, and preview truncation lengths.
@@ -64,6 +64,8 @@ By default, at most two subagents run concurrently and each subagent can use up 
 
 The model may return multiple native `tool_calls` in one assistant turn. The agent prepares approvals first, then executes safe calls concurrently:
 
+- At most 10 non-`update_todos` tool calls are accepted from one assistant turn. Extra calls receive tool error results.
+- At most 10 accepted tool calls execute concurrently, including multiple calls to the same tool with different arguments.
 - Read-only/search/build-test calls can run in parallel.
 - Workspace writes can run in parallel when they target different files.
 - Writes to the same file are serialized.

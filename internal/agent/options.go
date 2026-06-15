@@ -1,7 +1,8 @@
 package agent
 
 type Options struct {
-	Subagents SubagentOptions
+	MaxParallelToolCalls int
+	Subagents            SubagentOptions
 }
 
 type SubagentOptions struct {
@@ -13,6 +14,7 @@ type SubagentOptions struct {
 
 func DefaultOptions() Options {
 	return Options{
+		MaxParallelToolCalls: 10,
 		Subagents: SubagentOptions{
 			Enabled:        true,
 			MaxConcurrent:  2,
@@ -24,6 +26,9 @@ func DefaultOptions() Options {
 
 func normalizeOptions(options Options) Options {
 	defaults := DefaultOptions()
+	if options.MaxParallelToolCalls <= 0 {
+		options.MaxParallelToolCalls = defaults.MaxParallelToolCalls
+	}
 	if options.Subagents.MaxConcurrent <= 0 {
 		options.Subagents.MaxConcurrent = defaults.Subagents.MaxConcurrent
 	}

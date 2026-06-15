@@ -36,7 +36,8 @@ func NewWithWorkspace(client llm.Client, registry *tools.Registry, maxSteps int,
 }
 
 func NewWithWorkspaceAndOptions(client llm.Client, registry *tools.Registry, maxSteps int, workspace string, options Options) *Agent {
-	return newAgent(client, registry, maxSteps, workspace, systemPrompt(workspace), options)
+	options = normalizeOptions(options)
+	return newAgent(client, registry, maxSteps, workspace, systemPrompt(workspace, options.MaxParallelToolCalls), options)
 }
 
 func newAgent(client llm.Client, registry *tools.Registry, maxSteps int, workspace string, prompt string, options Options) *Agent {
@@ -66,12 +67,16 @@ func newAgent(client llm.Client, registry *tools.Registry, maxSteps int, workspa
 	return agent
 }
 
-func systemPrompt(workspace string) string {
+func systemPrompt(workspace string, maxParallelToolCalls int) string {
+	if maxParallelToolCalls <= 0 {
+		maxParallelToolCalls = DefaultOptions().MaxParallelToolCalls
+	}
 	lines := []string{
 		"You are a local coding agent.",
 		"Use the provided function tools when you need workspace information or need to modify files.",
 		"For concrete workspace tasks, call update_todos before any workspace tool. Keep the todo list current: mark one item in_progress, mark completed items as completed, then move the next item to in_progress.",
 		"You may return multiple tool calls in one assistant turn when the calls are independent.",
+		fmt.Sprintf("Do not return more than %d non-update_todos tool calls in one assistant turn. Multiple calls to the same tool with different arguments count separately.", maxParallelToolCalls),
 		"Use delegate_task for independent read-only research, cross-file investigation, or focused code analysis that can be isolated from the main conversation. Do not use delegate_task for simple direct lookups.",
 		"For broad codebase analysis, architecture review, finding missing project capabilities, or tasks that would require reading many files, delegate one or more focused research tasks before doing your own synthesis.",
 		"When a broad analysis has multiple independent areas, split it into multiple delegate_task calls in the same assistant turn, such as architecture, tools, UI, config, tests, or security.",

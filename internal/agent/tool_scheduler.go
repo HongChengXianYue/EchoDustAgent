@@ -39,15 +39,34 @@ func (a *Agent) executeToolCalls(ctx context.Context, step int, calls []llm.Tool
 	}
 
 	loopApprovals := map[string]bool{}
+	maxParallel := a.options.MaxParallelToolCalls
+	if maxParallel <= 0 {
+		maxParallel = DefaultOptions().MaxParallelToolCalls
+	}
+	acceptedToolCalls := 0
 	plans := make([]preparedToolCall, 0, len(calls))
 	for i, call := range calls {
 		if tools.IsUpdateTodosTool(call.Function.Name) {
 			continue
 		}
+		if acceptedToolCalls >= maxParallel {
+			result := tools.Error(fmt.Sprintf("too many parallel tool calls: maximum is %d non-update_todos tool call(s) per assistant turn", maxParallel))
+			a.emit(runtimeevent.Event{
+				Step:   step,
+				Type:   runtimeevent.TypeToolResult,
+				Tool:   call.Function.Name,
+				Args:   call.ArgumentsJSON(),
+				Result: &result,
+			})
+			results[i] = executedToolCall{index: i, call: call, result: result}
+			continue
+		}
+		acceptedToolCalls++
 		plans = append(plans, a.prepareToolCall(ctx, step, i, call, loopApprovals))
 	}
 
 	locks := newTargetLocks()
+	semaphore := make(chan struct{}, maxParallel)
 	var wg sync.WaitGroup
 	for _, plan := range plans {
 		plan := plan
@@ -58,6 +77,22 @@ func (a *Agent) executeToolCalls(ctx context.Context, step int, calls []llm.Tool
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			select {
+			case semaphore <- struct{}{}:
+				defer func() { <-semaphore }()
+			case <-ctx.Done():
+				result := tools.Error(ctx.Err().Error())
+				a.emit(runtimeevent.Event{
+					Step:     step,
+					Type:     runtimeevent.TypeToolResult,
+					Tool:     plan.call.Function.Name,
+					Category: plan.category,
+					Args:     plan.args,
+					Result:   &result,
+				})
+				results[plan.index] = executedToolCall{index: plan.index, call: plan.call, result: result}
+				return
+			}
 			unlock := locks.lock(plan.writeImpact.Targets)
 			defer unlock()
 			results[plan.index] = a.executePreparedTool(ctx, step, plan)

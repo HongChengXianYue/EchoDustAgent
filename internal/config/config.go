@@ -28,7 +28,8 @@ type LLMConfig struct {
 }
 
 type AgentConfig struct {
-	MaxSteps int
+	MaxSteps             int
+	MaxParallelToolCalls int
 }
 
 type SubagentsConfig struct {
@@ -108,7 +109,8 @@ func Default() Config {
 			ParallelToolCalls:     true,
 		},
 		Agent: AgentConfig{
-			MaxSteps: 20,
+			MaxSteps:             20,
+			MaxParallelToolCalls: 10,
 		},
 		Subagents: SubagentsConfig{
 			Enabled:        true,
@@ -175,6 +177,7 @@ func validate(cfg Config) error {
 	checkPositive := map[string]int{
 		"llm.request_timeout_seconds":           cfg.LLM.RequestTimeoutSeconds,
 		"agent.max_steps":                       cfg.Agent.MaxSteps,
+		"agent.max_parallel_tool_calls":         cfg.Agent.MaxParallelToolCalls,
 		"subagents.max_concurrent":              cfg.Subagents.MaxConcurrent,
 		"subagents.max_steps":                   cfg.Subagents.MaxSteps,
 		"subagents.result_max_bytes":            cfg.Subagents.ResultMaxBytes,

@@ -16,6 +16,7 @@ llm:
   parallel_tool_calls: false
 agent:
   max_steps: 9
+  max_parallel_tool_calls: 6
 subagents:
   enabled: false
   max_concurrent: 4
@@ -49,6 +50,9 @@ ui:
 	}
 	if cfg.Agent.MaxSteps != 9 {
 		t.Fatalf("max steps = %d", cfg.Agent.MaxSteps)
+	}
+	if cfg.Agent.MaxParallelToolCalls != 6 {
+		t.Fatalf("max parallel tool calls = %d", cfg.Agent.MaxParallelToolCalls)
 	}
 	if cfg.Subagents.Enabled {
 		t.Fatalf("subagents enabled = true, want false")

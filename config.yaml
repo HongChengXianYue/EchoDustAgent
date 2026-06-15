@@ -13,6 +13,8 @@ llm:
 agent:
   # 单次用户请求最多执行多少轮 ReAct 循环，超过后报错停止。
   max_steps: 30
+  # 单轮 assistant 回复中最多允许多少个非 update_todos 工具并行调用。
+  max_parallel_tool_calls: 10
 
 # 子代理配置。子代理用于隔离的只读研究任务，只回传最终结论。
 subagents:
