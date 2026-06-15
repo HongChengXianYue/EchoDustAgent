@@ -298,6 +298,7 @@ func TestRunUsesPromptGuidanceInsteadOfHidingToolsForGreeting(t *testing.T) {
 		"multiple tool calls in one assistant turn",
 		"broad codebase analysis",
 		"delegate one or more focused research tasks",
+		"split it into multiple delegate_task calls",
 		"Do not personally inspect many files",
 		"Use workspace-relative paths",
 		"Do not cd into guessed absolute paths",
@@ -966,6 +967,50 @@ func TestDelegateTaskSubagentKeepsDangerousCommandOnSafetyPath(t *testing.T) {
 	}
 	if !messageSnapshotsContain(client.messages, "permanent safety policy") {
 		t.Fatalf("child messages did not include safety rejection: %#v", client.messages)
+	}
+}
+
+func TestDelegateTaskForwardsSubagentToolEventsToParentRenderer(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_parent", "Delegate README research"),
+				delegateTaskToolCall("delegate_1", "Inspect README"),
+			},
+		},
+		{
+			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_child", "Read README"),
+				testToolCall("child_read", "read_file", `{"path":"README.md"}`),
+			},
+		},
+		{Content: "child final"},
+		{Content: "parent final"},
+	}}
+	registry := tools.NewRegistry()
+	registry.Register(&namedTool{name: "read_file"})
+	renderer := &captureRenderer{}
+
+	agent := NewWithWorkspace(client, registry, 5, "/tmp/workspace")
+	agent.SetRenderer(renderer)
+	if _, err := agent.Run(context.Background(), "delegate readme"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	foundSubagentRead := false
+	for _, event := range renderer.events {
+		if event.Source == "subagent" && event.Tool == "read_file" && event.Type == runtimeevent.TypeToolCall {
+			foundSubagentRead = true
+			if event.ParentTool != "Inspect README" {
+				t.Fatalf("subagent parent task = %q", event.ParentTool)
+			}
+		}
+		if event.Source == "subagent" && (event.Type == runtimeevent.TypeRunStart || event.Type == runtimeevent.TypeRunEnd || event.Type == runtimeevent.TypeFinal || event.Type == runtimeevent.TypeTodoUpdate) {
+			t.Fatalf("subagent frame/todo/final event should not be forwarded: %#v", event)
+		}
+	}
+	if !foundSubagentRead {
+		t.Fatalf("missing forwarded subagent read event: %#v", renderer.events)
 	}
 }
 

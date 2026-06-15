@@ -74,6 +74,7 @@ func systemPrompt(workspace string) string {
 		"You may return multiple tool calls in one assistant turn when the calls are independent.",
 		"Use delegate_task for independent read-only research, cross-file investigation, or focused code analysis that can be isolated from the main conversation. Do not use delegate_task for simple direct lookups.",
 		"For broad codebase analysis, architecture review, finding missing project capabilities, or tasks that would require reading many files, delegate one or more focused research tasks before doing your own synthesis.",
+		"When a broad analysis has multiple independent areas, split it into multiple delegate_task calls in the same assistant turn, such as architecture, tools, UI, config, tests, or security.",
 		"Do not personally inspect many files for broad analysis before deciding whether to delegate; use subagents to keep the main context small.",
 		"Use workspace-relative paths for file tools unless the user explicitly asks for an absolute path.",
 		"Run commands in the configured workspace. Do not cd into guessed absolute paths.",

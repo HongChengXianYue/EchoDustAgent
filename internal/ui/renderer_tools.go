@@ -60,52 +60,53 @@ func (r *BlockRenderer) toolEventTitle(event runtimeevent.Event) string {
 }
 
 func toolEventTitle(event runtimeevent.Event, argsLimit int) string {
+	prefix := eventTitlePrefix(event)
 	switch event.Type {
 	case runtimeevent.TypeAssistantMessage:
-		return "Assistant"
+		return prefix + "Assistant"
 	case runtimeevent.TypeToolCall:
 		if tools.IsDelegateTaskTool(event.Tool) {
-			return "Subagent"
+			return prefix + "Subagent"
 		}
 		if event.Tool == "run_command" {
-			return "Running " + commandTitle(event.Args, argsLimit)
+			return prefix + "Running " + commandTitle(event.Args, argsLimit)
 		}
 		if isEditTool(event.Tool) || isExploreTool(event.Tool) {
 			return ""
 		}
-		return "Tool " + event.Tool
+		return prefix + "Tool " + event.Tool
 	case runtimeevent.TypeToolResult:
 		if event.Result == nil {
 			return ""
 		}
 		if tools.IsDelegateTaskTool(event.Tool) {
 			if event.Result.Status == "error" {
-				return "Subagent failed"
+				return prefix + "Subagent failed"
 			}
-			return "Subagent"
+			return prefix + "Subagent"
 		}
 		if event.Tool == "run_command" {
 			if event.Result.Status == "error" {
-				return "Failed " + commandTitle(event.Args, argsLimit)
+				return prefix + "Failed " + commandTitle(event.Args, argsLimit)
 			}
-			return "Ran " + commandTitle(event.Args, argsLimit)
+			return prefix + "Ran " + commandTitle(event.Args, argsLimit)
 		}
 		if isExploreTool(event.Tool) {
-			return "Explored"
+			return prefix + "Explored"
 		}
 		if isEditTool(event.Tool) {
-			return fileChangeTitle(*event.Result)
+			return prefix + fileChangeTitle(*event.Result)
 		}
 		if event.Result.Status == "error" {
-			return "Failed " + event.Tool
+			return prefix + "Failed " + event.Tool
 		}
-		return "Tool " + event.Tool
+		return prefix + "Tool " + event.Tool
 	case runtimeevent.TypeApprovalRequest:
-		return "Approval requested"
+		return prefix + "Approval requested"
 	case runtimeevent.TypeApprovalDecision:
-		return "Approval " + event.Decision
+		return prefix + "Approval " + event.Decision
 	case runtimeevent.TypeError:
-		return "Error"
+		return prefix + "Error"
 	default:
 		return ""
 	}
@@ -114,15 +115,15 @@ func toolEventTitle(event runtimeevent.Event, argsLimit int) string {
 func (r *BlockRenderer) toolEventDetail(event runtimeevent.Event) string {
 	switch event.Type {
 	case runtimeevent.TypeAssistantMessage:
-		return cleanTerminalText(event.Message)
+		return withEventSourceDetail(event, cleanTerminalText(event.Message))
 	case runtimeevent.TypeToolCall:
 		if tools.IsDelegateTaskTool(event.Tool) {
-			return delegateTaskDetail(event.Args, r.options.ApprovalArgsPreviewChars)
+			return withEventSourceDetail(event, delegateTaskDetail(event.Args, r.options.ApprovalArgsPreviewChars))
 		}
 		if event.Tool == "run_command" || isEditTool(event.Tool) || isExploreTool(event.Tool) {
-			return ""
+			return withEventSourceDetail(event, "")
 		}
-		return compactJSON(event.Args, r.options.ApprovalArgsPreviewChars)
+		return withEventSourceDetail(event, compactJSON(event.Args, r.options.ApprovalArgsPreviewChars))
 	case runtimeevent.TypeToolResult:
 		if event.Result == nil {
 			return ""
@@ -130,28 +131,28 @@ func (r *BlockRenderer) toolEventDetail(event runtimeevent.Event) string {
 		result := *event.Result
 		switch {
 		case tools.IsDelegateTaskTool(event.Tool):
-			return subagentResultDetail(result, r.options.ToolPreviewLongOutputChars)
+			return withEventSourceDetail(event, subagentResultDetail(result, r.options.ToolPreviewLongOutputChars))
 		case event.Tool == "run_command":
-			return summarizeResultOutput(result, r.options.ToolPreviewLongOutputChars)
+			return withEventSourceDetail(event, summarizeResultOutput(result, r.options.ToolPreviewLongOutputChars))
 		case isExploreTool(event.Tool):
 			if strings.TrimSpace(result.Output) == "" {
-				return exploreDetail(event, r.options.ApprovalArgsPreviewChars)
+				return withEventSourceDetail(event, exploreDetail(event, r.options.ApprovalArgsPreviewChars))
 			}
-			return exploreDetail(event, r.options.ApprovalArgsPreviewChars) + "\n" + truncate(result.Output, r.options.ToolPreviewOutputChars)
+			return withEventSourceDetail(event, exploreDetail(event, r.options.ApprovalArgsPreviewChars)+"\n"+truncate(result.Output, r.options.ToolPreviewOutputChars))
 		case isEditTool(event.Tool):
-			return fileChangeDetail(result, r.options.FileChangePreviewChars)
+			return withEventSourceDetail(event, fileChangeDetail(result, r.options.FileChangePreviewChars))
 		default:
 			if strings.TrimSpace(result.Output) != "" {
-				return result.Summary + "\n" + truncate(result.Output, r.options.ToolPreviewOutputChars)
+				return withEventSourceDetail(event, result.Summary+"\n"+truncate(result.Output, r.options.ToolPreviewOutputChars))
 			}
-			return result.Summary
+			return withEventSourceDetail(event, result.Summary)
 		}
 	case runtimeevent.TypeApprovalRequest:
-		return approvalDetail(event, r.options.ApprovalArgsPreviewChars)
+		return withEventSourceDetail(event, approvalDetail(event, r.options.ApprovalArgsPreviewChars))
 	case runtimeevent.TypeApprovalDecision:
-		return event.Reason
+		return withEventSourceDetail(event, event.Reason)
 	case runtimeevent.TypeError:
-		return event.Error
+		return withEventSourceDetail(event, event.Error)
 	default:
 		return ""
 	}
@@ -183,47 +184,48 @@ func (r *BlockRenderer) fullToolLogText() string {
 }
 
 func fullToolEventTitle(event runtimeevent.Event) string {
+	prefix := eventTitlePrefix(event)
 	switch event.Type {
 	case runtimeevent.TypeAssistantMessage:
-		return "Assistant"
+		return prefix + "Assistant"
 	case runtimeevent.TypeToolCall:
 		if tools.IsDelegateTaskTool(event.Tool) {
-			return "Calling subagent"
+			return prefix + "Calling subagent"
 		}
 		if event.Tool == "run_command" {
-			return "Running " + commandTitle(event.Args, 0)
+			return prefix + "Running " + commandTitle(event.Args, 0)
 		}
 		if event.Tool == "" {
-			return "Tool call"
+			return prefix + "Tool call"
 		}
-		return "Calling " + event.Tool
+		return prefix + "Calling " + event.Tool
 	case runtimeevent.TypeToolResult:
 		return toolEventTitle(event, 0)
 	case runtimeevent.TypeApprovalRequest:
-		return "Approval requested"
+		return prefix + "Approval requested"
 	case runtimeevent.TypeApprovalDecision:
-		return "Approval " + event.Decision
+		return prefix + "Approval " + event.Decision
 	case runtimeevent.TypeError:
-		return "Error"
+		return prefix + "Error"
 	default:
-		return string(event.Type)
+		return prefix + string(event.Type)
 	}
 }
 
 func (r *BlockRenderer) fullToolEventDetail(event runtimeevent.Event) string {
 	switch event.Type {
 	case runtimeevent.TypeAssistantMessage:
-		return cleanTerminalText(event.Message)
+		return withEventSourceDetail(event, cleanTerminalText(event.Message))
 	case runtimeevent.TypeToolCall:
 		if tools.IsDelegateTaskTool(event.Tool) {
-			return delegateTaskDetail(event.Args, 0)
+			return withEventSourceDetail(event, delegateTaskDetail(event.Args, 0))
 		}
 		if event.Tool == "run_command" {
 			if command := jsonArgString(event.Args, "command"); command != "" {
-				return "Command: " + command
+				return withEventSourceDetail(event, "Command: "+command)
 			}
 		}
-		return "Args: " + compactJSON(event.Args, 0)
+		return withEventSourceDetail(event, "Args: "+compactJSON(event.Args, 0))
 	case runtimeevent.TypeToolResult:
 		if event.Result == nil {
 			return ""
@@ -231,32 +233,32 @@ func (r *BlockRenderer) fullToolEventDetail(event runtimeevent.Event) string {
 		result := *event.Result
 		switch {
 		case tools.IsDelegateTaskTool(event.Tool):
-			return subagentResultDetail(result, 0)
+			return withEventSourceDetail(event, subagentResultDetail(result, 0))
 		case event.Tool == "run_command":
-			return fullResultOutput(result)
+			return withEventSourceDetail(event, fullResultOutput(result))
 		case isExploreTool(event.Tool):
 			detail := exploreDetail(event, 0)
 			if strings.TrimSpace(result.Output) != "" {
-				return detail + "\n" + result.Output
+				return withEventSourceDetail(event, detail+"\n"+result.Output)
 			}
-			return detail
+			return withEventSourceDetail(event, detail)
 		case isEditTool(event.Tool):
-			return fullFileChangeDetail(result)
+			return withEventSourceDetail(event, fullFileChangeDetail(result))
 		default:
 			if strings.TrimSpace(result.Output) != "" {
 				if strings.TrimSpace(result.Summary) != "" {
-					return result.Summary + "\n" + result.Output
+					return withEventSourceDetail(event, result.Summary+"\n"+result.Output)
 				}
-				return result.Output
+				return withEventSourceDetail(event, result.Output)
 			}
-			return result.Summary
+			return withEventSourceDetail(event, result.Summary)
 		}
 	case runtimeevent.TypeApprovalRequest:
-		return approvalDetail(event, 0)
+		return withEventSourceDetail(event, approvalDetail(event, 0))
 	case runtimeevent.TypeApprovalDecision:
-		return event.Reason
+		return withEventSourceDetail(event, event.Reason)
 	case runtimeevent.TypeError:
-		return event.Error
+		return withEventSourceDetail(event, event.Error)
 	default:
 		return ""
 	}
@@ -273,8 +275,9 @@ func fullResultOutput(result tools.Result) string {
 }
 
 func (r *BlockRenderer) renderToolCall(event runtimeevent.Event) {
+	prefix := eventTitlePrefix(event)
 	if tools.IsDelegateTaskTool(event.Tool) {
-		r.block("Subagent", delegateTaskDetail(event.Args, r.options.ApprovalArgsPreviewChars))
+		r.block(prefix+"Subagent", delegateTaskDetail(event.Args, r.options.ApprovalArgsPreviewChars))
 		return
 	}
 	if event.Tool == "run_command" {
@@ -282,7 +285,7 @@ func (r *BlockRenderer) renderToolCall(event runtimeevent.Event) {
 		if command == "" {
 			command = compactJSON(event.Args, r.options.ApprovalArgsPreviewChars)
 		}
-		r.block("Running "+command, "")
+		r.block(prefix+"Running "+command, "")
 		return
 	}
 	if isEditTool(event.Tool) {
@@ -291,41 +294,42 @@ func (r *BlockRenderer) renderToolCall(event runtimeevent.Event) {
 	if isExploreTool(event.Tool) {
 		return
 	}
-	r.block("Tool "+event.Tool, compactJSON(event.Args, r.options.ApprovalArgsPreviewChars))
+	r.block(prefix+"Tool "+event.Tool, compactJSON(event.Args, r.options.ApprovalArgsPreviewChars))
 }
 
 func (r *BlockRenderer) renderToolResult(event runtimeevent.Event) {
 	if event.Result == nil {
 		return
 	}
+	prefix := eventTitlePrefix(event)
 	result := *event.Result
 	switch {
 	case tools.IsDelegateTaskTool(event.Tool):
-		title := "Subagent"
+		title := prefix + "Subagent"
 		if result.Status == "error" {
-			title = "Subagent failed"
+			title = prefix + "Subagent failed"
 		}
 		r.block(title, subagentResultDetail(result, r.options.ToolPreviewLongOutputChars))
 	case event.Tool == "run_command":
-		title := "Ran " + commandTitle(event.Args, r.options.ApprovalArgsPreviewChars)
+		title := prefix + "Ran " + commandTitle(event.Args, r.options.ApprovalArgsPreviewChars)
 		if result.Status == "error" {
-			title = "Failed " + commandTitle(event.Args, r.options.ApprovalArgsPreviewChars)
+			title = prefix + "Failed " + commandTitle(event.Args, r.options.ApprovalArgsPreviewChars)
 		}
 		r.block(title, "")
-		printIndented(r.output, "  └ ", summarizeResultOutput(result, r.options.ToolPreviewLongOutputChars))
+		printIndented(r.output, "  └ ", withEventSourceDetail(event, summarizeResultOutput(result, r.options.ToolPreviewLongOutputChars)))
 	case isExploreTool(event.Tool):
-		r.block("Explored", exploreDetail(event, r.options.ApprovalArgsPreviewChars))
+		r.block(prefix+"Explored", withEventSourceDetail(event, exploreDetail(event, r.options.ApprovalArgsPreviewChars)))
 		if strings.TrimSpace(result.Output) != "" {
 			printIndented(r.output, "  └ ", truncate(result.Output, r.options.ToolPreviewOutputChars))
 		}
 	case isEditTool(event.Tool):
 		r.renderFileChanges(result)
 	default:
-		title := "Tool " + event.Tool
+		title := prefix + "Tool " + event.Tool
 		if result.Status == "error" {
-			title = "Failed " + event.Tool
+			title = prefix + "Failed " + event.Tool
 		}
-		r.block(title, result.Summary)
+		r.block(title, withEventSourceDetail(event, result.Summary))
 		if strings.TrimSpace(result.Output) != "" {
 			printIndented(r.output, "  └ ", truncate(result.Output, r.options.ToolPreviewOutputChars))
 		}
@@ -424,4 +428,22 @@ func subagentResultDetail(result tools.Result, limit int) string {
 		return result.Summary
 	}
 	return "(no output)"
+}
+
+func eventTitlePrefix(event runtimeevent.Event) string {
+	if event.Source == "subagent" {
+		return "Subagent "
+	}
+	return ""
+}
+
+func withEventSourceDetail(event runtimeevent.Event, detail string) string {
+	if event.Source != "subagent" || strings.TrimSpace(event.ParentTool) == "" {
+		return detail
+	}
+	prefix := "Task: " + event.ParentTool
+	if strings.TrimSpace(detail) == "" {
+		return prefix
+	}
+	return prefix + "\n" + detail
 }

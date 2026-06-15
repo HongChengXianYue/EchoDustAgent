@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"local-agent/internal/approval"
+	"local-agent/internal/runtimeevent"
 	"local-agent/internal/tools"
 )
 
@@ -25,7 +26,7 @@ func (t *delegateTaskTool) Name() string {
 }
 
 func (t *delegateTaskTool) Description() string {
-	return "Delegate an independent read-only research task to an isolated subagent. Use this for broad codebase analysis, architecture review, finding missing capabilities, focused code investigation, or cross-file analysis; the subagent returns only its final conclusion."
+	return "Delegate one independent read-only research task to an isolated subagent. For broad analysis, call this tool multiple times in the same turn with focused tasks such as architecture, tools, UI, config, tests, or security. The subagent returns only its final conclusion."
 }
 
 func (t *delegateTaskTool) Parameters() json.RawMessage {
@@ -63,7 +64,7 @@ func (a *Agent) runSubagent(ctx context.Context, args json.RawMessage) tools.Res
 		return tools.Error(ctx.Err().Error())
 	}
 
-	subagent := a.newSubagent()
+	subagent := a.newSubagent(params.Task)
 	answer, err := subagent.Run(ctx, subagentUserInput(params))
 	if err != nil {
 		return tools.Error("subagent failed: " + err.Error())
@@ -88,12 +89,18 @@ func parseDelegateTaskArgs(args json.RawMessage) (delegateTaskArgs, error) {
 	return params, nil
 }
 
-func (a *Agent) newSubagent() *Agent {
+func (a *Agent) newSubagent(task string) *Agent {
 	options := a.options
 	options.Subagents.Enabled = false
 	registry := a.subagentRegistry()
 	subagent := newAgent(a.client, registry, a.options.Subagents.MaxSteps, a.workspace, subagentSystemPrompt(a.workspace), options)
 	subagent.SetApprover(denyAllApprover{})
+	if a.renderer != nil {
+		subagent.SetRenderer(subagentEventForwarder{
+			parent: a,
+			task:   task,
+		})
+	}
 	return subagent
 }
 
@@ -134,6 +141,30 @@ type denyAllApprover struct{}
 
 func (denyAllApprover) Approve(ctx context.Context, request approval.Request) approval.Decision {
 	return approval.DecisionDeny
+}
+
+type subagentEventForwarder struct {
+	parent *Agent
+	task   string
+}
+
+func (f subagentEventForwarder) HandleEvent(event runtimeevent.Event) {
+	if f.parent == nil {
+		return
+	}
+	switch event.Type {
+	case runtimeevent.TypeAssistantMessage,
+		runtimeevent.TypeToolCall,
+		runtimeevent.TypeToolResult,
+		runtimeevent.TypeError,
+		runtimeevent.TypeApprovalRequest,
+		runtimeevent.TypeApprovalDecision:
+	default:
+		return
+	}
+	event.Source = "subagent"
+	event.ParentTool = truncateUTF8Bytes(f.task, 120)
+	f.parent.emit(event)
 }
 
 func truncateUTF8Bytes(text string, limit int) string {

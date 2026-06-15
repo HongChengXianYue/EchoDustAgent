@@ -16,6 +16,7 @@ type fullLogViewer struct {
 	input        *os.File
 	output       io.Writer
 	lines        []string
+	textProvider func() string
 	width        int
 	height       int
 	offset       int
@@ -23,6 +24,10 @@ type fullLogViewer struct {
 }
 
 func newFullLogViewer(input *os.File, output *os.File, text string, options Options) *fullLogViewer {
+	return newLiveFullLogViewer(input, output, func() string { return text }, options)
+}
+
+func newLiveFullLogViewer(input *os.File, output *os.File, textProvider func() string, options Options) *fullLogViewer {
 	options = normalizeOptions(options)
 	width, height, err := term.GetSize(int(output.Fd()))
 	if err != nil {
@@ -39,7 +44,7 @@ func newFullLogViewer(input *os.File, output *os.File, text string, options Opti
 	return &fullLogViewer{
 		input:        input,
 		output:       output,
-		lines:        wrapFullLogLines(text, width),
+		textProvider: textProvider,
 		width:        width,
 		height:       height,
 		pollInterval: time.Duration(options.FullLogPollMilliseconds) * time.Millisecond,
@@ -54,6 +59,7 @@ func (v *fullLogViewer) Run() {
 	fmt.Fprint(v.output, "\x1b[?1049h\x1b[H\x1b[2J")
 	defer fmt.Fprint(v.output, "\x1b[?1049l")
 
+	v.refreshLines()
 	v.render()
 	var buf [32]byte
 	for {
@@ -61,6 +67,9 @@ func (v *fullLogViewer) Run() {
 		if err != nil {
 			if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK) {
 				time.Sleep(v.pollInterval)
+				if v.refreshLines() {
+					v.render()
+				}
 				continue
 			}
 			return
@@ -70,6 +79,21 @@ func (v *fullLogViewer) Run() {
 		}
 		v.render()
 	}
+}
+
+func (v *fullLogViewer) refreshLines() bool {
+	if v.textProvider == nil {
+		return false
+	}
+	next := wrapFullLogLines(v.textProvider(), v.width)
+	if equalStringSlices(v.lines, next) {
+		return false
+	}
+	v.lines = next
+	if v.offset > v.maxOffset() {
+		v.offset = v.maxOffset()
+	}
+	return true
 }
 
 func (v *fullLogViewer) handleInput(input []byte) bool {
@@ -218,4 +242,16 @@ func wrapFullLogLine(line string, width int) []string {
 	}
 	lines = append(lines, current.String())
 	return lines
+}
+
+func equalStringSlices(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }

@@ -55,6 +55,8 @@ The main agent exposes `delegate_task` for independent read-only research and fo
 - Subagent tool calls still use the same pre-use safety path: classification, write-impact analysis, permanent blacklist checks, and approval policy.
 - Subagents can use file read/search tools and `run_command`, but command calls outside `read_only`, `search_inspect`, or `build_test` are denied by the read-only policy.
 - Broad codebase analysis, architecture review, and “what is missing?” style project audits should delegate focused research first instead of reading many files directly in the main context.
+- When broad analysis has independent areas, the main agent should issue multiple `delegate_task` calls in one turn, for example architecture, tools, UI, config, tests, and security.
+- Subagent tool activity is forwarded into the parent Tools log and marked with a `Subagent` prefix.
 
 By default, at most two subagents run concurrently and each subagent can use up to eight ReAct steps.
 
@@ -92,7 +94,7 @@ The terminal UI prints assistant process text, tool calls, tool results, edit su
 
 The live `Todo`/`Tools` frame is bounded to the terminal viewport. Expanded tool details show recent events and truncate long lines/output so toggling does not leave repeated snapshots in scrollback.
 
-The full-screen tool log viewer uses the alternate terminal screen and supports `↑`/`↓`, `j`/`k`, `PgUp`/`PgDn`, `g`, and `G` for navigation.
+The full-screen tool log viewer uses the alternate terminal screen, refreshes while tools are still running, and supports `↑`/`↓`, `j`/`k`, `PgUp`/`PgDn`, `g`, and `G` for navigation.
 
 Interactive input supports left/right cursor movement, backspace, and up/down history in TTY sessions. Non-TTY input falls back to plain line reading.
 

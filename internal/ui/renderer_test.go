@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -203,6 +204,35 @@ func TestBlockRendererRendersDelegateTaskAsSubagent(t *testing.T) {
 	}
 	if strings.Contains(text, "Tool delegate_task") {
 		t.Fatalf("delegate_task should render as subagent, not generic tool:\n%s", text)
+	}
+}
+
+func TestBlockRendererLabelsForwardedSubagentEvents(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:       runtimeevent.TypeToolResult,
+		Tool:       "read_file",
+		Args:       json.RawMessage(`{"path":"README.md"}`),
+		Source:     "subagent",
+		ParentTool: "Inspect project docs",
+		Result: &tools.Result{
+			Status: "success",
+			Output: "README contents",
+		},
+	})
+
+	text := out.String()
+	for _, want := range []string{
+		"• Subagent Explored",
+		"Task: Inspect project docs",
+		"Read README.md",
+		"README contents",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("output missing %q:\n%s", want, text)
+		}
 	}
 }
 
@@ -408,6 +438,35 @@ func TestFullLogViewerWrapsLongLines(t *testing.T) {
 	want := []string{"abc", "def"}
 	if strings.Join(lines, "|") != strings.Join(want, "|") {
 		t.Fatalf("wrapped lines = %#v, want %#v", lines, want)
+	}
+}
+
+func TestFullLogViewerRefreshesProviderText(t *testing.T) {
+	output, err := os.CreateTemp(t.TempDir(), "viewer-output")
+	if err != nil {
+		t.Fatalf("create temp output: %v", err)
+	}
+	calls := 0
+	viewer := newLiveFullLogViewer(nil, output, func() string {
+		calls++
+		if calls == 1 {
+			return "old"
+		}
+		return "new"
+	}, DefaultOptions())
+	viewer.width = 80
+
+	if !viewer.refreshLines() {
+		t.Fatalf("first refresh should populate lines")
+	}
+	if strings.Join(viewer.lines, "\n") != "old" {
+		t.Fatalf("lines = %#v, want old", viewer.lines)
+	}
+	if !viewer.refreshLines() {
+		t.Fatalf("second refresh should detect changed text")
+	}
+	if strings.Join(viewer.lines, "\n") != "new" {
+		t.Fatalf("lines = %#v, want new", viewer.lines)
 	}
 }
 

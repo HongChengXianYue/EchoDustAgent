@@ -189,13 +189,21 @@ func (r *BlockRenderer) ToggleTools() {
 
 func (r *BlockRenderer) ShowFullToolLog(input *os.File, output *os.File) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if !r.inRun {
+		r.mu.Unlock()
 		return
 	}
+	options := r.options
+	r.mu.Unlock()
 
-	viewer := newFullLogViewer(input, output, r.fullToolLogText(), r.options)
+	viewer := newLiveFullLogViewer(input, output, func() string {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		return r.fullToolLogText()
+	}, options)
 	viewer.Run()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.renderedFrame {
 		r.renderFrame()
 	}

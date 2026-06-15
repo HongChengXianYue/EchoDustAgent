@@ -160,3 +160,10 @@
 - 主要模块：`internal/agent`、`README.md`。
 - 验证：`env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go test ./internal/agent`。
 - 备注：这是提示词层面的行为约束，没有新增硬编码意图分类。
+
+## 2026-06-15 - Subagent 日志与全量日志实时刷新
+
+- 摘要：将子代理内部工具事件转发到父 Agent 的 Tools 日志，并用 `Subagent` 前缀标记来源；强化提示词要求大范围分析拆成多个独立 `delegate_task`；`Ctrl+T` 全量工具日志查看器改为轮询最新日志文本，打开后仍会实时刷新。
+- 主要模块：`internal/agent`、`internal/runtimeevent`、`internal/ui`、`README.md`。
+- 验证：`env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go test ./internal/agent`；`env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go test ./internal/ui`；`env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go test ./...`；`env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go vet ./...`；`git diff --check`。
+- 备注：子代理的 `run_start`、`run_end`、`todo_update` 和 `final` 不转发到父 UI，避免破坏父任务的 TODO/live frame；只转发工具过程、审批、错误和中间助手消息。

@@ -50,4 +50,6 @@ type Event struct {
 	Decisions  []approval.Decision `json:"decisions,omitempty"`
 	Reason     string              `json:"reason,omitempty"`
 	Todos      []TodoItem          `json:"todos,omitempty"`
+	ParentTool string              `json:"parent_tool,omitempty"`
+	Source     string              `json:"source,omitempty"`
 }
