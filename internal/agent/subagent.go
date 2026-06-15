@@ -49,6 +49,10 @@ func (t *delegateTaskTool) Execute(ctx context.Context, args json.RawMessage) (t
 }
 
 func (a *Agent) runSubagent(ctx context.Context, args json.RawMessage) tools.Result {
+	return a.runSubagentWithIndex(ctx, args, a.nextSubagentIndex())
+}
+
+func (a *Agent) runSubagentWithIndex(ctx context.Context, args json.RawMessage, index int) tools.Result {
 	params, err := parseDelegateTaskArgs(args)
 	if err != nil {
 		return tools.Error(err.Error())
@@ -64,7 +68,7 @@ func (a *Agent) runSubagent(ctx context.Context, args json.RawMessage) tools.Res
 		return tools.Error(ctx.Err().Error())
 	}
 
-	subagent := a.newSubagent(params.Task)
+	subagent := a.newSubagent(params.Task, index)
 	answer, err := subagent.Run(ctx, subagentUserInput(params))
 	if err != nil {
 		return tools.Error("subagent failed: " + err.Error())
@@ -89,7 +93,7 @@ func parseDelegateTaskArgs(args json.RawMessage) (delegateTaskArgs, error) {
 	return params, nil
 }
 
-func (a *Agent) newSubagent(task string) *Agent {
+func (a *Agent) newSubagent(task string, index int) *Agent {
 	options := a.options
 	options.Subagents.Enabled = false
 	registry := a.subagentRegistry()
@@ -100,6 +104,7 @@ func (a *Agent) newSubagent(task string) *Agent {
 		subagent.SetRenderer(subagentEventForwarder{
 			parent: a,
 			task:   task,
+			index:  index,
 		})
 	}
 	return subagent
@@ -159,6 +164,7 @@ func (denyAllApprover) Approve(ctx context.Context, request approval.Request) ap
 type subagentEventForwarder struct {
 	parent *Agent
 	task   string
+	index  int
 }
 
 func (f subagentEventForwarder) HandleEvent(event runtimeevent.Event) {
@@ -177,6 +183,7 @@ func (f subagentEventForwarder) HandleEvent(event runtimeevent.Event) {
 	}
 	event.Source = "subagent"
 	event.ParentTool = truncateUTF8Bytes(f.task, 120)
+	event.SubagentIndex = f.index
 	f.parent.emit(event)
 }
 

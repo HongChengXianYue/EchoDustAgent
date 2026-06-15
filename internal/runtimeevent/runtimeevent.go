@@ -52,4 +52,7 @@ type Event struct {
 	Todos      []TodoItem          `json:"todos,omitempty"`
 	ParentTool string              `json:"parent_tool,omitempty"`
 	Source     string              `json:"source,omitempty"`
+	// SubagentIndex is assigned by the parent agent for grouping forwarded
+	// subagent events in the UI. It is scoped to one parent Run.
+	SubagentIndex int `json:"subagent_index,omitempty"`
 }

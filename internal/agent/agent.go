@@ -23,6 +23,8 @@ type Agent struct {
 	emitMu          sync.Mutex
 	todoTool        *tools.UpdateTodosTool
 	autoTodoText    string
+	subagentMu      sync.Mutex
+	nextSubagentID  int
 	options         Options
 	subagentLimiter chan struct{}
 	subagentTool    *delegateTaskTool
@@ -115,6 +117,7 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 	a.pruneTransientToolHistory()
 	a.todoTool.Reset()
 	a.initializeAutoTodo()
+	a.resetSubagentIndexes()
 	defer a.pruneTransientToolHistory()
 
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
@@ -182,4 +185,17 @@ func (a *Agent) initializeAutoTodo() {
 	_ = a.todoTool.SetItems([]tools.TodoItem{
 		{Text: text, Status: tools.TodoInProgress},
 	})
+}
+
+func (a *Agent) resetSubagentIndexes() {
+	a.subagentMu.Lock()
+	a.nextSubagentID = 0
+	a.subagentMu.Unlock()
+}
+
+func (a *Agent) nextSubagentIndex() int {
+	a.subagentMu.Lock()
+	defer a.subagentMu.Unlock()
+	a.nextSubagentID++
+	return a.nextSubagentID
 }

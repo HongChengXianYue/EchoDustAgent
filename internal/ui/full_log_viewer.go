@@ -5,22 +5,33 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/term"
 )
 
 type fullLogViewer struct {
-	input        *os.File
-	output       io.Writer
-	lines        []string
-	textProvider func() string
-	width        int
-	height       int
-	offset       int
-	pollInterval time.Duration
+	input             *os.File
+	output            io.Writer
+	lines             []string
+	textProvider      func(fullLogState) string
+	expandedSubagents map[int]bool
+	width             int
+	height            int
+	offset            int
+	pollInterval      time.Duration
+}
+
+type fullLogState struct {
+	ExpandedSubagents map[int]bool
+}
+
+func (s fullLogState) SubagentExpanded(index int) bool {
+	return s.ExpandedSubagents[index]
 }
 
 func newFullLogViewer(input *os.File, output *os.File, text string, options Options) *fullLogViewer {
@@ -28,6 +39,10 @@ func newFullLogViewer(input *os.File, output *os.File, text string, options Opti
 }
 
 func newLiveFullLogViewer(input *os.File, output *os.File, textProvider func() string, options Options) *fullLogViewer {
+	return newStatefulLiveFullLogViewer(input, output, func(fullLogState) string { return textProvider() }, options)
+}
+
+func newStatefulLiveFullLogViewer(input *os.File, output *os.File, textProvider func(fullLogState) string, options Options) *fullLogViewer {
 	options = normalizeOptions(options)
 	width, height, err := term.GetSize(int(output.Fd()))
 	if err != nil {
@@ -42,12 +57,13 @@ func newLiveFullLogViewer(input *os.File, output *os.File, textProvider func() s
 	}
 
 	return &fullLogViewer{
-		input:        input,
-		output:       output,
-		textProvider: textProvider,
-		width:        width,
-		height:       height,
-		pollInterval: time.Duration(options.FullLogPollMilliseconds) * time.Millisecond,
+		input:             input,
+		output:            output,
+		textProvider:      textProvider,
+		expandedSubagents: map[int]bool{},
+		width:             width,
+		height:            height,
+		pollInterval:      time.Duration(options.FullLogPollMilliseconds) * time.Millisecond,
 	}
 }
 
@@ -85,7 +101,7 @@ func (v *fullLogViewer) refreshLines() bool {
 	if v.textProvider == nil {
 		return false
 	}
-	next := wrapFullLogLines(v.textProvider(), v.width)
+	next := wrapFullLogLines(v.textProvider(v.state()), v.width)
 	if equalStringSlices(v.lines, next) {
 		return false
 	}
@@ -123,6 +139,8 @@ func (v *fullLogViewer) handleInput(input []byte) bool {
 			v.offset = 0
 		case 'G':
 			v.offset = v.maxOffset()
+		case '1', '2', '3', '4', '5':
+			v.toggleSubagent(int(input[i] - '0'))
 		}
 	}
 	return false
@@ -131,6 +149,9 @@ func (v *fullLogViewer) handleInput(input []byte) bool {
 func (v *fullLogViewer) handleEscape(input []byte) int {
 	if len(input) == 0 {
 		return 0
+	}
+	if consumed := v.handleCSIu(input); consumed > 0 {
+		return consumed
 	}
 	switch input[0] {
 	case 'A':
@@ -159,6 +180,38 @@ func (v *fullLogViewer) handleEscape(input []byte) int {
 	return 0
 }
 
+func (v *fullLogViewer) handleCSIu(input []byte) int {
+	end := -1
+	for i, b := range input {
+		if b == 'u' {
+			end = i
+			break
+		}
+	}
+	if end < 0 {
+		return 0
+	}
+
+	parts := strings.Split(string(input[:end]), ";")
+	if len(parts) < 2 {
+		return 0
+	}
+	code, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0
+	}
+	modifierText := strings.SplitN(parts[1], ":", 2)[0]
+	modifier, err := strconv.Atoi(modifierText)
+	if err != nil {
+		return 0
+	}
+	if modifier == 5 && code >= int('1') && code <= int('5') {
+		v.toggleSubagent(code - int('0'))
+		return end + 1
+	}
+	return 0
+}
+
 func (v *fullLogViewer) render() {
 	fmt.Fprint(v.output, "\x1b[H\x1b[2J")
 	pageSize := v.pageSize()
@@ -173,7 +226,7 @@ func (v *fullLogViewer) render() {
 	fmt.Fprint(v.output, "\x1b[2K\x1b[7m")
 	fmt.Fprintf(
 		v.output,
-		" Full tool log | Ctrl+T/q/Esc close | ↑↓/jk scroll | PgUp/PgDn page | %d-%d/%d ",
+		" Full tool log | Ctrl+T/q/Esc close | Ctrl+1-5 toggle subagents | ↑↓/jk scroll | PgUp/PgDn page | %d-%d/%d ",
 		v.offset+1,
 		min(v.offset+pageSize, len(v.lines)),
 		len(v.lines),
@@ -196,6 +249,24 @@ func (v *fullLogViewer) scroll(delta int) {
 	if maxOffset := v.maxOffset(); v.offset > maxOffset {
 		v.offset = maxOffset
 	}
+}
+
+func (v *fullLogViewer) toggleSubagent(index int) {
+	if index < 1 || index > 5 {
+		return
+	}
+	v.expandedSubagents[index] = !v.expandedSubagents[index]
+	if v.refreshLines() && v.offset > v.maxOffset() {
+		v.offset = v.maxOffset()
+	}
+}
+
+func (v *fullLogViewer) state() fullLogState {
+	expanded := make(map[int]bool, len(v.expandedSubagents))
+	for index, isExpanded := range v.expandedSubagents {
+		expanded[index] = isExpanded
+	}
+	return fullLogState{ExpandedSubagents: expanded}
 }
 
 func (v *fullLogViewer) maxOffset() int {
@@ -230,18 +301,71 @@ func wrapFullLogLine(line string, width int) []string {
 	var lines []string
 	var current strings.Builder
 	currentWidth := 0
-	for _, r := range line {
+	activeANSI := ""
+	for i := 0; i < len(line); {
+		if line[i] == '\x1b' {
+			sequence, next := readFullLogANSISequence(line, i)
+			if next > i {
+				current.WriteString(sequence)
+				activeANSI = updateFullLogActiveANSI(activeANSI, sequence)
+				i = next
+				continue
+			}
+		}
+		r, size := decodeFullLogRune(line[i:])
 		cellWidth := runeCellWidth(r)
 		if currentWidth > 0 && currentWidth+cellWidth > width {
-			lines = append(lines, current.String())
+			lines = append(lines, resetFullLogSegment(current.String(), activeANSI))
 			current.Reset()
 			currentWidth = 0
+			if activeANSI != "" {
+				current.WriteString(activeANSI)
+			}
 		}
 		current.WriteRune(r)
 		currentWidth += cellWidth
+		i += size
 	}
 	lines = append(lines, current.String())
 	return lines
+}
+
+func readFullLogANSISequence(text string, start int) (string, int) {
+	if start+1 >= len(text) || text[start+1] != '[' {
+		return "", start
+	}
+	for i := start + 2; i < len(text); i++ {
+		b := text[i]
+		if b >= 0x40 && b <= 0x7e {
+			return text[start : i+1], i + 1
+		}
+	}
+	return "", start
+}
+
+func updateFullLogActiveANSI(active string, sequence string) string {
+	if !strings.HasSuffix(sequence, "m") {
+		return active
+	}
+	if sequence == "\x1b[0m" {
+		return ""
+	}
+	return sequence
+}
+
+func resetFullLogSegment(segment string, activeANSI string) string {
+	if activeANSI == "" || strings.HasSuffix(segment, "\x1b[0m") {
+		return segment
+	}
+	return segment + "\x1b[0m"
+}
+
+func decodeFullLogRune(text string) (rune, int) {
+	r, size := utf8.DecodeRuneInString(text)
+	if size <= 0 {
+		return rune(text[0]), 1
+	}
+	return r, size
 }
 
 func equalStringSlices(left, right []string) bool {

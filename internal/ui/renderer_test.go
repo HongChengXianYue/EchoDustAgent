@@ -492,11 +492,130 @@ func TestBlockRendererFullToolLogKeepsCompleteOutput(t *testing.T) {
 	}
 }
 
+func TestBlockRendererFullToolLogGroupsSubagentsCollapsedByDefault(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type: runtimeevent.TypeToolCall,
+		Tool: tools.DelegateTaskToolName,
+		Args: json.RawMessage(`{"task":"Inspect README"}`),
+	})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:          runtimeevent.TypeToolCall,
+		Tool:          "read_file",
+		Args:          json.RawMessage(`{"path":"README.md"}`),
+		Source:        "subagent",
+		ParentTool:    "Inspect README",
+		SubagentIndex: 1,
+	})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:          runtimeevent.TypeToolResult,
+		Tool:          "read_file",
+		Args:          json.RawMessage(`{"path":"README.md"}`),
+		Source:        "subagent",
+		ParentTool:    "Inspect README",
+		SubagentIndex: 1,
+		Result:        &tools.Result{Status: "success", Summary: "read", Output: "README details"},
+	})
+
+	fullLog := renderer.fullToolLogText()
+	for _, want := range []string{
+		"Main (1 event(s))",
+		"Subagent-1 (collapsed, Ctrl+1 to expand) | 2 event(s)",
+		"Task: Inspect README",
+		"Latest: Explored",
+	} {
+		if !strings.Contains(fullLog, want) {
+			t.Fatalf("full log missing %q:\n%s", want, fullLog)
+		}
+	}
+	if strings.Contains(fullLog, "README details") {
+		t.Fatalf("collapsed subagent block should hide details:\n%s", fullLog)
+	}
+}
+
+func TestBlockRendererFullToolLogExpandsAndColorsSubagentBlocks(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:          runtimeevent.TypeToolCall,
+		Tool:          "read_file",
+		Args:          json.RawMessage(`{"path":"README.md"}`),
+		Source:        "subagent",
+		ParentTool:    "Inspect README",
+		SubagentIndex: 1,
+	})
+
+	fullLog := renderer.fullToolLogTextWithState(fullLogState{ExpandedSubagents: map[int]bool{1: true}})
+	for _, want := range []string{
+		"\x1b[36mSubagent-1 (expanded, Ctrl+1 to collapse) | 1 event(s)\x1b[0m",
+		"[1] \x1b[36mCalling read_file\x1b[0m",
+		"\x1b[36m    Args: {\"path\":\"README.md\"}\x1b[0m",
+	} {
+		if !strings.Contains(fullLog, want) {
+			t.Fatalf("full log missing %q:\n%s", want, fullLog)
+		}
+	}
+	if strings.Contains(fullLog, "\x1b[36m[1]") {
+		t.Fatalf("event number prefix should not be colored:\n%q", fullLog)
+	}
+}
+
 func TestFullLogViewerWrapsLongLines(t *testing.T) {
 	lines := wrapFullLogLines("abcdef", 3)
 	want := []string{"abc", "def"}
 	if strings.Join(lines, "|") != strings.Join(want, "|") {
 		t.Fatalf("wrapped lines = %#v, want %#v", lines, want)
+	}
+}
+
+func TestFullLogViewerWrapsANSIColoredLinesByVisibleWidth(t *testing.T) {
+	lines := wrapFullLogLines("\x1b[36mabcdef\x1b[0m", 3)
+	if len(lines) != 2 {
+		t.Fatalf("wrapped lines = %#v, want 2 visible-width lines", lines)
+	}
+	if !strings.Contains(lines[0], "abc") || !strings.Contains(lines[1], "def") {
+		t.Fatalf("wrapped lines should keep visible text grouped by width: %#v", lines)
+	}
+	if strings.Contains(strings.Join(lines, ""), "\x1b[3\x1b") {
+		t.Fatalf("wrapped lines should not split ANSI escape sequences: %#v", lines)
+	}
+}
+
+func TestFullLogViewerTogglesSubagentBlocks(t *testing.T) {
+	output, err := os.CreateTemp(t.TempDir(), "viewer-output")
+	if err != nil {
+		t.Fatalf("create temp output: %v", err)
+	}
+	viewer := newStatefulLiveFullLogViewer(nil, output, func(state fullLogState) string {
+		if state.SubagentExpanded(1) {
+			return "expanded"
+		}
+		return "collapsed"
+	}, DefaultOptions())
+	viewer.width = 80
+
+	if !viewer.refreshLines() {
+		t.Fatalf("first refresh should populate lines")
+	}
+	if strings.Join(viewer.lines, "\n") != "collapsed" {
+		t.Fatalf("lines = %#v, want collapsed", viewer.lines)
+	}
+	if viewer.handleInput([]byte{'1'}) {
+		t.Fatalf("number shortcut should toggle, not close viewer")
+	}
+	if strings.Join(viewer.lines, "\n") != "expanded" {
+		t.Fatalf("lines = %#v, want expanded", viewer.lines)
+	}
+	if viewer.handleInput([]byte{27, '[', '4', '9', ';', '5', 'u'}) {
+		t.Fatalf("CSI-u ctrl+1 shortcut should toggle, not close viewer")
+	}
+	if strings.Join(viewer.lines, "\n") != "collapsed" {
+		t.Fatalf("lines = %#v, want collapsed", viewer.lines)
 	}
 }
 

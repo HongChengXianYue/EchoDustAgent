@@ -3,7 +3,9 @@ package ui
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"local-agent/internal/runtimeevent"
 	"local-agent/internal/tools"
@@ -159,6 +161,10 @@ func (r *BlockRenderer) toolEventDetail(event runtimeevent.Event) string {
 }
 
 func (r *BlockRenderer) fullToolLogText() string {
+	return r.fullToolLogTextWithState(fullLogState{})
+}
+
+func (r *BlockRenderer) fullToolLogTextWithState(state fullLogState) string {
 	var out strings.Builder
 	fmt.Fprintln(&out, "Full Tool Log")
 	fmt.Fprintf(&out, "%d event(s)\n\n", len(r.toolEvents))
@@ -167,20 +173,195 @@ func (r *BlockRenderer) fullToolLogText() string {
 		return out.String()
 	}
 
+	mainEvents, subagentBlocks := r.fullToolLogBlocks()
+	r.writeFullLogMainBlock(&out, mainEvents)
+	for _, block := range subagentBlocks {
+		out.WriteByte('\n')
+		r.writeFullLogSubagentBlock(&out, block, state.SubagentExpanded(block.index))
+	}
+	return out.String()
+}
+
+type fullLogIndexedEvent struct {
+	number int
+	event  runtimeevent.Event
+}
+
+type fullLogSubagentBlock struct {
+	index  int
+	task   string
+	events []fullLogIndexedEvent
+}
+
+func (r *BlockRenderer) fullToolLogBlocks() ([]fullLogIndexedEvent, []fullLogSubagentBlock) {
+	maxIndex := 0
+	for _, event := range r.toolEvents {
+		if event.Source == "subagent" && event.SubagentIndex > maxIndex {
+			maxIndex = event.SubagentIndex
+		}
+	}
+
+	fallbackIndex := maxIndex + 1
+	if fallbackIndex == 1 {
+		fallbackIndex = 1
+	}
+	fallbackByTask := map[string]int{}
+	mainEvents := []fullLogIndexedEvent{}
+	subagentByIndex := map[int]*fullLogSubagentBlock{}
+
 	for i, event := range r.toolEvents {
-		title := fullToolEventTitle(event)
-		if title == "" {
-			title = "Event"
+		indexed := fullLogIndexedEvent{number: i + 1, event: event}
+		if event.Source != "subagent" {
+			mainEvents = append(mainEvents, indexed)
+			continue
 		}
-		fmt.Fprintf(&out, "[%d] %s\n", i+1, title)
-		if detail := r.fullToolEventDetail(event); strings.TrimSpace(detail) != "" {
-			printIndented(&out, "    ", detail)
+
+		index := event.SubagentIndex
+		if index <= 0 {
+			key := strings.TrimSpace(event.ParentTool)
+			if key == "" {
+				key = "(unknown subagent)"
+			}
+			if existing, ok := fallbackByTask[key]; ok {
+				index = existing
+			} else {
+				index = fallbackIndex
+				fallbackByTask[key] = index
+				fallbackIndex++
+			}
 		}
-		if i != len(r.toolEvents)-1 {
+
+		block := subagentByIndex[index]
+		if block == nil {
+			block = &fullLogSubagentBlock{index: index}
+			subagentByIndex[index] = block
+		}
+		if block.task == "" {
+			block.task = strings.TrimSpace(event.ParentTool)
+		}
+		block.events = append(block.events, indexed)
+	}
+
+	subagentBlocks := make([]fullLogSubagentBlock, 0, len(subagentByIndex))
+	for _, block := range subagentByIndex {
+		subagentBlocks = append(subagentBlocks, *block)
+	}
+	sort.Slice(subagentBlocks, func(i, j int) bool {
+		return subagentBlocks[i].index < subagentBlocks[j].index
+	})
+	return mainEvents, subagentBlocks
+}
+
+func (r *BlockRenderer) writeFullLogMainBlock(out *strings.Builder, events []fullLogIndexedEvent) {
+	fmt.Fprintf(out, "Main (%d event(s))\n", len(events))
+	if len(events) == 0 {
+		fmt.Fprintln(out, "  (no main events)")
+		return
+	}
+	for i, event := range events {
+		r.writeFullLogEvent(out, event, "", false)
+		if i != len(events)-1 {
 			out.WriteByte('\n')
 		}
 	}
-	return out.String()
+}
+
+func (r *BlockRenderer) writeFullLogSubagentBlock(out *strings.Builder, block fullLogSubagentBlock, expanded bool) {
+	color := subagentFullLogColor(block.index)
+	state := "collapsed"
+	action := "expand"
+	if expanded {
+		state = "expanded"
+		action = "collapse"
+	}
+	shortcut := "no shortcut"
+	if block.index >= 1 && block.index <= 5 {
+		shortcut = fmt.Sprintf("Ctrl+%d to %s", block.index, action)
+	}
+	writeFullLogColoredLine(out, color, fmt.Sprintf("Subagent-%d (%s, %s) | %d event(s)", block.index, state, shortcut, len(block.events)))
+	if strings.TrimSpace(block.task) != "" {
+		writeFullLogColoredLine(out, color, "  Task: "+block.task)
+	}
+	if len(block.events) == 0 {
+		writeFullLogColoredLine(out, color, "  (no events)")
+		return
+	}
+	if !expanded {
+		latest := block.events[len(block.events)-1].event
+		latest.Source = ""
+		latest.ParentTool = ""
+		title := fullToolEventTitle(latest)
+		if title == "" {
+			title = "Event"
+		}
+		writeFullLogColoredLine(out, color, "  Latest: "+title)
+		return
+	}
+	for i, event := range block.events {
+		r.writeFullLogEvent(out, event, color, true)
+		if i != len(block.events)-1 {
+			out.WriteByte('\n')
+		}
+	}
+}
+
+func (r *BlockRenderer) writeFullLogEvent(out *strings.Builder, indexed fullLogIndexedEvent, color string, stripSource bool) {
+	event := indexed.event
+	if stripSource {
+		event.Source = ""
+		event.ParentTool = ""
+	}
+	title := fullToolEventTitle(event)
+	if title == "" {
+		title = "Event"
+	}
+	fmt.Fprintf(out, "[%d] ", indexed.number)
+	writeFullLogColoredLine(out, color, title)
+	if detail := r.fullToolEventDetail(event); strings.TrimSpace(detail) != "" {
+		if color == "" {
+			printIndented(out, "    ", detail)
+		} else {
+			printColoredIndented(out, "    ", detail, color)
+		}
+	}
+}
+
+func subagentFullLogColor(index int) string {
+	colors := []string{
+		"\x1b[36m",
+		"\x1b[33m",
+		"\x1b[35m",
+		"\x1b[32m",
+		"\x1b[34m",
+	}
+	if index < 1 || index > len(colors) {
+		return ""
+	}
+	return colors[index-1]
+}
+
+func writeFullLogColoredLine(out io.Writer, color string, text string) {
+	if color == "" {
+		fmt.Fprintln(out, text)
+		return
+	}
+	fmt.Fprintln(out, color+text+"\x1b[0m")
+}
+
+func printColoredIndented(output io.Writer, prefix string, text string, color string) {
+	text = strings.TrimRight(text, "\n")
+	if strings.TrimSpace(text) == "" {
+		writeFullLogColoredLine(output, color, prefix+"(no output)")
+		return
+	}
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if i == 0 {
+			writeFullLogColoredLine(output, color, prefix+line)
+			continue
+		}
+		writeFullLogColoredLine(output, color, strings.Repeat(" ", utf8.RuneCountInString(prefix))+line)
+	}
 }
 
 func fullToolEventTitle(event runtimeevent.Event) string {

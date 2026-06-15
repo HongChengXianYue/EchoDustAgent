@@ -223,10 +223,10 @@ func (r *BlockRenderer) ShowFullToolLog(input *os.File, output *os.File) {
 	options := r.options
 	r.mu.Unlock()
 
-	viewer := newLiveFullLogViewer(input, output, func() string {
+	viewer := newStatefulLiveFullLogViewer(input, output, func(state fullLogState) string {
 		r.mu.Lock()
 		defer r.mu.Unlock()
-		return r.fullToolLogText()
+		return r.fullToolLogTextWithState(state)
 	}, options)
 	viewer.Run()
 	r.mu.Lock()

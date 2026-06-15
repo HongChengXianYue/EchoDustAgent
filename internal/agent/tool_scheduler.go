@@ -20,8 +20,9 @@ type preparedToolCall struct {
 	args   json.RawMessage
 	result *tools.Result
 
-	category    approval.Category
-	writeImpact approval.WriteImpact
+	category      approval.Category
+	writeImpact   approval.WriteImpact
+	subagentIndex int
 }
 
 type executedToolCall struct {
@@ -132,6 +133,9 @@ func (a *Agent) prepareToolCall(ctx context.Context, step int, index int, call l
 		plan.result = &result
 		return plan
 	}
+	if tools.IsDelegateTaskTool(call.Function.Name) {
+		plan.subagentIndex = a.nextSubagentIndex()
+	}
 	plan.writeImpact = approval.AnalyzeWrite(call.Function.Name, plan.args, a.workspace, plan.category)
 	if reason, blocked := approval.BlockReason(call.Function.Name, plan.args); blocked {
 		result := tools.Error("command blocked by permanent safety policy: " + reason)
@@ -172,7 +176,13 @@ func (a *Agent) executePreparedTool(ctx context.Context, step int, plan prepared
 	})
 
 	startedAt := time.Now()
-	result, err := plan.tool.Execute(ctx, plan.args)
+	var result tools.Result
+	var err error
+	if tools.IsDelegateTaskTool(plan.call.Function.Name) && a.subagentTool != nil {
+		result = a.runSubagentWithIndex(ctx, plan.args, plan.subagentIndex)
+	} else {
+		result, err = plan.tool.Execute(ctx, plan.args)
+	}
 	if err != nil {
 		result = tools.Error(err.Error())
 	}

@@ -70,8 +70,30 @@ type subagentConcurrencyClient struct {
 	childToolCounts []int
 }
 
+type indexedSubagentClient struct {
+	mu          sync.Mutex
+	parentCalls int
+}
+
+type lockingCaptureRenderer struct {
+	mu     sync.Mutex
+	events []runtimeevent.Event
+}
+
 func (r *captureRenderer) HandleEvent(event runtimeevent.Event) {
 	r.events = append(r.events, event)
+}
+
+func (r *lockingCaptureRenderer) HandleEvent(event runtimeevent.Event) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, event)
+}
+
+func (r *lockingCaptureRenderer) Events() []runtimeevent.Event {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]runtimeevent.Event(nil), r.events...)
 }
 
 func (t *echoTool) Name() string {
@@ -192,6 +214,32 @@ func (c *subagentConcurrencyClient) ChatWithTools(ctx context.Context, messages 
 			delegateTaskToolCall("delegate_1", "research one"),
 			delegateTaskToolCall("delegate_2", "research two"),
 			delegateTaskToolCall("delegate_3", "research three"),
+		}}, nil
+	}
+	return &llm.ChatResponse{Content: "parent done"}, nil
+}
+
+func (c *indexedSubagentClient) ChatWithTools(ctx context.Context, messages []llm.Message, specs []llm.FunctionTool) (*llm.ChatResponse, error) {
+	if len(messages) > 0 && strings.Contains(messages[0].Content, "read-only research subagent") {
+		for _, message := range messages {
+			if message.Role == "tool" {
+				return &llm.ChatResponse{Content: "child done"}, nil
+			}
+		}
+		return &llm.ChatResponse{ToolCalls: []llm.ToolCall{
+			testToolCall("child_read", "read_file", `{"path":"README.md"}`),
+		}}, nil
+	}
+
+	c.mu.Lock()
+	c.parentCalls++
+	call := c.parentCalls
+	c.mu.Unlock()
+	if call == 1 {
+		return &llm.ChatResponse{ToolCalls: []llm.ToolCall{
+			todoToolCall("todo_1", "Delegate research"),
+			delegateTaskToolCall("delegate_1", "research one"),
+			delegateTaskToolCall("delegate_2", "research two"),
 		}}, nil
 	}
 	return &llm.ChatResponse{Content: "parent done"}, nil
@@ -1083,6 +1131,9 @@ func TestDelegateTaskForwardsSubagentToolEventsToParentRenderer(t *testing.T) {
 			if event.ParentTool != "Inspect README" {
 				t.Fatalf("subagent parent task = %q", event.ParentTool)
 			}
+			if event.SubagentIndex != 1 {
+				t.Fatalf("subagent index = %d, want 1", event.SubagentIndex)
+			}
 		}
 		if event.Source == "subagent" && (event.Type == runtimeevent.TypeRunStart || event.Type == runtimeevent.TypeRunEnd || event.Type == runtimeevent.TypeFinal || event.Type == runtimeevent.TypeTodoUpdate) {
 			t.Fatalf("subagent frame/todo/final event should not be forwarded: %#v", event)
@@ -1090,6 +1141,29 @@ func TestDelegateTaskForwardsSubagentToolEventsToParentRenderer(t *testing.T) {
 	}
 	if !foundSubagentRead {
 		t.Fatalf("missing forwarded subagent read event: %#v", renderer.events)
+	}
+}
+
+func TestDelegateTaskAssignsStableSubagentIndexesByToolCallOrder(t *testing.T) {
+	client := &indexedSubagentClient{}
+	registry := tools.NewRegistry()
+	registry.Register(&blockingTool{name: "read_file", delay: 5 * time.Millisecond})
+	renderer := &lockingCaptureRenderer{}
+
+	agent := NewWithWorkspace(client, registry, 5, "/tmp/workspace")
+	agent.SetRenderer(renderer)
+	if _, err := agent.Run(context.Background(), "delegate two reads"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	indexByTask := map[string]int{}
+	for _, event := range renderer.Events() {
+		if event.Source == "subagent" && event.Type == runtimeevent.TypeToolCall && event.Tool == "read_file" {
+			indexByTask[event.ParentTool] = event.SubagentIndex
+		}
+	}
+	if indexByTask["research one"] != 1 || indexByTask["research two"] != 2 {
+		t.Fatalf("subagent indexes = %#v, want research one=1 and research two=2", indexByTask)
 	}
 }
 

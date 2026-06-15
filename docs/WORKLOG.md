@@ -188,3 +188,10 @@
 - 主要模块：`internal/agent`、`internal/tools`。
 - 验证：`go test ./internal/agent ./internal/tools` 通过；`go test ./...` 通过；`go vet ./...` 通过。
 - 备注：主 Agent 的 TODO 门禁保持不变；新增回归测试覆盖子代理不先调用 `update_todos`、直接执行只读工具的路径。
+
+## 2026-06-15 - Ctrl+T 子代理日志分组
+
+- 摘要：`Ctrl+T` 全量工具日志改为 Main block 与 Subagent block 分组显示；每个子代理使用稳定编号和独立颜色，子代理 block 默认折叠，可用 `Ctrl+1` 到 `Ctrl+5` 或数字键切换展开；事件编号如 `[1]` 保持无色。
+- 主要模块：`internal/agent`、`internal/runtimeevent`、`internal/ui`。
+- 验证：`go test ./internal/agent ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
+- 备注：子代理编号按父 Agent 单轮 `delegate_task` tool call 顺序分配；超过 5 个子代理仍会显示 block，但没有快捷键。
