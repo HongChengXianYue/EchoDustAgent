@@ -14,6 +14,7 @@ type toggleKeyWatcher struct {
 	output    io.Writer
 	onToggle  func()
 	onFullLog func(input *os.File, output *os.File)
+	poll      time.Duration
 
 	mu      sync.Mutex
 	running bool
@@ -21,8 +22,17 @@ type toggleKeyWatcher struct {
 	done    chan struct{}
 }
 
-func newToggleKeyWatcher(input io.Reader, output io.Writer, onToggle func(), onFullLog func(input *os.File, output *os.File)) *toggleKeyWatcher {
-	return &toggleKeyWatcher{input: input, output: output, onToggle: onToggle, onFullLog: onFullLog}
+func newToggleKeyWatcher(input io.Reader, output io.Writer, onToggle func(), onFullLog func(input *os.File, output *os.File), pollMilliseconds int) *toggleKeyWatcher {
+	if pollMilliseconds <= 0 {
+		pollMilliseconds = DefaultOptions().TogglePollMilliseconds
+	}
+	return &toggleKeyWatcher{
+		input:     input,
+		output:    output,
+		onToggle:  onToggle,
+		onFullLog: onFullLog,
+		poll:      time.Duration(pollMilliseconds) * time.Millisecond,
+	}
 }
 
 func (w *toggleKeyWatcher) Start() {
@@ -85,7 +95,7 @@ func (w *toggleKeyWatcher) run(file *os.File, outputFile *os.File, stop <-chan s
 		n, err := syscall.Read(fd, buf[:])
 		if err != nil {
 			if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK) {
-				time.Sleep(40 * time.Millisecond)
+				time.Sleep(w.poll)
 				continue
 			}
 			return

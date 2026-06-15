@@ -1,0 +1,75 @@
+# LLM 服务配置。API Key 故意只从 AGENT_API_KEY 环境变量读取。
+llm:
+  # OpenAI 兼容接口的基础地址，不包含 /chat/completions 路径。
+  base_url: https://api.openai.com/v1
+  # 发给服务商的模型名称。
+  model: gpt-4.1-mini
+  # 单次 chat completion HTTP 请求超时时间。
+  request_timeout_seconds: 120
+  # 是否允许模型在一次 assistant 回复中返回多个原生 tool call。
+  parallel_tool_calls: true
+
+# Agent 循环限制。
+agent:
+  # 单次用户请求最多执行多少轮 ReAct 循环，超过后报错停止。
+  max_steps: 30
+
+# 内置工具限制和执行上限。
+tools:
+  # list_files 最多返回多少个目录项，超过后截断。
+  list_max_entries: 200
+  # find_files 默认最多返回多少个匹配路径。
+  find_max_matches: 50
+  # read_file 最多返回多少字节。
+  read_file_max_bytes: 65536
+  # search_files 最多返回多少条内容匹配结果。
+  search_max_matches: 100
+  # search_files 最多扫描多大的单个文件。
+  search_max_file_bytes: 1048576
+  # 模型未指定 timeout 时，run_command 使用的默认超时时间。
+  command_default_timeout_seconds: 30
+  # run_command 允许的最大超时时间。
+  command_max_timeout_seconds: 120
+  # run_command 最多返回多少 stdout/stderr 合并输出字节。
+  command_output_max_bytes: 65536
+  # apply_patch 的执行超时时间。
+  apply_patch_timeout_seconds: 30
+  # apply_patch 最多返回多少 patch 命令输出字节。
+  apply_patch_output_max_bytes: 65536
+  # 文件变更预览最多保留多少行变更内容。
+  file_change_preview_lines: 20
+
+# 终端 UI 渲染限制。
+ui:
+  # 横向分隔线宽度。
+  separator_width: 80
+  # 实时 Todo/Tools 区域最大高度。
+  live_frame_max_lines: 24
+  # 实时 Todo/Tools 区域最大宽度。
+  live_frame_max_width: 100
+  # 实时区域外预留的终端行数。
+  live_frame_height_margin: 6
+  # Tools 展开时最多展示多少条最近工具事件。
+  max_expanded_live_tool_events: 6
+  # 无法检测终端尺寸时，全量日志查看器使用的默认宽度。
+  full_log_default_width: 100
+  # 无法检测终端尺寸时，全量日志查看器使用的默认高度。
+  full_log_default_height: 24
+  # 全量日志查看器最小宽度。
+  full_log_min_width: 20
+  # 全量日志查看器最小高度。
+  full_log_min_height: 6
+  # 全量日志查看器读取按键的轮询间隔。
+  full_log_poll_milliseconds: 30
+  # Ctrl+E/Ctrl+T 实时快捷键监听的轮询间隔。
+  toggle_poll_milliseconds: 40
+  # 最终回答 Markdown 渲染的自动换行宽度。
+  markdown_word_wrap: 100
+  # 实时 UI 中普通工具输出预览的字符上限。
+  tool_preview_output_chars: 2000
+  # 命令输出摘要使用的较大预览字符上限。
+  tool_preview_long_output_chars: 4000
+  # 多文件变更摘要的预览字符上限。
+  file_change_preview_chars: 800
+  # 审批参数无法结构化展示时，JSON 兜底预览的字符上限。
+  approval_args_preview_chars: 300

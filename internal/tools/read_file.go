@@ -8,7 +8,8 @@ import (
 )
 
 type ReadFileTool struct {
-	Workdir string
+	Workdir  string
+	MaxBytes int
 }
 
 func (t *ReadFileTool) Name() string {
@@ -43,7 +44,10 @@ func (t *ReadFileTool) Execute(ctx context.Context, args json.RawMessage) (Resul
 	if err != nil {
 		return Error(err.Error()), nil
 	}
-	const maxBytes = 64 * 1024
+	maxBytes := t.MaxBytes
+	if maxBytes <= 0 {
+		maxBytes = DefaultOptions().ReadFileMaxBytes
+	}
 	output := capOutput(string(data), maxBytes)
 	return Success(fmt.Sprintf("read %s (%d bytes)", displayPath(t.Workdir, path), len(data)), output), nil
 }

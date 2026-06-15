@@ -9,7 +9,8 @@ import (
 )
 
 type ListFilesTool struct {
-	Workdir string
+	Workdir    string
+	MaxEntries int
 }
 
 func (t *ListFilesTool) Name() string {
@@ -48,7 +49,10 @@ func (t *ListFilesTool) Execute(ctx context.Context, args json.RawMessage) (Resu
 	if err != nil {
 		return Error(err.Error()), nil
 	}
-	const maxEntries = 200
+	maxEntries := t.MaxEntries
+	if maxEntries <= 0 {
+		maxEntries = DefaultOptions().ListMaxEntries
+	}
 	var lines []string
 	for i, entry := range entries {
 		if i >= maxEntries {

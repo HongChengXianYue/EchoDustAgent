@@ -154,6 +154,32 @@ func TestRegisterBuiltinsIncludesFindFiles(t *testing.T) {
 	}
 }
 
+func TestRegisterBuiltinsAppliesFileChangePreviewLines(t *testing.T) {
+	registry := NewRegistry()
+	RegisterBuiltinsWithOptions(registry, t.TempDir(), Options{FileChangePreviewLines: 1})
+
+	tool, ok := registry.Get("write_file")
+	if !ok {
+		t.Fatal("write_file was not registered")
+	}
+	result, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{
+		"path":    "many.txt",
+		"content": "one\ntwo\nthree\n",
+	}))
+	if err != nil || result.Status != "success" {
+		t.Fatalf("write result = %#v err = %v", result, err)
+	}
+	if len(result.Changes) != 1 {
+		t.Fatalf("changes = %#v, want one change", result.Changes)
+	}
+	if strings.Contains(result.Changes[0].Preview, "two") {
+		t.Fatalf("preview = %q, want one configured content line", result.Changes[0].Preview)
+	}
+	if !strings.Contains(result.Changes[0].Preview, "…") {
+		t.Fatalf("preview = %q, want truncation marker", result.Changes[0].Preview)
+	}
+}
+
 func mustJSON(t *testing.T, value any) json.RawMessage {
 	t.Helper()
 	data, err := json.Marshal(value)

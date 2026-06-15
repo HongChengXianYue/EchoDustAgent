@@ -55,7 +55,10 @@ func prefixedLines(text string, prefix string, maxLines int) string {
 	return strings.Join(out, "\n")
 }
 
-func parseUnifiedDiffChanges(patchText string) []FileChange {
+func parseUnifiedDiffChanges(patchText string, previewLines int) []FileChange {
+	if previewLines <= 0 {
+		previewLines = DefaultOptions().FileChangePreviewLines
+	}
 	changes := map[string]*trackedChange{}
 	order := []string{}
 	var current *trackedChange
@@ -97,13 +100,13 @@ func parseUnifiedDiffChanges(patchText string) []FileChange {
 				continue
 			}
 			current.change.AddedLines++
-			appendPatchPreview(current, line, 20)
+			appendPatchPreview(current, line, previewLines)
 		case strings.HasPrefix(line, "-"):
 			if current == nil {
 				continue
 			}
 			current.change.RemovedLines++
-			appendPatchPreview(current, line, 20)
+			appendPatchPreview(current, line, previewLines)
 		}
 	}
 

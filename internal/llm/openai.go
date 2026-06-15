@@ -12,19 +12,44 @@ import (
 )
 
 type OpenAICompatibleClient struct {
-	BaseURL string
-	APIKey  string
-	Model   string
-	Client  *http.Client
+	BaseURL           string
+	APIKey            string
+	Model             string
+	ParallelToolCalls bool
+	Client            *http.Client
+}
+
+type OpenAICompatibleOptions struct {
+	Timeout           time.Duration
+	ParallelToolCalls bool
 }
 
 func NewOpenAICompatibleClient(baseURL, apiKey, model string) *OpenAICompatibleClient {
+	return NewOpenAICompatibleClientWithOptions(baseURL, apiKey, model, OpenAICompatibleOptions{
+		Timeout:           120 * time.Second,
+		ParallelToolCalls: true,
+	})
+}
+
+func NewOpenAICompatibleClientWithTimeout(baseURL, apiKey, model string, timeout time.Duration) *OpenAICompatibleClient {
+	return NewOpenAICompatibleClientWithOptions(baseURL, apiKey, model, OpenAICompatibleOptions{
+		Timeout:           timeout,
+		ParallelToolCalls: true,
+	})
+}
+
+func NewOpenAICompatibleClientWithOptions(baseURL, apiKey, model string, options OpenAICompatibleOptions) *OpenAICompatibleClient {
+	timeout := options.Timeout
+	if timeout <= 0 {
+		timeout = 120 * time.Second
+	}
 	return &OpenAICompatibleClient{
-		BaseURL: strings.TrimRight(baseURL, "/"),
-		APIKey:  apiKey,
-		Model:   model,
+		BaseURL:           strings.TrimRight(baseURL, "/"),
+		APIKey:            apiKey,
+		Model:             model,
+		ParallelToolCalls: options.ParallelToolCalls,
 		Client: &http.Client{
-			Timeout: 120 * time.Second,
+			Timeout: timeout,
 		},
 	}
 }
@@ -37,7 +62,7 @@ func (c *OpenAICompatibleClient) ChatWithTools(ctx context.Context, messages []M
 	}
 	if len(tools) > 0 {
 		reqBody.ToolChoice = "auto"
-		reqBody.ParallelToolCalls = boolPtr(false)
+		reqBody.ParallelToolCalls = boolPtr(c.ParallelToolCalls)
 	}
 
 	body, err := json.Marshal(reqBody)

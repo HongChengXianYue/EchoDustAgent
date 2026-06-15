@@ -29,8 +29,8 @@ func TestOpenAICompatibleClientSendsNativeToolSpecAndParsesToolCall(t *testing.T
 		if req["tool_choice"] != "auto" {
 			t.Fatalf("tool_choice = %v, want auto", req["tool_choice"])
 		}
-		if req["parallel_tool_calls"] != false {
-			t.Fatalf("parallel_tool_calls = %v, want false", req["parallel_tool_calls"])
+		if req["parallel_tool_calls"] != true {
+			t.Fatalf("parallel_tool_calls = %v, want true", req["parallel_tool_calls"])
 		}
 		tools, ok := req["tools"].([]any)
 		if !ok || len(tools) != 1 {
@@ -88,6 +88,36 @@ func TestOpenAICompatibleClientSendsNativeToolSpecAndParsesToolCall(t *testing.T
 	}
 	if resp.Usage == nil || resp.Usage.TotalTokens != 7 {
 		t.Fatalf("usage = %#v, want total 7", resp.Usage)
+	}
+}
+
+func TestOpenAICompatibleClientCanDisableParallelToolCalls(t *testing.T) {
+	client := NewOpenAICompatibleClientWithOptions("https://example.test/v1", "test-key", "test-model", OpenAICompatibleOptions{
+		ParallelToolCalls: false,
+	})
+	client.Client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		var req map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if req["parallel_tool_calls"] != false {
+			t.Fatalf("parallel_tool_calls = %v, want false", req["parallel_tool_calls"])
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"choices":[{"message":{"content":"ok"}}]}`)),
+		}, nil
+	})}
+
+	if _, err := client.ChatWithTools(context.Background(), []Message{{Role: "user", Content: "read"}}, []FunctionTool{
+		{
+			Name:        "read_file",
+			Description: "Read a file.",
+			Parameters:  json.RawMessage(`{"type":"object"}`),
+		},
+	}); err != nil {
+		t.Fatalf("ChatWithTools() error = %v", err)
 	}
 }
 

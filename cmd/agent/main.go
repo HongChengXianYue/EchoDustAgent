@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"local-agent/internal/agent"
 	"local-agent/internal/approval"
@@ -27,15 +28,18 @@ func main() {
 	}
 
 	registry := tools.NewRegistry()
-	tools.RegisterBuiltins(registry, workdir)
-	client := llm.NewOpenAICompatibleClient(cfg.BaseURL, cfg.APIKey, cfg.Model)
-	codingAgent := agent.NewWithWorkspace(client, registry, cfg.MaxSteps, workdir)
-	codingAgent.SetRenderer(ui.NewInteractiveBlockRenderer(os.Stdin, os.Stdout))
+	tools.RegisterBuiltinsWithOptions(registry, workdir, toolOptions(cfg.Tools))
+	client := llm.NewOpenAICompatibleClientWithOptions(cfg.LLM.BaseURL, cfg.APIKey, cfg.LLM.Model, llm.OpenAICompatibleOptions{
+		Timeout:           time.Duration(cfg.LLM.RequestTimeoutSeconds) * time.Second,
+		ParallelToolCalls: cfg.LLM.ParallelToolCalls,
+	})
+	codingAgent := agent.NewWithWorkspace(client, registry, cfg.Agent.MaxSteps, workdir)
+	codingAgent.SetRenderer(ui.NewInteractiveBlockRendererWithOptions(os.Stdin, os.Stdout, uiOptions(cfg.UI)))
 	codingAgent.SetApprover(approval.NewMemoryApprover(approval.NewTerminalApprover(os.Stdin, os.Stdout)))
 
 	fmt.Println("local-agent started")
 	fmt.Println("workdir:", workdir)
-	fmt.Println("model:", cfg.Model)
+	fmt.Println("model:", cfg.LLM.Model)
 	fmt.Println("type exit or quit to stop")
 
 	prompt := ui.NewPrompt(os.Stdin, os.Stdout)
@@ -53,5 +57,42 @@ func main() {
 		}
 
 		_, _ = codingAgent.Run(context.Background(), input)
+	}
+}
+
+func toolOptions(cfg config.ToolsConfig) tools.Options {
+	return tools.Options{
+		ListMaxEntries:               cfg.ListMaxEntries,
+		FindMaxMatches:               cfg.FindMaxMatches,
+		ReadFileMaxBytes:             cfg.ReadFileMaxBytes,
+		SearchMaxMatches:             cfg.SearchMaxMatches,
+		SearchMaxFileBytes:           cfg.SearchMaxFileBytes,
+		CommandDefaultTimeoutSeconds: cfg.CommandDefaultTimeoutSeconds,
+		CommandMaxTimeoutSeconds:     cfg.CommandMaxTimeoutSeconds,
+		CommandOutputMaxBytes:        cfg.CommandOutputMaxBytes,
+		ApplyPatchTimeoutSeconds:     cfg.ApplyPatchTimeoutSeconds,
+		ApplyPatchOutputMaxBytes:     cfg.ApplyPatchOutputMaxBytes,
+		FileChangePreviewLines:       cfg.FileChangePreviewLines,
+	}
+}
+
+func uiOptions(cfg config.UIConfig) ui.Options {
+	return ui.Options{
+		SeparatorWidth:             cfg.SeparatorWidth,
+		LiveFrameMaxLines:          cfg.LiveFrameMaxLines,
+		LiveFrameMaxWidth:          cfg.LiveFrameMaxWidth,
+		LiveFrameHeightMargin:      cfg.LiveFrameHeightMargin,
+		MaxExpandedLiveToolEvents:  cfg.MaxExpandedLiveToolEvents,
+		FullLogDefaultWidth:        cfg.FullLogDefaultWidth,
+		FullLogDefaultHeight:       cfg.FullLogDefaultHeight,
+		FullLogMinWidth:            cfg.FullLogMinWidth,
+		FullLogMinHeight:           cfg.FullLogMinHeight,
+		FullLogPollMilliseconds:    cfg.FullLogPollMilliseconds,
+		TogglePollMilliseconds:     cfg.TogglePollMilliseconds,
+		MarkdownWordWrap:           cfg.MarkdownWordWrap,
+		ToolPreviewOutputChars:     cfg.ToolPreviewOutputChars,
+		ToolPreviewLongOutputChars: cfg.ToolPreviewLongOutputChars,
+		FileChangePreviewChars:     cfg.FileChangePreviewChars,
+		ApprovalArgsPreviewChars:   cfg.ApprovalArgsPreviewChars,
 	}
 }

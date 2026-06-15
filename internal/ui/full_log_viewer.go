@@ -12,39 +12,37 @@ import (
 	"golang.org/x/term"
 )
 
-const (
-	fullLogDefaultWidth  = 100
-	fullLogDefaultHeight = 24
-)
-
 type fullLogViewer struct {
-	input  *os.File
-	output io.Writer
-	lines  []string
-	width  int
-	height int
-	offset int
+	input        *os.File
+	output       io.Writer
+	lines        []string
+	width        int
+	height       int
+	offset       int
+	pollInterval time.Duration
 }
 
-func newFullLogViewer(input *os.File, output *os.File, text string) *fullLogViewer {
+func newFullLogViewer(input *os.File, output *os.File, text string, options Options) *fullLogViewer {
+	options = normalizeOptions(options)
 	width, height, err := term.GetSize(int(output.Fd()))
 	if err != nil {
-		width = fullLogDefaultWidth
-		height = fullLogDefaultHeight
+		width = options.FullLogDefaultWidth
+		height = options.FullLogDefaultHeight
 	}
-	if width < 20 {
-		width = 20
+	if width < options.FullLogMinWidth {
+		width = options.FullLogMinWidth
 	}
-	if height < 6 {
-		height = 6
+	if height < options.FullLogMinHeight {
+		height = options.FullLogMinHeight
 	}
 
 	return &fullLogViewer{
-		input:  input,
-		output: output,
-		lines:  wrapFullLogLines(text, width),
-		width:  width,
-		height: height,
+		input:        input,
+		output:       output,
+		lines:        wrapFullLogLines(text, width),
+		width:        width,
+		height:       height,
+		pollInterval: time.Duration(options.FullLogPollMilliseconds) * time.Millisecond,
 	}
 }
 
@@ -62,7 +60,7 @@ func (v *fullLogViewer) Run() {
 		n, err := syscall.Read(int(v.input.Fd()), buf[:])
 		if err != nil {
 			if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK) {
-				time.Sleep(30 * time.Millisecond)
+				time.Sleep(v.pollInterval)
 				continue
 			}
 			return

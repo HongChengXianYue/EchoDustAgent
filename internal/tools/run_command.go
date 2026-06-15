@@ -10,7 +10,10 @@ import (
 )
 
 type RunCommandTool struct {
-	Workdir string
+	Workdir               string
+	DefaultTimeoutSeconds int
+	MaxTimeoutSeconds     int
+	OutputMaxBytes        int
 }
 
 func (t *RunCommandTool) Name() string {
@@ -22,6 +25,14 @@ func (t *RunCommandTool) Description() string {
 }
 
 func (t *RunCommandTool) Parameters() json.RawMessage {
+	defaultTimeout := t.DefaultTimeoutSeconds
+	if defaultTimeout <= 0 {
+		defaultTimeout = DefaultOptions().CommandDefaultTimeoutSeconds
+	}
+	maxTimeout := t.MaxTimeoutSeconds
+	if maxTimeout <= 0 {
+		maxTimeout = DefaultOptions().CommandMaxTimeoutSeconds
+	}
 	return schemaObject([]string{"command"}, map[string]any{
 		"command": map[string]any{
 			"type":        "string",
@@ -29,7 +40,7 @@ func (t *RunCommandTool) Parameters() json.RawMessage {
 		},
 		"timeout_seconds": map[string]any{
 			"type":        "integer",
-			"description": "Optional timeout in seconds. Defaults to 30 and is capped at 120.",
+			"description": fmt.Sprintf("Optional timeout in seconds. Defaults to %d and is capped at %d.", defaultTimeout, maxTimeout),
 		},
 	})
 }
@@ -47,10 +58,17 @@ func (t *RunCommandTool) Execute(ctx context.Context, args json.RawMessage) (Res
 	}
 	timeout := params.TimeoutSeconds
 	if timeout <= 0 {
-		timeout = 30
+		timeout = t.DefaultTimeoutSeconds
 	}
-	if timeout > 120 {
-		timeout = 120
+	if timeout <= 0 {
+		timeout = DefaultOptions().CommandDefaultTimeoutSeconds
+	}
+	maxTimeout := t.MaxTimeoutSeconds
+	if maxTimeout <= 0 {
+		maxTimeout = DefaultOptions().CommandMaxTimeoutSeconds
+	}
+	if timeout > maxTimeout {
+		timeout = maxTimeout
 	}
 
 	commandCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
@@ -60,7 +78,11 @@ func (t *RunCommandTool) Execute(ctx context.Context, args json.RawMessage) (Res
 	cmd := exec.CommandContext(commandCtx, name, commandArgs...)
 	cmd.Dir = t.Workdir
 	output, err := cmd.CombinedOutput()
-	text := capOutput(string(output), 64*1024)
+	maxOutput := t.OutputMaxBytes
+	if maxOutput <= 0 {
+		maxOutput = DefaultOptions().CommandOutputMaxBytes
+	}
+	text := capOutput(string(output), maxOutput)
 	if commandCtx.Err() == context.DeadlineExceeded {
 		return Error(fmt.Sprintf("command timed out after %d seconds", timeout)), nil
 	}

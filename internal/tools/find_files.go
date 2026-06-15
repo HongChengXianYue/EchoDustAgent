@@ -11,7 +11,8 @@ import (
 )
 
 type FindFilesTool struct {
-	Workdir string
+	Workdir           string
+	DefaultMaxMatches int
 }
 
 func (t *FindFilesTool) Name() string {
@@ -38,7 +39,7 @@ func (t *FindFilesTool) Parameters() json.RawMessage {
 		},
 		"max_matches": map[string]any{
 			"type":        "integer",
-			"description": "Maximum number of matching paths to return. Defaults to 50.",
+			"description": "Maximum number of matching paths to return. Defaults to the configured find limit.",
 		},
 	})
 }
@@ -61,7 +62,10 @@ func (t *FindFilesTool) Execute(ctx context.Context, args json.RawMessage) (Resu
 		params.Path = "."
 	}
 	if params.MaxMatches <= 0 {
-		params.MaxMatches = 50
+		params.MaxMatches = t.DefaultMaxMatches
+	}
+	if params.MaxMatches <= 0 {
+		params.MaxMatches = DefaultOptions().FindMaxMatches
 	}
 
 	root, err := resolvePath(t.Workdir, params.Path)

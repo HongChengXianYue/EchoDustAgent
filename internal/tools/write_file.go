@@ -9,7 +9,8 @@ import (
 )
 
 type WriteFileTool struct {
-	Workdir string
+	Workdir      string
+	PreviewLines int
 }
 
 func (t *WriteFileTool) Name() string {
@@ -60,6 +61,10 @@ func (t *WriteFileTool) Execute(ctx context.Context, args json.RawMessage) (Resu
 	if err := os.WriteFile(path, []byte(params.Content), 0644); err != nil {
 		return Error(err.Error()), nil
 	}
+	previewLines := t.PreviewLines
+	if previewLines <= 0 {
+		previewLines = DefaultOptions().FileChangePreviewLines
+	}
 	result := Success(fmt.Sprintf("wrote %s (%d bytes)", displayPath(t.Workdir, path), len(params.Content)), "")
 	result.Changes = []FileChange{
 		{
@@ -67,7 +72,7 @@ func (t *WriteFileTool) Execute(ctx context.Context, args json.RawMessage) (Resu
 			Action:       action,
 			AddedLines:   countLines(params.Content),
 			RemovedLines: removedLines,
-			Preview:      addedContentPreview(params.Content, 20),
+			Preview:      addedContentPreview(params.Content, previewLines),
 		},
 	}
 	return result, nil

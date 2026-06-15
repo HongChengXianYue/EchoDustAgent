@@ -9,7 +9,8 @@ import (
 )
 
 type ReplaceInFileTool struct {
-	Workdir string
+	Workdir      string
+	PreviewLines int
 }
 
 func (t *ReplaceInFileTool) Name() string {
@@ -66,6 +67,10 @@ func (t *ReplaceInFileTool) Execute(ctx context.Context, args json.RawMessage) (
 	if err := os.WriteFile(path, []byte(updated), 0644); err != nil {
 		return Error(err.Error()), nil
 	}
+	previewLines := t.PreviewLines
+	if previewLines <= 0 {
+		previewLines = DefaultOptions().FileChangePreviewLines
+	}
 	result := Success(fmt.Sprintf("replaced %d occurrence(s) in %s", count, displayPath(t.Workdir, path)), "")
 	result.Changes = []FileChange{
 		{
@@ -73,7 +78,7 @@ func (t *ReplaceInFileTool) Execute(ctx context.Context, args json.RawMessage) (
 			Action:       "edited",
 			AddedLines:   countLines(params.NewText) * count,
 			RemovedLines: countLines(params.OldText) * count,
-			Preview:      replacementPreview(params.OldText, params.NewText, 20),
+			Preview:      replacementPreview(params.OldText, params.NewText, previewLines),
 		},
 	}
 	return result, nil

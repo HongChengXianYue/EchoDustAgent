@@ -10,7 +10,10 @@ import (
 )
 
 type ApplyPatchTool struct {
-	Workdir string
+	Workdir        string
+	TimeoutSeconds int
+	OutputMaxBytes int
+	PreviewLines   int
 }
 
 func (t *ApplyPatchTool) Name() string {
@@ -45,21 +48,33 @@ func (t *ApplyPatchTool) Execute(ctx context.Context, args json.RawMessage) (Res
 		return Error(err.Error()), nil
 	}
 
-	commandCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	timeout := t.TimeoutSeconds
+	if timeout <= 0 {
+		timeout = DefaultOptions().ApplyPatchTimeoutSeconds
+	}
+	commandCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(commandCtx, "patch", "--batch", "--forward", fmt.Sprintf("-p%d", strip))
 	cmd.Dir = t.Workdir
 	cmd.Stdin = strings.NewReader(params.Patch)
 	output, err := cmd.CombinedOutput()
-	text := capOutput(string(output), 64*1024)
+	maxOutput := t.OutputMaxBytes
+	if maxOutput <= 0 {
+		maxOutput = DefaultOptions().ApplyPatchOutputMaxBytes
+	}
+	text := capOutput(string(output), maxOutput)
 	if commandCtx.Err() == context.DeadlineExceeded {
-		return Error("patch timed out"), nil
+		return Error(fmt.Sprintf("patch timed out after %d seconds", timeout)), nil
 	}
 	if err != nil {
 		return Result{Status: "error", Summary: err.Error(), Output: text}, nil
 	}
+	previewLines := t.PreviewLines
+	if previewLines <= 0 {
+		previewLines = DefaultOptions().FileChangePreviewLines
+	}
 	result := Success("patch applied", text)
-	result.Changes = parseUnifiedDiffChanges(params.Patch)
+	result.Changes = parseUnifiedDiffChanges(params.Patch, previewLines)
 	return result, nil
 }
 

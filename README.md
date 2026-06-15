@@ -6,16 +6,29 @@ Minimal Go ReAct CLI agent using OpenAI-compatible native function calling.
 
 ```bash
 export AGENT_API_KEY=...
-export AGENT_BASE_URL=https://api.openai.com/v1
-export AGENT_MODEL=gpt-4.1-mini
 go run ./cmd/agent
 ```
 
-Optional:
+Optional environment overrides:
 
 ```bash
-export AGENT_MAX_STEPS=10
+export AGENT_BASE_URL=https://api.openai.com/v1
+export AGENT_MODEL=gpt-4.1-mini
+export AGENT_MAX_STEPS=20
 ```
+
+## Configuration
+
+Runtime tuning lives in `config.yaml`. The file keeps operational limits out of code while leaving protocol constants, tool names, shortcuts, and safety categories fixed in source.
+
+Configured areas:
+
+- `llm`: base URL, model, request timeout, and `parallel_tool_calls`.
+- `agent`: maximum ReAct steps per user request.
+- `tools`: list/find/read/search limits, command and patch timeouts, output caps, and file-change preview lines.
+- `ui`: separator width, live frame bounds, full-log viewer sizes, polling intervals, Markdown wrap width, and preview truncation lengths.
+
+`AGENT_API_KEY` is intentionally loaded from the environment and is not stored in `config.yaml`. `AGENT_BASE_URL`, `AGENT_MODEL`, and `AGENT_MAX_STEPS` override the YAML values when set.
 
 ## Built-in Tools
 

@@ -13,7 +13,9 @@ import (
 )
 
 type SearchFilesTool struct {
-	Workdir string
+	Workdir      string
+	MaxMatches   int
+	MaxFileBytes int64
 }
 
 func (t *SearchFilesTool) Name() string {
@@ -56,8 +58,14 @@ func (t *SearchFilesTool) Execute(ctx context.Context, args json.RawMessage) (Re
 		return Error(err.Error()), nil
 	}
 
-	const maxMatches = 100
-	const maxFileBytes = 1024 * 1024
+	maxMatches := t.MaxMatches
+	if maxMatches <= 0 {
+		maxMatches = DefaultOptions().SearchMaxMatches
+	}
+	maxFileBytes := t.MaxFileBytes
+	if maxFileBytes <= 0 {
+		maxFileBytes = int64(DefaultOptions().SearchMaxFileBytes)
+	}
 	var matches []string
 	walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {

@@ -52,8 +52,11 @@ func printIndented(output io.Writer, prefix string, text string) {
 	}
 }
 
-func separatorLine() string {
-	return strings.Repeat("─", 80)
+func separatorLine(width int) string {
+	if width <= 0 {
+		width = DefaultOptions().SeparatorWidth
+	}
+	return strings.Repeat("─", width)
 }
 
 func limitTerminalText(text string, maxLines int, maxWidth int) string {

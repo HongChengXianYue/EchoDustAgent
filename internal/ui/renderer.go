@@ -17,16 +17,10 @@ import (
 	"local-agent/internal/tools"
 )
 
-const (
-	defaultLiveFrameMaxLines  = 24
-	defaultLiveFrameMaxWidth  = 100
-	liveFrameHeightMargin     = 6
-	maxExpandedLiveToolEvents = 6
-)
-
 type BlockRenderer struct {
 	output             io.Writer
 	markdownRenderer   *glamour.TermRenderer
+	options            Options
 	mu                 sync.Mutex
 	inRun              bool
 	expandedTools      bool
@@ -42,38 +36,48 @@ type BlockRenderer struct {
 }
 
 func NewBlockRenderer(output io.Writer) *BlockRenderer {
-	renderer, _ := newMarkdownRenderer()
-	return &BlockRenderer{output: output, markdownRenderer: renderer}
+	return NewBlockRendererWithOptions(output, DefaultOptions())
+}
+
+func NewBlockRendererWithOptions(output io.Writer, options Options) *BlockRenderer {
+	options = normalizeOptions(options)
+	renderer, _ := newMarkdownRenderer(options.MarkdownWordWrap)
+	return &BlockRenderer{output: output, markdownRenderer: renderer, options: options}
 }
 
 func NewInteractiveBlockRenderer(input io.Reader, output io.Writer) *BlockRenderer {
-	renderer := NewBlockRenderer(output)
+	return NewInteractiveBlockRendererWithOptions(input, output, DefaultOptions())
+}
+
+func NewInteractiveBlockRendererWithOptions(input io.Reader, output io.Writer, options Options) *BlockRenderer {
+	options = normalizeOptions(options)
+	renderer := NewBlockRendererWithOptions(output, options)
 	if outputFile, ok := output.(*os.File); ok && isTerminal(outputFile) {
 		renderer.rewriteFrame = true
-		renderer.liveFrameMaxLines, renderer.liveFrameMaxWidth = liveFrameBounds(outputFile)
+		renderer.liveFrameMaxLines, renderer.liveFrameMaxWidth = liveFrameBounds(outputFile, options)
 	}
-	renderer.keyWatcher = newToggleKeyWatcher(input, output, renderer.ToggleTools, renderer.ShowFullToolLog)
+	renderer.keyWatcher = newToggleKeyWatcher(input, output, renderer.ToggleTools, renderer.ShowFullToolLog, options.TogglePollMilliseconds)
 	return renderer
 }
 
-func liveFrameBounds(output *os.File) (int, int) {
+func liveFrameBounds(output *os.File, options Options) (int, int) {
 	width, height, err := term.GetSize(int(output.Fd()))
 	if err != nil {
-		return defaultLiveFrameMaxLines, defaultLiveFrameMaxWidth
+		return options.LiveFrameMaxLines, options.LiveFrameMaxWidth
 	}
 
-	maxLines := defaultLiveFrameMaxLines
-	if height > liveFrameHeightMargin {
-		maxLines = height - liveFrameHeightMargin
+	maxLines := options.LiveFrameMaxLines
+	if height > options.LiveFrameHeightMargin {
+		maxLines = height - options.LiveFrameHeightMargin
 	}
-	if maxLines > defaultLiveFrameMaxLines {
-		maxLines = defaultLiveFrameMaxLines
+	if maxLines > options.LiveFrameMaxLines {
+		maxLines = options.LiveFrameMaxLines
 	}
 	if maxLines < 4 {
 		maxLines = 4
 	}
 
-	maxWidth := defaultLiveFrameMaxWidth
+	maxWidth := options.LiveFrameMaxWidth
 	if width > 1 {
 		maxWidth = width - 1
 	}
@@ -137,7 +141,7 @@ func (r *BlockRenderer) HandleEvent(event runtimeevent.Event) {
 			r.pendingPromptLines = approvalPromptLineCount(event)
 			return
 		}
-		r.block("Approval requested", approvalDetail(event))
+		r.block("Approval requested", approvalDetail(event, r.options.ApprovalArgsPreviewChars))
 	case runtimeevent.TypeApprovalDecision:
 		if r.inRun {
 			r.toolEvents = append(r.toolEvents, event)
@@ -197,7 +201,7 @@ func (r *BlockRenderer) ShowFullToolLog(input *os.File, output *os.File) {
 		return
 	}
 
-	viewer := newFullLogViewer(input, output, r.fullToolLogText())
+	viewer := newFullLogViewer(input, output, r.fullToolLogText(), r.options)
 	viewer.Run()
 	if r.renderedFrame {
 		r.renderFrame()
@@ -251,17 +255,17 @@ func approvalPromptLineCount(event runtimeevent.Event) int {
 func (r *BlockRenderer) limitLiveFrameText(text string) string {
 	maxLines := r.liveFrameMaxLines
 	if maxLines <= 0 {
-		maxLines = defaultLiveFrameMaxLines
+		maxLines = r.options.LiveFrameMaxLines
 	}
 	maxWidth := r.liveFrameMaxWidth
 	if maxWidth <= 0 {
-		maxWidth = defaultLiveFrameMaxWidth
+		maxWidth = r.options.LiveFrameMaxWidth
 	}
 	return limitTerminalText(text, maxLines, maxWidth)
 }
 
 func (r *BlockRenderer) writeTodoBlock(output io.Writer) {
-	fmt.Fprintln(output, separatorLine())
+	fmt.Fprintln(output, separatorLine(r.options.SeparatorWidth))
 	fmt.Fprintln(output, "• Todo")
 	if len(r.todos) == 0 {
 		fmt.Fprintln(output, "  └ "+greenText("[ ] Waiting for todo list"))
@@ -273,7 +277,7 @@ func (r *BlockRenderer) writeTodoBlock(output io.Writer) {
 }
 
 func (r *BlockRenderer) writeToolsBlock(output io.Writer) {
-	fmt.Fprintln(output, separatorLine())
+	fmt.Fprintln(output, separatorLine(r.options.SeparatorWidth))
 	if r.expandedTools {
 		fmt.Fprintln(output, "• Tools (expanded, Ctrl+E to collapse)")
 		if len(r.toolEvents) == 0 {
@@ -295,35 +299,40 @@ func (r *BlockRenderer) writeToolsBlock(output io.Writer) {
 		fmt.Fprintln(output, "  └ (waiting)")
 		return
 	}
-	fmt.Fprintf(output, "  └ %d event(s), latest: %s\n", len(r.toolEvents), toolEventTitle(r.toolEvents[len(r.toolEvents)-1]))
+	fmt.Fprintf(output, "  └ %d event(s), latest: %s\n", len(r.toolEvents), r.toolEventTitle(r.toolEvents[len(r.toolEvents)-1]))
 }
 
 func (r *BlockRenderer) expandedToolEvents() []runtimeevent.Event {
-	if !r.rewriteFrame || len(r.toolEvents) <= maxExpandedLiveToolEvents {
+	maxEvents := r.options.MaxExpandedLiveToolEvents
+	if !r.rewriteFrame || len(r.toolEvents) <= maxEvents {
 		return r.toolEvents
 	}
-	return r.toolEvents[len(r.toolEvents)-maxExpandedLiveToolEvents:]
+	return r.toolEvents[len(r.toolEvents)-maxEvents:]
 }
 
 func (r *BlockRenderer) writeToolEvent(output io.Writer, event runtimeevent.Event) {
-	title := toolEventTitle(event)
+	title := r.toolEventTitle(event)
 	if title == "" {
 		return
 	}
 	fmt.Fprintln(output, "  └ "+title)
-	detail := toolEventDetail(event)
+	detail := r.toolEventDetail(event)
 	if strings.TrimSpace(detail) != "" {
 		printIndented(output, "    ", detail)
 	}
 }
 
-func toolEventTitle(event runtimeevent.Event) string {
+func (r *BlockRenderer) toolEventTitle(event runtimeevent.Event) string {
+	return toolEventTitle(event, r.options.ApprovalArgsPreviewChars)
+}
+
+func toolEventTitle(event runtimeevent.Event, argsLimit int) string {
 	switch event.Type {
 	case runtimeevent.TypeAssistantMessage:
 		return "Assistant"
 	case runtimeevent.TypeToolCall:
 		if event.Tool == "run_command" {
-			return "Running " + commandTitle(event.Args)
+			return "Running " + commandTitle(event.Args, argsLimit)
 		}
 		if isEditTool(event.Tool) || isExploreTool(event.Tool) {
 			return ""
@@ -335,9 +344,9 @@ func toolEventTitle(event runtimeevent.Event) string {
 		}
 		if event.Tool == "run_command" {
 			if event.Result.Status == "error" {
-				return "Failed " + commandTitle(event.Args)
+				return "Failed " + commandTitle(event.Args, argsLimit)
 			}
-			return "Ran " + commandTitle(event.Args)
+			return "Ran " + commandTitle(event.Args, argsLimit)
 		}
 		if isExploreTool(event.Tool) {
 			return "Explored"
@@ -360,7 +369,7 @@ func toolEventTitle(event runtimeevent.Event) string {
 	}
 }
 
-func toolEventDetail(event runtimeevent.Event) string {
+func (r *BlockRenderer) toolEventDetail(event runtimeevent.Event) string {
 	switch event.Type {
 	case runtimeevent.TypeAssistantMessage:
 		return cleanTerminalText(event.Message)
@@ -368,7 +377,7 @@ func toolEventDetail(event runtimeevent.Event) string {
 		if event.Tool == "run_command" || isEditTool(event.Tool) || isExploreTool(event.Tool) {
 			return ""
 		}
-		return compactJSON(event.Args, 200)
+		return compactJSON(event.Args, r.options.ApprovalArgsPreviewChars)
 	case runtimeevent.TypeToolResult:
 		if event.Result == nil {
 			return ""
@@ -376,22 +385,22 @@ func toolEventDetail(event runtimeevent.Event) string {
 		result := *event.Result
 		switch {
 		case event.Tool == "run_command":
-			return summarizeResultOutput(result)
+			return summarizeResultOutput(result, r.options.ToolPreviewLongOutputChars)
 		case isExploreTool(event.Tool):
 			if strings.TrimSpace(result.Output) == "" {
-				return exploreDetail(event)
+				return exploreDetail(event, r.options.ApprovalArgsPreviewChars)
 			}
-			return exploreDetail(event) + "\n" + truncate(result.Output, 2000)
+			return exploreDetail(event, r.options.ApprovalArgsPreviewChars) + "\n" + truncate(result.Output, r.options.ToolPreviewOutputChars)
 		case isEditTool(event.Tool):
-			return fileChangeDetail(result)
+			return fileChangeDetail(result, r.options.FileChangePreviewChars)
 		default:
 			if strings.TrimSpace(result.Output) != "" {
-				return result.Summary + "\n" + truncate(result.Output, 2000)
+				return result.Summary + "\n" + truncate(result.Output, r.options.ToolPreviewOutputChars)
 			}
 			return result.Summary
 		}
 	case runtimeevent.TypeApprovalRequest:
-		return approvalDetail(event)
+		return approvalDetail(event, r.options.ApprovalArgsPreviewChars)
 	case runtimeevent.TypeApprovalDecision:
 		return event.Reason
 	case runtimeevent.TypeError:
@@ -416,7 +425,7 @@ func (r *BlockRenderer) fullToolLogText() string {
 			title = "Event"
 		}
 		fmt.Fprintf(&out, "[%d] %s\n", i+1, title)
-		if detail := fullToolEventDetail(event); strings.TrimSpace(detail) != "" {
+		if detail := r.fullToolEventDetail(event); strings.TrimSpace(detail) != "" {
 			printIndented(&out, "    ", detail)
 		}
 		if i != len(r.toolEvents)-1 {
@@ -432,14 +441,14 @@ func fullToolEventTitle(event runtimeevent.Event) string {
 		return "Assistant"
 	case runtimeevent.TypeToolCall:
 		if event.Tool == "run_command" {
-			return "Running " + commandTitle(event.Args)
+			return "Running " + commandTitle(event.Args, 0)
 		}
 		if event.Tool == "" {
 			return "Tool call"
 		}
 		return "Calling " + event.Tool
 	case runtimeevent.TypeToolResult:
-		return toolEventTitle(event)
+		return toolEventTitle(event, 0)
 	case runtimeevent.TypeApprovalRequest:
 		return "Approval requested"
 	case runtimeevent.TypeApprovalDecision:
@@ -451,7 +460,7 @@ func fullToolEventTitle(event runtimeevent.Event) string {
 	}
 }
 
-func fullToolEventDetail(event runtimeevent.Event) string {
+func (r *BlockRenderer) fullToolEventDetail(event runtimeevent.Event) string {
 	switch event.Type {
 	case runtimeevent.TypeAssistantMessage:
 		return cleanTerminalText(event.Message)
@@ -471,7 +480,7 @@ func fullToolEventDetail(event runtimeevent.Event) string {
 		case event.Tool == "run_command":
 			return fullResultOutput(result)
 		case isExploreTool(event.Tool):
-			detail := exploreDetail(event)
+			detail := exploreDetail(event, 0)
 			if strings.TrimSpace(result.Output) != "" {
 				return detail + "\n" + result.Output
 			}
@@ -488,7 +497,7 @@ func fullToolEventDetail(event runtimeevent.Event) string {
 			return result.Summary
 		}
 	case runtimeevent.TypeApprovalRequest:
-		return approvalDetail(event)
+		return approvalDetail(event, 0)
 	case runtimeevent.TypeApprovalDecision:
 		return event.Reason
 	case runtimeevent.TypeError:
@@ -532,7 +541,7 @@ func (r *BlockRenderer) renderToolCall(event runtimeevent.Event) {
 	if event.Tool == "run_command" {
 		command := jsonArgString(event.Args, "command")
 		if command == "" {
-			command = compactJSON(event.Args, 200)
+			command = compactJSON(event.Args, r.options.ApprovalArgsPreviewChars)
 		}
 		r.block("Running "+command, "")
 		return
@@ -543,7 +552,7 @@ func (r *BlockRenderer) renderToolCall(event runtimeevent.Event) {
 	if isExploreTool(event.Tool) {
 		return
 	}
-	r.block("Tool "+event.Tool, compactJSON(event.Args, 200))
+	r.block("Tool "+event.Tool, compactJSON(event.Args, r.options.ApprovalArgsPreviewChars))
 }
 
 func (r *BlockRenderer) renderToolResult(event runtimeevent.Event) {
@@ -553,16 +562,16 @@ func (r *BlockRenderer) renderToolResult(event runtimeevent.Event) {
 	result := *event.Result
 	switch {
 	case event.Tool == "run_command":
-		title := "Ran " + commandTitle(event.Args)
+		title := "Ran " + commandTitle(event.Args, r.options.ApprovalArgsPreviewChars)
 		if result.Status == "error" {
-			title = "Failed " + commandTitle(event.Args)
+			title = "Failed " + commandTitle(event.Args, r.options.ApprovalArgsPreviewChars)
 		}
 		r.block(title, "")
-		printIndented(r.output, "  └ ", summarizeResultOutput(result))
+		printIndented(r.output, "  └ ", summarizeResultOutput(result, r.options.ToolPreviewLongOutputChars))
 	case isExploreTool(event.Tool):
-		r.block("Explored", exploreDetail(event))
+		r.block("Explored", exploreDetail(event, r.options.ApprovalArgsPreviewChars))
 		if strings.TrimSpace(result.Output) != "" {
-			printIndented(r.output, "  └ ", truncate(result.Output, 2000))
+			printIndented(r.output, "  └ ", truncate(result.Output, r.options.ToolPreviewOutputChars))
 		}
 	case isEditTool(event.Tool):
 		r.renderFileChanges(result)
@@ -573,7 +582,7 @@ func (r *BlockRenderer) renderToolResult(event runtimeevent.Event) {
 		}
 		r.block(title, result.Summary)
 		if strings.TrimSpace(result.Output) != "" {
-			printIndented(r.output, "  └ ", truncate(result.Output, 2000))
+			printIndented(r.output, "  └ ", truncate(result.Output, r.options.ToolPreviewOutputChars))
 		}
 	}
 }
@@ -629,10 +638,10 @@ func fileChangeTitle(result tools.Result) string {
 	return fmt.Sprintf("Edited %d files (+%d -%d)", len(result.Changes), added, removed)
 }
 
-func fileChangeDetail(result tools.Result) string {
+func fileChangeDetail(result tools.Result, previewLimit int) string {
 	if len(result.Changes) == 0 {
 		if strings.TrimSpace(result.Output) != "" {
-			return truncate(result.Output, 2000)
+			return truncate(result.Output, previewLimit)
 		}
 		return result.Summary
 	}
@@ -642,7 +651,7 @@ func fileChangeDetail(result tools.Result) string {
 			fmt.Fprintf(&out, "%s %s (+%d -%d)\n", changeVerb(change), change.Path, change.AddedLines, change.RemovedLines)
 		}
 		if strings.TrimSpace(change.Preview) != "" {
-			out.WriteString(truncate(change.Preview, 800))
+			out.WriteString(truncate(change.Preview, previewLimit))
 			out.WriteByte('\n')
 		}
 	}
@@ -657,7 +666,7 @@ func (r *BlockRenderer) renderFileChanges(result tools.Result) {
 		}
 		r.block(title, result.Summary)
 		if strings.TrimSpace(result.Output) != "" {
-			printIndented(r.output, "  └ ", truncate(result.Output, 2000))
+			printIndented(r.output, "  └ ", truncate(result.Output, r.options.ToolPreviewOutputChars))
 		}
 		return
 	}
@@ -668,7 +677,7 @@ func (r *BlockRenderer) renderFileChanges(result tools.Result) {
 		title := changeVerb(change) + " " + change.Path + fmt.Sprintf(" (+%d -%d)", change.AddedLines, change.RemovedLines)
 		r.block(title, "")
 		if strings.TrimSpace(change.Preview) != "" {
-			printIndented(r.output, "  └ ", truncate(change.Preview, 2000))
+			printIndented(r.output, "  └ ", truncate(change.Preview, r.options.ToolPreviewOutputChars))
 		}
 		return
 	}
@@ -677,7 +686,7 @@ func (r *BlockRenderer) renderFileChanges(result tools.Result) {
 	for _, change := range result.Changes {
 		fmt.Fprintf(r.output, "  └ %s %s (+%d -%d)\n", changeVerb(change), change.Path, change.AddedLines, change.RemovedLines)
 		if strings.TrimSpace(change.Preview) != "" {
-			printIndented(r.output, "    ", truncate(change.Preview, 800))
+			printIndented(r.output, "    ", truncate(change.Preview, r.options.FileChangePreviewChars))
 		}
 	}
 }
@@ -687,7 +696,7 @@ func (r *BlockRenderer) renderFinal(message string) {
 	if message == "" {
 		return
 	}
-	fmt.Fprintln(r.output, separatorLine())
+	fmt.Fprintln(r.output, separatorLine(r.options.SeparatorWidth))
 	rendered, err := renderMarkdown(r.markdownRenderer, message)
 	if err != nil {
 		fmt.Fprintln(r.output, message)
@@ -706,13 +715,13 @@ func renderMarkdown(renderer *glamour.TermRenderer, message string) (string, err
 	return renderer.Render(message)
 }
 
-func newMarkdownRenderer() (*glamour.TermRenderer, error) {
+func newMarkdownRenderer(wordWrap int) (*glamour.TermRenderer, error) {
 	style := styles.DarkStyleConfig
 	clearHeadingPrefixes(&style)
 	softenCodeBlocks(&style)
 	return glamour.NewTermRenderer(
 		glamour.WithStyles(style),
-		glamour.WithWordWrap(100),
+		glamour.WithWordWrap(wordWrap),
 	)
 }
 
@@ -743,7 +752,7 @@ func uintPtr(v uint) *uint {
 }
 
 func (r *BlockRenderer) block(title string, detail string) {
-	fmt.Fprintln(r.output, separatorLine())
+	fmt.Fprintln(r.output, separatorLine(r.options.SeparatorWidth))
 	printIndented(r.output, "• ", strings.TrimSpace(title))
 	if strings.TrimSpace(detail) != "" {
 		printIndented(r.output, "  └ ", strings.TrimSpace(detail))
@@ -768,7 +777,7 @@ func isEditTool(tool string) bool {
 	}
 }
 
-func exploreDetail(event runtimeevent.Event) string {
+func exploreDetail(event runtimeevent.Event, argsLimit int) string {
 	switch event.Tool {
 	case "list_files":
 		path := jsonArgString(event.Args, "path")
@@ -797,21 +806,21 @@ func exploreDetail(event runtimeevent.Event) string {
 		}
 		return "Search " + query + " in " + path
 	default:
-		return compactJSON(event.Args, 200)
+		return compactJSON(event.Args, argsLimit)
 	}
 }
 
-func commandTitle(args []byte) string {
+func commandTitle(args []byte, argsLimit int) string {
 	command := jsonArgString(args, "command")
 	if command == "" {
-		return compactJSON(args, 200)
+		return compactJSON(args, argsLimit)
 	}
 	return command
 }
 
-func summarizeResultOutput(result tools.Result) string {
+func summarizeResultOutput(result tools.Result, limit int) string {
 	if strings.TrimSpace(result.Output) != "" {
-		return truncate(result.Output, 4000)
+		return truncate(result.Output, limit)
 	}
 	if strings.TrimSpace(result.Summary) != "" {
 		return result.Summary
@@ -830,7 +839,7 @@ func changeVerb(change tools.FileChange) string {
 	}
 }
 
-func approvalDetail(event runtimeevent.Event) string {
+func approvalDetail(event runtimeevent.Event, argsLimit int) string {
 	if event.Tool == "" {
 		return event.Reason
 	}
@@ -838,13 +847,13 @@ func approvalDetail(event runtimeevent.Event) string {
 	if event.Reason != "" {
 		detail += ": " + event.Reason
 	}
-	if args := approvalArgsDetail(event); args != "" {
+	if args := approvalArgsDetail(event, argsLimit); args != "" {
 		detail += "\n" + args
 	}
 	return detail
 }
 
-func approvalArgsDetail(event runtimeevent.Event) string {
+func approvalArgsDetail(event runtimeevent.Event, argsLimit int) string {
 	switch event.Tool {
 	case "run_command":
 		if command := jsonArgString(event.Args, "command"); command != "" {
@@ -881,7 +890,7 @@ func approvalArgsDetail(event runtimeevent.Event) string {
 		}
 	}
 	if len(event.Args) > 0 {
-		return "Args: " + compactJSON(event.Args, 300)
+		return "Args: " + compactJSON(event.Args, argsLimit)
 	}
 	return ""
 }
