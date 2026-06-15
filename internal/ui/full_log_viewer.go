@@ -19,6 +19,7 @@ type fullLogViewer struct {
 	output            io.Writer
 	lines             []string
 	textProvider      func(fullLogState) string
+	mainExpanded      bool
 	expandedSubagents map[int]bool
 	width             int
 	height            int
@@ -27,6 +28,7 @@ type fullLogViewer struct {
 }
 
 type fullLogState struct {
+	MainExpanded      bool
 	ExpandedSubagents map[int]bool
 }
 
@@ -60,6 +62,7 @@ func newStatefulLiveFullLogViewer(input *os.File, output *os.File, textProvider 
 		input:             input,
 		output:            output,
 		textProvider:      textProvider,
+		mainExpanded:      true,
 		expandedSubagents: map[int]bool{},
 		width:             width,
 		height:            height,
@@ -139,6 +142,8 @@ func (v *fullLogViewer) handleInput(input []byte) bool {
 			v.offset = 0
 		case 'G':
 			v.offset = v.maxOffset()
+		case '0':
+			v.toggleMain()
 		case '1', '2', '3', '4', '5':
 			v.toggleSubagent(int(input[i] - '0'))
 		}
@@ -205,8 +210,13 @@ func (v *fullLogViewer) handleCSIu(input []byte) int {
 	if err != nil {
 		return 0
 	}
-	if modifier == 5 && code >= int('1') && code <= int('5') {
-		v.toggleSubagent(code - int('0'))
+	if modifier == 5 && code >= int('0') && code <= int('5') {
+		index := code - int('0')
+		if index == 0 {
+			v.toggleMain()
+		} else {
+			v.toggleSubagent(index)
+		}
 		return end + 1
 	}
 	return 0
@@ -226,7 +236,7 @@ func (v *fullLogViewer) render() {
 	fmt.Fprint(v.output, "\x1b[2K\x1b[7m")
 	fmt.Fprintf(
 		v.output,
-		" Full tool log | Ctrl+T/q/Esc close | Ctrl+1-5 toggle subagents | ↑↓/jk scroll | PgUp/PgDn page | %d-%d/%d ",
+		" Full tool log | Ctrl+T/q/Esc close | Ctrl+0 main | Ctrl+1-5 subagents | ↑↓/jk scroll | PgUp/PgDn page | %d-%d/%d ",
 		v.offset+1,
 		min(v.offset+pageSize, len(v.lines)),
 		len(v.lines),
@@ -251,6 +261,13 @@ func (v *fullLogViewer) scroll(delta int) {
 	}
 }
 
+func (v *fullLogViewer) toggleMain() {
+	v.mainExpanded = !v.mainExpanded
+	if v.refreshLines() && v.offset > v.maxOffset() {
+		v.offset = v.maxOffset()
+	}
+}
+
 func (v *fullLogViewer) toggleSubagent(index int) {
 	if index < 1 || index > 5 {
 		return
@@ -266,7 +283,7 @@ func (v *fullLogViewer) state() fullLogState {
 	for index, isExpanded := range v.expandedSubagents {
 		expanded[index] = isExpanded
 	}
-	return fullLogState{ExpandedSubagents: expanded}
+	return fullLogState{MainExpanded: v.mainExpanded, ExpandedSubagents: expanded}
 }
 
 func (v *fullLogViewer) maxOffset() int {

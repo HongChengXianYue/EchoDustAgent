@@ -195,3 +195,10 @@
 - 主要模块：`internal/agent`、`internal/runtimeevent`、`internal/ui`。
 - 验证：`go test ./internal/agent ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
 - 备注：子代理编号按父 Agent 单轮 `delegate_task` tool call 顺序分配；超过 5 个子代理仍会显示 block，但没有快捷键。
+
+## 2026-06-15 - Ctrl+T 日志颜色和 Main 折叠修正
+
+- 摘要：调整 `Ctrl+T` 全量日志颜色规则，只给事件编号前缀如 `[1]` 着色，日志标题和正文保持终端默认颜色；Main block 增加 `Ctrl+0` 和数字 `0` 展开/折叠，默认展开。
+- 主要模块：`internal/ui`。
+- 验证：`go test ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
+- 备注：保留子代理 block 默认折叠和 `Ctrl+1` 到 `Ctrl+5` 切换逻辑。

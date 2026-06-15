@@ -522,7 +522,7 @@ func TestBlockRendererFullToolLogGroupsSubagentsCollapsedByDefault(t *testing.T)
 
 	fullLog := renderer.fullToolLogText()
 	for _, want := range []string{
-		"Main (1 event(s))",
+		"Main (expanded, Ctrl+0 to collapse) | 1 event(s)",
 		"Subagent-1 (collapsed, Ctrl+1 to expand) | 2 event(s)",
 		"Task: Inspect README",
 		"Latest: Explored",
@@ -552,16 +552,22 @@ func TestBlockRendererFullToolLogExpandsAndColorsSubagentBlocks(t *testing.T) {
 
 	fullLog := renderer.fullToolLogTextWithState(fullLogState{ExpandedSubagents: map[int]bool{1: true}})
 	for _, want := range []string{
-		"\x1b[36mSubagent-1 (expanded, Ctrl+1 to collapse) | 1 event(s)\x1b[0m",
-		"[1] \x1b[36mCalling read_file\x1b[0m",
-		"\x1b[36m    Args: {\"path\":\"README.md\"}\x1b[0m",
+		"Subagent-1 (expanded, Ctrl+1 to collapse) | 1 event(s)",
+		"\x1b[36m[1]\x1b[0m Calling read_file",
+		"    Args: {\"path\":\"README.md\"}",
 	} {
 		if !strings.Contains(fullLog, want) {
 			t.Fatalf("full log missing %q:\n%s", want, fullLog)
 		}
 	}
-	if strings.Contains(fullLog, "\x1b[36m[1]") {
-		t.Fatalf("event number prefix should not be colored:\n%q", fullLog)
+	for _, unwanted := range []string{
+		"\x1b[36mSubagent-1",
+		"\x1b[36mCalling read_file",
+		"\x1b[36m    Args:",
+	} {
+		if strings.Contains(fullLog, unwanted) {
+			t.Fatalf("only event number prefix should be colored; found %q in:\n%q", unwanted, fullLog)
+		}
 	}
 }
 
@@ -616,6 +622,39 @@ func TestFullLogViewerTogglesSubagentBlocks(t *testing.T) {
 	}
 	if strings.Join(viewer.lines, "\n") != "collapsed" {
 		t.Fatalf("lines = %#v, want collapsed", viewer.lines)
+	}
+}
+
+func TestFullLogViewerTogglesMainBlock(t *testing.T) {
+	output, err := os.CreateTemp(t.TempDir(), "viewer-output")
+	if err != nil {
+		t.Fatalf("create temp output: %v", err)
+	}
+	viewer := newStatefulLiveFullLogViewer(nil, output, func(state fullLogState) string {
+		if state.MainExpanded {
+			return "main expanded"
+		}
+		return "main collapsed"
+	}, DefaultOptions())
+	viewer.width = 80
+
+	if !viewer.refreshLines() {
+		t.Fatalf("first refresh should populate lines")
+	}
+	if strings.Join(viewer.lines, "\n") != "main expanded" {
+		t.Fatalf("lines = %#v, want main expanded", viewer.lines)
+	}
+	if viewer.handleInput([]byte{'0'}) {
+		t.Fatalf("number shortcut should toggle main, not close viewer")
+	}
+	if strings.Join(viewer.lines, "\n") != "main collapsed" {
+		t.Fatalf("lines = %#v, want main collapsed", viewer.lines)
+	}
+	if viewer.handleInput([]byte{27, '[', '4', '8', ';', '5', 'u'}) {
+		t.Fatalf("CSI-u ctrl+0 shortcut should toggle main, not close viewer")
+	}
+	if strings.Join(viewer.lines, "\n") != "main expanded" {
+		t.Fatalf("lines = %#v, want main expanded", viewer.lines)
 	}
 }
 
