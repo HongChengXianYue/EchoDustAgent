@@ -359,6 +359,8 @@ func TestRunUsesPromptGuidanceInsteadOfHidingToolsForGreeting(t *testing.T) {
 		"avoid decorative emoji",
 		"do not run a full diff unless the user asks",
 		"Final answers must be self-contained",
+		"以上分析",
+		"Synthesize the concrete findings",
 	} {
 		if !strings.Contains(systemPrompt, want) {
 			t.Fatalf("system prompt missing %q:\n%s", want, systemPrompt)

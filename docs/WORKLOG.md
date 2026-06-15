@@ -202,3 +202,10 @@
 - 主要模块：`internal/ui`。
 - 验证：`go test ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
 - 备注：保留子代理 block 默认折叠和 `Ctrl+1` 到 `Ctrl+5` 切换逻辑。
+
+## 2026-06-15 - 最终回答可见性修复
+
+- 摘要：任务结束时自动将 Tools live frame 折叠后再渲染最终回答，避免展开的大量工具日志把总结挤出视口；同时强化系统提示词，要求使用工具或子代理后最终回答必须完整综合结论，不能只用“以上分析”“如上”等短语引用隐藏日志。
+- 主要模块：`internal/ui`、`internal/agent`。
+- 验证：`go test ./internal/agent ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
+- 备注：运行中仍可用 `Ctrl+E` 展开工具日志；只在 `RunEnd` 的最后一帧自动收起，保证 final answer 优先可见。

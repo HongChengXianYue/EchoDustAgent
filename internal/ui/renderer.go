@@ -158,6 +158,9 @@ func (r *BlockRenderer) beginRun() {
 func (r *BlockRenderer) handleRunEnd() {
 	r.mu.Lock()
 	if r.inRun && r.renderedFrame {
+		// The final answer prints after RunEnd. Collapse verbose tool output in
+		// the last live frame so the answer is not pushed out of the viewport.
+		r.expandedTools = false
 		r.renderFrame()
 	}
 	r.inRun = false

@@ -97,6 +97,7 @@ func systemPrompt(workspace string, maxParallelToolCalls int) string {
 		"When responding in the terminal, keep final answers concise. Markdown is allowed for final summaries when it improves readability, but avoid decorative emoji and excessive detail.",
 		"When summarizing recent code changes, prefer git log/stat or the worklog first; do not run a full diff unless the user asks for exact diff details.",
 		"Final answers must be self-contained. Do not refer to hidden tool logs or prior unseen analysis with phrases like 'the above analysis' unless that analysis is included in the final answer.",
+		"After using tools or subagents, never give a final answer that only points to hidden context, such as 'above analysis', 'as shown above', '以上分析', '如上', or '前面已经说明'. Synthesize the concrete findings in the final answer itself.",
 		"When you are done, answer directly and concisely.",
 	}
 	if workspace = strings.TrimSpace(workspace); workspace != "" {

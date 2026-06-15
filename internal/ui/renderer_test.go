@@ -399,6 +399,39 @@ func TestBlockRendererRunEndStopsWatcherOutsideRendererLock(t *testing.T) {
 	waitForClosed(t, finished, "run end")
 }
 
+func TestBlockRendererRunEndCollapsesExpandedToolsBeforeFinal(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+	renderer.rewriteFrame = true
+	renderer.liveFrameMaxLines = 20
+	renderer.liveFrameMaxWidth = 100
+
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:  runtimeevent.TypeTodoUpdate,
+		Todos: []runtimeevent.TodoItem{{Text: "Summarize findings", Status: runtimeevent.TodoCompleted}},
+	})
+	renderer.ToggleTools()
+	renderer.HandleEvent(runtimeevent.Event{
+		Type: runtimeevent.TypeToolResult,
+		Tool: "read_file",
+		Args: json.RawMessage(`{"path":"README.md"}`),
+		Result: &tools.Result{
+			Status: "success",
+			Output: strings.Repeat("long output\n", 20),
+		},
+	})
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunEnd})
+
+	frame := latestFrame(out.String())
+	if !strings.Contains(frame, "Tools (collapsed, Ctrl+E to expand)") {
+		t.Fatalf("final live frame should collapse tools before final answer:\n%q", frame)
+	}
+	if strings.Contains(frame, "Tools (expanded, Ctrl+E to collapse)") {
+		t.Fatalf("final live frame should not leave tools expanded:\n%q", frame)
+	}
+}
+
 func TestBlockRendererApprovalRequestStopsWatcherOutsideRendererLock(t *testing.T) {
 	var out bytes.Buffer
 	stop := make(chan struct{})
