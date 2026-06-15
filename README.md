@@ -25,6 +25,7 @@ Configured areas:
 
 - `llm`: base URL, model, request timeout, and `parallel_tool_calls`.
 - `agent`: maximum ReAct steps per user request.
+- `subagents`: delegate-task availability, concurrency, max steps, and result size.
 - `tools`: list/find/read/search limits, command and patch timeouts, output caps, and file-change preview lines.
 - `ui`: separator width, live frame bounds, full-log viewer sizes, polling intervals, Markdown wrap width, and preview truncation lengths.
 
@@ -40,8 +41,22 @@ Configured areas:
 - `replace_in_file`: replace exact text in a file.
 - `run_command`: run a shell command in the workdir.
 - `apply_patch`: apply a unified diff patch.
+- `delegate_task`: delegate an isolated read-only research task to a subagent.
 
 The agent only executes tools from provider-returned `tool_calls`. It does not parse assistant text as a JSON tool protocol.
+
+## Subagents
+
+The main agent exposes `delegate_task` for independent read-only research and focused code investigation.
+
+- Each subagent gets a fresh message history and does not inherit the parent conversation.
+- The parent receives only the subagent final answer as the `delegate_task` tool result.
+- Subagents do not receive `delegate_task`, so they cannot recursively spawn more subagents.
+- Subagent tool calls still use the same pre-use safety path: classification, write-impact analysis, permanent blacklist checks, and approval policy.
+- Subagents can use file read/search tools and `run_command`, but command calls outside `read_only`, `search_inspect`, or `build_test` are denied by the read-only policy.
+- Broad codebase analysis, architecture review, and “what is missing?” style project audits should delegate focused research first instead of reading many files directly in the main context.
+
+By default, at most two subagents run concurrently and each subagent can use up to eight ReAct steps.
 
 ## Tool Scheduling
 
@@ -70,6 +85,7 @@ The terminal UI prints assistant process text, tool calls, tool results, edit su
 - `Todo`: current task list.
 - `Tools`: collapsed by default; press `Ctrl+E` during the current run to expand or collapse recent tool progress.
 - `Full tool log`: press `Ctrl+T` during the current run to open the complete tool log in a full-screen viewer; press `q`, `Esc`, or `Ctrl+T` again to close it.
+- `Subagent`: delegated read-only research tasks.
 - `Explored`: read/list/find/search tools when `Tools` is expanded.
 - `Running` and `Ran`: shell commands.
 - `Added` or `Edited`: file-writing tools with line-count summaries.

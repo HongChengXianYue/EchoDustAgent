@@ -12,11 +12,12 @@ const (
 )
 
 type Config struct {
-	APIKey string
-	LLM    LLMConfig
-	Agent  AgentConfig
-	Tools  ToolsConfig
-	UI     UIConfig
+	APIKey    string
+	LLM       LLMConfig
+	Agent     AgentConfig
+	Subagents SubagentsConfig
+	Tools     ToolsConfig
+	UI        UIConfig
 }
 
 type LLMConfig struct {
@@ -28,6 +29,13 @@ type LLMConfig struct {
 
 type AgentConfig struct {
 	MaxSteps int
+}
+
+type SubagentsConfig struct {
+	Enabled        bool
+	MaxConcurrent  int
+	MaxSteps       int
+	ResultMaxBytes int
 }
 
 type ToolsConfig struct {
@@ -102,6 +110,12 @@ func Default() Config {
 		Agent: AgentConfig{
 			MaxSteps: 20,
 		},
+		Subagents: SubagentsConfig{
+			Enabled:        true,
+			MaxConcurrent:  2,
+			MaxSteps:       8,
+			ResultMaxBytes: 12 * 1024,
+		},
 		Tools: ToolsConfig{
 			ListMaxEntries:               200,
 			FindMaxMatches:               50,
@@ -161,6 +175,9 @@ func validate(cfg Config) error {
 	checkPositive := map[string]int{
 		"llm.request_timeout_seconds":           cfg.LLM.RequestTimeoutSeconds,
 		"agent.max_steps":                       cfg.Agent.MaxSteps,
+		"subagents.max_concurrent":              cfg.Subagents.MaxConcurrent,
+		"subagents.max_steps":                   cfg.Subagents.MaxSteps,
+		"subagents.result_max_bytes":            cfg.Subagents.ResultMaxBytes,
 		"tools.list_max_entries":                cfg.Tools.ListMaxEntries,
 		"tools.find_max_matches":                cfg.Tools.FindMaxMatches,
 		"tools.read_file_max_bytes":             cfg.Tools.ReadFileMaxBytes,

@@ -60,6 +60,16 @@ type fakeApprover struct {
 	calls    []approval.Request
 }
 
+type subagentConcurrencyClient struct {
+	mu              sync.Mutex
+	parentCalls     int
+	childCalls      int
+	activeChildren  int
+	maxActiveChild  int
+	childDelay      time.Duration
+	childToolCounts []int
+}
+
 func (r *captureRenderer) HandleEvent(event runtimeevent.Event) {
 	r.events = append(r.events, event)
 }
@@ -151,6 +161,40 @@ func (a *fakeApprover) Approve(ctx context.Context, request approval.Request) ap
 		return approval.DecisionAllow
 	}
 	return a.decision
+}
+
+func (c *subagentConcurrencyClient) ChatWithTools(ctx context.Context, messages []llm.Message, specs []llm.FunctionTool) (*llm.ChatResponse, error) {
+	if len(messages) > 0 && strings.Contains(messages[0].Content, "read-only research subagent") {
+		c.mu.Lock()
+		c.childCalls++
+		c.activeChildren++
+		if c.activeChildren > c.maxActiveChild {
+			c.maxActiveChild = c.activeChildren
+		}
+		c.childToolCounts = append(c.childToolCounts, len(specs))
+		c.mu.Unlock()
+
+		time.Sleep(c.childDelay)
+
+		c.mu.Lock()
+		c.activeChildren--
+		c.mu.Unlock()
+		return &llm.ChatResponse{Content: "subagent result"}, nil
+	}
+
+	c.mu.Lock()
+	c.parentCalls++
+	call := c.parentCalls
+	c.mu.Unlock()
+	if call == 1 {
+		return &llm.ChatResponse{ToolCalls: []llm.ToolCall{
+			todoToolCall("todo_1", "Delegate research"),
+			delegateTaskToolCall("delegate_1", "research one"),
+			delegateTaskToolCall("delegate_2", "research two"),
+			delegateTaskToolCall("delegate_3", "research three"),
+		}}, nil
+	}
+	return &llm.ChatResponse{Content: "parent done"}, nil
 }
 
 func TestRunExecutesNativeToolCallThenFinal(t *testing.T) {
@@ -252,6 +296,9 @@ func TestRunUsesPromptGuidanceInsteadOfHidingToolsForGreeting(t *testing.T) {
 		"Only call tools when the user asks for a concrete workspace action",
 		"call update_todos before any workspace tool",
 		"multiple tool calls in one assistant turn",
+		"broad codebase analysis",
+		"delegate one or more focused research tasks",
+		"Do not personally inspect many files",
 		"Use workspace-relative paths",
 		"Do not cd into guessed absolute paths",
 		"use find_files first",
@@ -260,6 +307,7 @@ func TestRunUsesPromptGuidanceInsteadOfHidingToolsForGreeting(t *testing.T) {
 		"Markdown is allowed for final summaries",
 		"avoid decorative emoji",
 		"do not run a full diff unless the user asks",
+		"Final answers must be self-contained",
 	} {
 		if !strings.Contains(systemPrompt, want) {
 			t.Fatalf("system prompt missing %q:\n%s", want, systemPrompt)
@@ -819,8 +867,135 @@ func TestRunUsesLoopScopedApprovalForExternalWrites(t *testing.T) {
 	}
 }
 
+func TestDelegateTaskUsesIsolatedSubagentAndReturnsOnlyFinalText(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_parent", "Delegate README research"),
+				delegateTaskToolCall("delegate_1", "Find what README says about this project"),
+			},
+		},
+		{
+			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_child", "Read README"),
+				testToolCall("child_read", "read_file", `{"path":"README.md"}`),
+			},
+		},
+		{Content: "README says this is a local agent."},
+		{Content: "parent finished"},
+	}}
+	readTool := &namedTool{name: "read_file"}
+	registry := tools.NewRegistry()
+	registry.Register(readTool)
+
+	agent := NewWithWorkspace(client, registry, 5, "/tmp/workspace")
+	answer, err := agent.Run(context.Background(), "delegate the README check")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if answer != "parent finished" {
+		t.Fatalf("answer = %q, want parent finished", answer)
+	}
+	if len(readTool.calls) != 1 {
+		t.Fatalf("child read calls = %d, want 1", len(readTool.calls))
+	}
+	if !toolListContains(client.tools[0], tools.DelegateTaskToolName) {
+		t.Fatalf("parent tools did not expose delegate_task: %#v", client.tools[0])
+	}
+
+	childSnapshot := findMessageSnapshot(client.messages, "read-only research subagent")
+	if childSnapshot == nil {
+		t.Fatalf("missing isolated child message snapshot: %#v", client.messages)
+	}
+	if !toolListContains(client.tools[1], tools.UpdateTodosToolName) || !toolListContains(client.tools[1], "read_file") {
+		t.Fatalf("child tools missing todo/read tools: %#v", client.tools[1])
+	}
+	if toolListContains(client.tools[1], tools.DelegateTaskToolName) {
+		t.Fatalf("child tools exposed delegate_task: %#v", client.tools[1])
+	}
+	for _, message := range childSnapshot {
+		if strings.Contains(message.Content, "delegate the README check") {
+			t.Fatalf("parent user request leaked into child messages: %#v", childSnapshot)
+		}
+	}
+
+	foundDelegateResult := false
+	for _, message := range agent.Messages() {
+		if message.Role == "tool" && message.ToolCallID == "delegate_1" {
+			foundDelegateResult = true
+			if !strings.Contains(message.Content, "README says this is a local agent") {
+				t.Fatalf("delegate result missing child final answer: %#v", message)
+			}
+			if strings.Contains(message.Content, "messages") || strings.Contains(message.Content, "tool_calls") {
+				t.Fatalf("delegate result should not return child messages: %#v", message)
+			}
+		}
+	}
+	if !foundDelegateResult {
+		t.Fatalf("missing delegate tool result: %#v", agent.Messages())
+	}
+}
+
+func TestDelegateTaskSubagentKeepsDangerousCommandOnSafetyPath(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_parent", "Delegate command check"),
+				delegateTaskToolCall("delegate_1", "Try the command only if safe"),
+			},
+		},
+		{
+			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_child", "Check dangerous command"),
+				testToolCall("child_cmd", "run_command", `{"command":"sudo rm -rf /"}`),
+			},
+		},
+		{Content: "The command was blocked by policy."},
+		{Content: "parent finished"},
+	}}
+	runTool := &namedTool{name: "run_command"}
+	registry := tools.NewRegistry()
+	registry.Register(runTool)
+
+	agent := NewWithWorkspace(client, registry, 5, "/tmp/workspace")
+	if _, err := agent.Run(context.Background(), "delegate command safety check"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(runTool.calls) != 0 {
+		t.Fatalf("dangerous child command executed: %d", len(runTool.calls))
+	}
+	if !messageSnapshotsContain(client.messages, "permanent safety policy") {
+		t.Fatalf("child messages did not include safety rejection: %#v", client.messages)
+	}
+}
+
+func TestDelegateTaskLimitsConcurrentSubagents(t *testing.T) {
+	client := &subagentConcurrencyClient{childDelay: 20 * time.Millisecond}
+	options := DefaultOptions()
+	options.Subagents.MaxConcurrent = 2
+	options.Subagents.MaxSteps = 2
+
+	agent := NewWithWorkspaceAndOptions(client, tools.NewRegistry(), 4, "/tmp/workspace", options)
+	if _, err := agent.Run(context.Background(), "delegate three research tasks"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if client.childCalls != 3 {
+		t.Fatalf("child calls = %d, want 3", client.childCalls)
+	}
+	if client.maxActiveChild > 2 {
+		t.Fatalf("max active child subagents = %d, want <= 2", client.maxActiveChild)
+	}
+	if client.maxActiveChild < 2 {
+		t.Fatalf("max active child subagents = %d, want concurrency", client.maxActiveChild)
+	}
+}
+
 func todoToolCall(id string, text string) llm.ToolCall {
 	return testToolCall(id, tools.UpdateTodosToolName, fmt.Sprintf(`{"items":[{"text":%q,"status":"in_progress"}]}`, text))
+}
+
+func delegateTaskToolCall(id string, task string) llm.ToolCall {
+	return testToolCall(id, tools.DelegateTaskToolName, fmt.Sprintf(`{"task":%q}`, task))
 }
 
 func testToolCall(id string, name string, arguments string) llm.ToolCall {
@@ -832,4 +1007,33 @@ func testToolCall(id string, name string, arguments string) llm.ToolCall {
 			Arguments: arguments,
 		},
 	}
+}
+
+func toolListContains(specs []llm.FunctionTool, name string) bool {
+	for _, spec := range specs {
+		if spec.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func findMessageSnapshot(snapshots [][]llm.Message, systemText string) []llm.Message {
+	for _, snapshot := range snapshots {
+		if len(snapshot) > 0 && strings.Contains(snapshot[0].Content, systemText) {
+			return snapshot
+		}
+	}
+	return nil
+}
+
+func messageSnapshotsContain(snapshots [][]llm.Message, text string) bool {
+	for _, snapshot := range snapshots {
+		for _, message := range snapshot {
+			if strings.Contains(message.Content, text) {
+				return true
+			}
+		}
+	}
+	return false
 }

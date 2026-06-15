@@ -170,6 +170,42 @@ func TestBlockRendererRendersTodoUpdates(t *testing.T) {
 	}
 }
 
+func TestBlockRendererRendersDelegateTaskAsSubagent(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+
+	renderer.HandleEvent(runtimeevent.Event{
+		Type: runtimeevent.TypeToolCall,
+		Tool: tools.DelegateTaskToolName,
+		Args: json.RawMessage(`{"task":"Inspect README"}`),
+	})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type: runtimeevent.TypeToolResult,
+		Tool: tools.DelegateTaskToolName,
+		Args: json.RawMessage(`{"task":"Inspect README"}`),
+		Result: &tools.Result{
+			Status:  "success",
+			Summary: "subagent completed",
+			Output:  "README describes local-agent.",
+		},
+	})
+
+	text := out.String()
+	for _, want := range []string{
+		"• Subagent",
+		"Task: Inspect README",
+		"subagent completed",
+		"README describes local-agent.",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("output missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "Tool delegate_task") {
+		t.Fatalf("delegate_task should render as subagent, not generic tool:\n%s", text)
+	}
+}
+
 func TestBlockRendererCollapsesAndExpandsRunTools(t *testing.T) {
 	var out bytes.Buffer
 	renderer := NewBlockRenderer(&out)

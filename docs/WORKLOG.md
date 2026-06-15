@@ -139,3 +139,24 @@
 - 主要模块：`internal/ui`。
 - 验证：`env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go test ./internal/ui`；`env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go test ./...`；`env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go vet ./...`；`git diff --check`。
 - 备注：这是结构性拆分，没有改变终端 UI 的显示协议；`renderer.go` 从 903 行降到约 200 行，后续可继续按工具事件类型细化 `renderer_tools.go`。
+
+## 2026-06-15 - Agent 工具调度拆分
+
+- 摘要：将 `internal/agent/agent.go` 中的工具调度、审批、写入目标锁、TODO 伪工具执行和 function tool 列表生成拆到独立文件，保留 `Agent.Run` 主循环、消息管理和事件入口在主文件中。
+- 主要模块：`internal/agent`。
+- 验证：`env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go test ./internal/agent`；`env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go test ./...`；`env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go vet ./...`；`git diff --check`。
+- 备注：这是同包结构拆分，不改变 tool call 并发、审批、TODO 或消息写回顺序；`agent.go` 降到约 140 行。
+
+## 2026-06-15 - 只读 Subagent
+
+- 摘要：新增 `delegate_task` 原生工具，用于启动隔离消息历史的只读研究子代理；子代理只把最终结论作为 tool result 回传，不继承父会话、不暴露 `delegate_task`，并复用现有工具调度安全链路。
+- 主要模块：`internal/agent`、`internal/approval`、`internal/config`、`internal/ui`、`cmd/agent`、`README.md`、`config.yaml`。
+- 验证：`env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go test ./internal/agent`；`env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go test ./internal/config`；`env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go test ./internal/ui`；`env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go test ./...`；`env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go vet ./...`；`git diff --check`。
+- 备注：默认最多并发 2 个子代理，每个最多 8 步，结果最多回传 12288 字节；子代理可以使用安全命令，但写入、高风险或永久黑名单命令会被现有 pre-use 安全策略拒绝。
+
+## 2026-06-15 - Subagent 使用策略强化
+
+- 摘要：强化主 Agent 系统提示词和 `delegate_task` 工具描述，要求大范围代码分析、架构审查、项目缺失项排查等任务优先委托子代理，避免主上下文直接读取大量文件；同时要求最终回答自洽，不引用隐藏工具日志或不可见分析过程。
+- 主要模块：`internal/agent`、`README.md`。
+- 验证：`env GOCACHE=/tmp/local-agent-go-build GOMODCACHE=/tmp/local-agent-go-mod go test ./internal/agent`。
+- 备注：这是提示词层面的行为约束，没有新增硬编码意图分类。

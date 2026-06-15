@@ -64,6 +64,9 @@ func toolEventTitle(event runtimeevent.Event, argsLimit int) string {
 	case runtimeevent.TypeAssistantMessage:
 		return "Assistant"
 	case runtimeevent.TypeToolCall:
+		if tools.IsDelegateTaskTool(event.Tool) {
+			return "Subagent"
+		}
 		if event.Tool == "run_command" {
 			return "Running " + commandTitle(event.Args, argsLimit)
 		}
@@ -74,6 +77,12 @@ func toolEventTitle(event runtimeevent.Event, argsLimit int) string {
 	case runtimeevent.TypeToolResult:
 		if event.Result == nil {
 			return ""
+		}
+		if tools.IsDelegateTaskTool(event.Tool) {
+			if event.Result.Status == "error" {
+				return "Subagent failed"
+			}
+			return "Subagent"
 		}
 		if event.Tool == "run_command" {
 			if event.Result.Status == "error" {
@@ -107,6 +116,9 @@ func (r *BlockRenderer) toolEventDetail(event runtimeevent.Event) string {
 	case runtimeevent.TypeAssistantMessage:
 		return cleanTerminalText(event.Message)
 	case runtimeevent.TypeToolCall:
+		if tools.IsDelegateTaskTool(event.Tool) {
+			return delegateTaskDetail(event.Args, r.options.ApprovalArgsPreviewChars)
+		}
 		if event.Tool == "run_command" || isEditTool(event.Tool) || isExploreTool(event.Tool) {
 			return ""
 		}
@@ -117,6 +129,8 @@ func (r *BlockRenderer) toolEventDetail(event runtimeevent.Event) string {
 		}
 		result := *event.Result
 		switch {
+		case tools.IsDelegateTaskTool(event.Tool):
+			return subagentResultDetail(result, r.options.ToolPreviewLongOutputChars)
 		case event.Tool == "run_command":
 			return summarizeResultOutput(result, r.options.ToolPreviewLongOutputChars)
 		case isExploreTool(event.Tool):
@@ -173,6 +187,9 @@ func fullToolEventTitle(event runtimeevent.Event) string {
 	case runtimeevent.TypeAssistantMessage:
 		return "Assistant"
 	case runtimeevent.TypeToolCall:
+		if tools.IsDelegateTaskTool(event.Tool) {
+			return "Calling subagent"
+		}
 		if event.Tool == "run_command" {
 			return "Running " + commandTitle(event.Args, 0)
 		}
@@ -198,6 +215,9 @@ func (r *BlockRenderer) fullToolEventDetail(event runtimeevent.Event) string {
 	case runtimeevent.TypeAssistantMessage:
 		return cleanTerminalText(event.Message)
 	case runtimeevent.TypeToolCall:
+		if tools.IsDelegateTaskTool(event.Tool) {
+			return delegateTaskDetail(event.Args, 0)
+		}
 		if event.Tool == "run_command" {
 			if command := jsonArgString(event.Args, "command"); command != "" {
 				return "Command: " + command
@@ -210,6 +230,8 @@ func (r *BlockRenderer) fullToolEventDetail(event runtimeevent.Event) string {
 		}
 		result := *event.Result
 		switch {
+		case tools.IsDelegateTaskTool(event.Tool):
+			return subagentResultDetail(result, 0)
 		case event.Tool == "run_command":
 			return fullResultOutput(result)
 		case isExploreTool(event.Tool):
@@ -251,6 +273,10 @@ func fullResultOutput(result tools.Result) string {
 }
 
 func (r *BlockRenderer) renderToolCall(event runtimeevent.Event) {
+	if tools.IsDelegateTaskTool(event.Tool) {
+		r.block("Subagent", delegateTaskDetail(event.Args, r.options.ApprovalArgsPreviewChars))
+		return
+	}
 	if event.Tool == "run_command" {
 		command := jsonArgString(event.Args, "command")
 		if command == "" {
@@ -274,6 +300,12 @@ func (r *BlockRenderer) renderToolResult(event runtimeevent.Event) {
 	}
 	result := *event.Result
 	switch {
+	case tools.IsDelegateTaskTool(event.Tool):
+		title := "Subagent"
+		if result.Status == "error" {
+			title = "Subagent failed"
+		}
+		r.block(title, subagentResultDetail(result, r.options.ToolPreviewLongOutputChars))
 	case event.Tool == "run_command":
 		title := "Ran " + commandTitle(event.Args, r.options.ApprovalArgsPreviewChars)
 		if result.Status == "error" {
@@ -361,6 +393,31 @@ func commandTitle(args []byte, argsLimit int) string {
 
 func summarizeResultOutput(result tools.Result, limit int) string {
 	if strings.TrimSpace(result.Output) != "" {
+		return truncate(result.Output, limit)
+	}
+	if strings.TrimSpace(result.Summary) != "" {
+		return result.Summary
+	}
+	return "(no output)"
+}
+
+func delegateTaskDetail(args []byte, argsLimit int) string {
+	task := jsonArgString(args, "task")
+	if task == "" {
+		return compactJSON(args, argsLimit)
+	}
+	detail := "Task: " + task
+	if expected := jsonArgString(args, "expected_output"); expected != "" {
+		detail += "\nExpected output: " + expected
+	}
+	return truncate(detail, argsLimit)
+}
+
+func subagentResultDetail(result tools.Result, limit int) string {
+	if strings.TrimSpace(result.Output) != "" {
+		if strings.TrimSpace(result.Summary) != "" {
+			return result.Summary + "\n" + truncate(result.Output, limit)
+		}
 		return truncate(result.Output, limit)
 	}
 	if strings.TrimSpace(result.Summary) != "" {

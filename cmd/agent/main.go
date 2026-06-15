@@ -33,7 +33,7 @@ func main() {
 		Timeout:           time.Duration(cfg.LLM.RequestTimeoutSeconds) * time.Second,
 		ParallelToolCalls: cfg.LLM.ParallelToolCalls,
 	})
-	codingAgent := agent.NewWithWorkspace(client, registry, cfg.Agent.MaxSteps, workdir)
+	codingAgent := agent.NewWithWorkspaceAndOptions(client, registry, cfg.Agent.MaxSteps, workdir, agentOptions(cfg.Subagents))
 	codingAgent.SetRenderer(ui.NewInteractiveBlockRendererWithOptions(os.Stdin, os.Stdout, uiOptions(cfg.UI)))
 	codingAgent.SetApprover(approval.NewMemoryApprover(approval.NewTerminalApprover(os.Stdin, os.Stdout)))
 
@@ -94,5 +94,16 @@ func uiOptions(cfg config.UIConfig) ui.Options {
 		ToolPreviewLongOutputChars: cfg.ToolPreviewLongOutputChars,
 		FileChangePreviewChars:     cfg.FileChangePreviewChars,
 		ApprovalArgsPreviewChars:   cfg.ApprovalArgsPreviewChars,
+	}
+}
+
+func agentOptions(cfg config.SubagentsConfig) agent.Options {
+	return agent.Options{
+		Subagents: agent.SubagentOptions{
+			Enabled:        cfg.Enabled,
+			MaxConcurrent:  cfg.MaxConcurrent,
+			MaxSteps:       cfg.MaxSteps,
+			ResultMaxBytes: cfg.ResultMaxBytes,
+		},
 	}
 }

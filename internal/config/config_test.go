@@ -16,6 +16,11 @@ llm:
   parallel_tool_calls: false
 agent:
   max_steps: 9
+subagents:
+  enabled: false
+  max_concurrent: 4
+  max_steps: 5
+  result_max_bytes: 6789
 tools:
   list_max_entries: 11
   file_change_preview_lines: 3
@@ -44,6 +49,18 @@ ui:
 	}
 	if cfg.Agent.MaxSteps != 9 {
 		t.Fatalf("max steps = %d", cfg.Agent.MaxSteps)
+	}
+	if cfg.Subagents.Enabled {
+		t.Fatalf("subagents enabled = true, want false")
+	}
+	if cfg.Subagents.MaxConcurrent != 4 {
+		t.Fatalf("subagents max concurrent = %d", cfg.Subagents.MaxConcurrent)
+	}
+	if cfg.Subagents.MaxSteps != 5 {
+		t.Fatalf("subagents max steps = %d", cfg.Subagents.MaxSteps)
+	}
+	if cfg.Subagents.ResultMaxBytes != 6789 {
+		t.Fatalf("subagents result max bytes = %d", cfg.Subagents.ResultMaxBytes)
 	}
 	if cfg.Tools.ListMaxEntries != 11 {
 		t.Fatalf("list max entries = %d", cfg.Tools.ListMaxEntries)
