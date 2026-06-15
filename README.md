@@ -42,7 +42,7 @@ The model may return multiple native `tool_calls` in one assistant turn. The age
 
 ## TODO Workflow
 
-The agent exposes an internal native function tool named `update_todos`. For concrete workspace tasks, the model must create a todo list before calling workspace tools. Each user request gets a fresh todo list; it is not persisted across turns or sessions.
+The agent exposes an internal native function tool named `update_todos`. For concrete workspace tasks, the model must create a todo list before calling workspace tools. Each user request gets a fresh todo list; it is not persisted across turns or sessions. `update_todos` is implemented in the tools layer as a UI-only control tool and is pruned from long-term model history after each run.
 
 During a concrete task, the terminal UI keeps `Todo` above the tools area and redraws it as progress changes:
 

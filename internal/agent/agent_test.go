@@ -308,7 +308,7 @@ func TestRunExposesToolsForWorkspaceTask(t *testing.T) {
 	}
 	foundTodoTool := false
 	for _, tool := range client.tools[0] {
-		if tool.Name == updateTodosToolName {
+		if tool.Name == tools.UpdateTodosToolName {
 			foundTodoTool = true
 		}
 	}
@@ -371,8 +371,17 @@ func TestRunProcessesTodoBeforeOtherToolsInSameTurn(t *testing.T) {
 	}
 
 	messages := agent.Messages()
-	if messages[len(messages)-3].ToolCallID != "call_read" || messages[len(messages)-2].ToolCallID != "todo_late" {
-		t.Fatalf("tool result message order = %#v", messages)
+	foundReadResult := false
+	for _, message := range messages {
+		if message.Role == "tool" && message.ToolCallID == "call_read" {
+			foundReadResult = true
+		}
+		if message.Role == "tool" && message.ToolCallID == "todo_late" {
+			t.Fatalf("todo tool result should not persist after run: %#v", messages)
+		}
+	}
+	if !foundReadResult {
+		t.Fatalf("missing read tool result: %#v", messages)
 	}
 }
 
@@ -405,6 +414,19 @@ func TestRunResetsTodoListForEachUserInput(t *testing.T) {
 	}
 	if len(tool.calls) != 1 {
 		t.Fatalf("tool calls = %d, want only first run to execute", len(tool.calls))
+	}
+	if len(client.messages) < 3 {
+		t.Fatalf("client messages snapshots = %d, want at least 3", len(client.messages))
+	}
+	for _, message := range client.messages[2] {
+		if strings.Contains(message.Content, "Read once") {
+			t.Fatalf("previous run todo leaked into second request messages: %#v", client.messages[2])
+		}
+		for _, call := range message.ToolCalls {
+			if tools.IsUpdateTodosTool(call.Function.Name) {
+				t.Fatalf("previous update_todos tool call leaked into second request messages: %#v", client.messages[2])
+			}
+		}
 	}
 }
 
@@ -797,38 +819,8 @@ func TestRunUsesLoopScopedApprovalForExternalWrites(t *testing.T) {
 	}
 }
 
-func TestParseTodoItemsValidatesInput(t *testing.T) {
-	tests := []struct {
-		name    string
-		args    json.RawMessage
-		wantErr string
-	}{
-		{name: "empty", args: json.RawMessage(`{"items":[]}`), wantErr: "at least one"},
-		{name: "blank text", args: json.RawMessage(`{"items":[{"text":" ","status":"pending"}]}`), wantErr: "non-empty"},
-		{name: "invalid status", args: json.RawMessage(`{"items":[{"text":"Read","status":"started"}]}`), wantErr: "invalid todo status"},
-		{name: "multiple in progress", args: json.RawMessage(`{"items":[{"text":"Read","status":"in_progress"},{"text":"Write","status":"in_progress"}]}`), wantErr: "only one"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := parseTodoItems(tt.args)
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("parseTodoItems() error = %v, want %q", err, tt.wantErr)
-			}
-		})
-	}
-
-	items, err := parseTodoItems(json.RawMessage(`{"items":[{"text":" Read ","status":"in_progress"},{"text":"Write","status":"pending"}]}`))
-	if err != nil {
-		t.Fatalf("parseTodoItems() valid error = %v", err)
-	}
-	if len(items) != 2 || items[0].Text != "Read" || items[0].Status != runtimeevent.TodoInProgress {
-		t.Fatalf("items = %#v", items)
-	}
-}
-
 func todoToolCall(id string, text string) llm.ToolCall {
-	return testToolCall(id, updateTodosToolName, fmt.Sprintf(`{"items":[{"text":%q,"status":"in_progress"}]}`, text))
+	return testToolCall(id, tools.UpdateTodosToolName, fmt.Sprintf(`{"items":[{"text":%q,"status":"in_progress"}]}`, text))
 }
 
 func testToolCall(id string, name string, arguments string) llm.ToolCall {

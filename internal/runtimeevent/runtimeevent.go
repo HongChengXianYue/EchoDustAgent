@@ -22,34 +22,32 @@ const (
 	TypeApprovalDecision Type = "approval_decision"
 )
 
-type TodoStatus string
+type TodoStatus = tools.TodoStatus
 
 const (
-	TodoPending    TodoStatus = "pending"
-	TodoInProgress TodoStatus = "in_progress"
-	TodoCompleted  TodoStatus = "completed"
+	TodoPending    = tools.TodoPending
+	TodoInProgress = tools.TodoInProgress
+	TodoCompleted  = tools.TodoCompleted
 )
 
-type TodoItem struct {
-	Text   string     `json:"text"`
-	Status TodoStatus `json:"status"`
-}
+type TodoItem = tools.TodoItem
 
 type Handler interface {
 	HandleEvent(Event)
 }
 
 type Event struct {
-	Step       int               `json:"step,omitempty"`
-	Type       Type              `json:"type"`
-	Message    string            `json:"message,omitempty"`
-	Error      string            `json:"error,omitempty"`
-	Tool       string            `json:"tool,omitempty"`
-	Category   approval.Category `json:"category,omitempty"`
-	Args       json.RawMessage   `json:"args,omitempty"`
-	Result     *tools.Result     `json:"result,omitempty"`
-	DurationMS int64             `json:"duration_ms,omitempty"`
-	Decision   string            `json:"decision,omitempty"`
-	Reason     string            `json:"reason,omitempty"`
-	Todos      []TodoItem        `json:"todos,omitempty"`
+	Step       int                 `json:"step,omitempty"`
+	Type       Type                `json:"type"`
+	Message    string              `json:"message,omitempty"`
+	Error      string              `json:"error,omitempty"`
+	Tool       string              `json:"tool,omitempty"`
+	Category   approval.Category   `json:"category,omitempty"`
+	Args       json.RawMessage     `json:"args,omitempty"`
+	Result     *tools.Result       `json:"result,omitempty"`
+	DurationMS int64               `json:"duration_ms,omitempty"`
+	Decision   string              `json:"decision,omitempty"`
+	Decisions  []approval.Decision `json:"decisions,omitempty"`
+	Reason     string              `json:"reason,omitempty"`
+	Todos      []TodoItem          `json:"todos,omitempty"`
 }

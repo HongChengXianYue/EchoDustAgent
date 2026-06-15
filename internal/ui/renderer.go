@@ -25,19 +25,20 @@ const (
 )
 
 type BlockRenderer struct {
-	output            io.Writer
-	markdownRenderer  *glamour.TermRenderer
-	mu                sync.Mutex
-	inRun             bool
-	expandedTools     bool
-	rewriteFrame      bool
-	renderedFrame     bool
-	frameLines        int
-	liveFrameMaxLines int
-	liveFrameMaxWidth int
-	todos             []runtimeevent.TodoItem
-	toolEvents        []runtimeevent.Event
-	keyWatcher        *toggleKeyWatcher
+	output             io.Writer
+	markdownRenderer   *glamour.TermRenderer
+	mu                 sync.Mutex
+	inRun              bool
+	expandedTools      bool
+	rewriteFrame       bool
+	renderedFrame      bool
+	frameLines         int
+	pendingPromptLines int
+	liveFrameMaxLines  int
+	liveFrameMaxWidth  int
+	todos              []runtimeevent.TodoItem
+	toolEvents         []runtimeevent.Event
+	keyWatcher         *toggleKeyWatcher
 }
 
 func NewBlockRenderer(output io.Writer) *BlockRenderer {
@@ -133,6 +134,7 @@ func (r *BlockRenderer) HandleEvent(event runtimeevent.Event) {
 			r.stopKeyWatcher()
 			r.toolEvents = append(r.toolEvents, event)
 			r.renderFrame()
+			r.pendingPromptLines = approvalPromptLineCount(event)
 			return
 		}
 		r.block("Approval requested", approvalDetail(event))
@@ -152,6 +154,7 @@ func (r *BlockRenderer) beginRun() {
 	r.expandedTools = false
 	r.renderedFrame = false
 	r.frameLines = 0
+	r.pendingPromptLines = 0
 	r.todos = nil
 	r.toolEvents = nil
 	r.startKeyWatcher()
@@ -213,10 +216,12 @@ func (r *BlockRenderer) renderFrame() {
 		text = r.limitLiveFrameText(text)
 	}
 	if r.rewriteFrame && r.renderedFrame && r.frameLines > 0 {
+		clearLines := r.frameLines + r.pendingPromptLines
 		// Cursor-up keeps the current column on most terminals. Return to column
 		// zero first so repeated live-frame redraws do not drift diagonally.
-		fmt.Fprintf(r.output, "\r\x1b[%dA\x1b[J", r.frameLines)
+		fmt.Fprintf(r.output, "\r\x1b[%dA\x1b[J", clearLines)
 	}
+	r.pendingPromptLines = 0
 	fmt.Fprint(r.output, r.frameOutputText(text))
 	r.frameLines = countLines(text)
 	r.renderedFrame = true
@@ -231,6 +236,16 @@ func (r *BlockRenderer) frameOutputText(text string) string {
 	// so write CRLF explicitly or each new frame line starts at the previous
 	// line's ending column.
 	return strings.ReplaceAll(text, "\n", "\r\n")
+}
+
+func approvalPromptLineCount(event runtimeevent.Event) int {
+	options := len(event.Decisions)
+	if options == 0 {
+		options = 3
+	}
+	// The selectable approval prompt renders one line per option and prints one
+	// trailing newline after the user confirms a choice.
+	return options + 1
 }
 
 func (r *BlockRenderer) limitLiveFrameText(text string) string {

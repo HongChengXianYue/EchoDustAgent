@@ -16,16 +16,15 @@ import (
 )
 
 type Agent struct {
-	client     llm.Client
-	registry   *tools.Registry
-	messages   []llm.Message
-	maxSteps   int
-	workspace  string
-	renderer   runtimeevent.Handler
-	approver   approval.Approver
-	emitMu     sync.Mutex
-	todos      []runtimeevent.TodoItem
-	todosReady bool
+	client    llm.Client
+	registry  *tools.Registry
+	messages  []llm.Message
+	maxSteps  int
+	workspace string
+	renderer  runtimeevent.Handler
+	approver  approval.Approver
+	emitMu    sync.Mutex
+	todoTool  *tools.UpdateTodosTool
 }
 
 func New(client llm.Client, registry *tools.Registry, maxSteps int) *Agent {
@@ -36,11 +35,13 @@ func NewWithWorkspace(client llm.Client, registry *tools.Registry, maxSteps int,
 	if maxSteps <= 0 {
 		maxSteps = 10
 	}
+	todoTool := tools.NewUpdateTodosTool()
 	return &Agent{
 		client:    client,
 		registry:  registry,
 		maxSteps:  maxSteps,
 		workspace: strings.TrimSpace(workspace),
+		todoTool:  todoTool,
 		messages: []llm.Message{
 			{
 				Role:    "system",
@@ -84,8 +85,10 @@ func (a *Agent) SetApprover(approver approval.Approver) {
 }
 
 func (a *Agent) Run(ctx context.Context, input string) (string, error) {
-	a.todos = nil
-	a.todosReady = false
+	a.pruneTransientToolHistory()
+	a.todoTool.Reset()
+	defer a.pruneTransientToolHistory()
+
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
 	a.messages = append(a.messages, llm.Message{Role: "user", Content: input})
 
@@ -152,15 +155,15 @@ type executedToolCall struct {
 func (a *Agent) executeToolCalls(ctx context.Context, step int, calls []llm.ToolCall) []executedToolCall {
 	results := make([]executedToolCall, len(calls))
 	for i, call := range calls {
-		if call.Function.Name == updateTodosToolName {
-			results[i] = a.executeTodoTool(step, i, call)
+		if tools.IsUpdateTodosTool(call.Function.Name) {
+			results[i] = a.executeTodoTool(ctx, step, i, call)
 		}
 	}
 
 	loopApprovals := map[string]bool{}
 	plans := make([]preparedToolCall, 0, len(calls))
 	for i, call := range calls {
-		if call.Function.Name == updateTodosToolName {
+		if tools.IsUpdateTodosTool(call.Function.Name) {
 			continue
 		}
 		plans = append(plans, a.prepareToolCall(ctx, step, i, call, loopApprovals))
@@ -203,7 +206,7 @@ func (a *Agent) prepareToolCall(ctx context.Context, step int, index int, call l
 	}
 	plan.tool = tool
 	plan.category = approval.Classify(call.Function.Name, plan.args)
-	if !a.todosReady {
+	if !a.todoTool.Ready() {
 		result := tools.Error("tool execution requires a todo list; call update_todos before workspace tools")
 		a.emit(runtimeevent.Event{
 			Step:     step,
@@ -275,6 +278,33 @@ func (a *Agent) executePreparedTool(ctx context.Context, step int, plan prepared
 	return executedToolCall{index: plan.index, call: plan.call, result: result}
 }
 
+func (a *Agent) executeTodoTool(ctx context.Context, step int, index int, call llm.ToolCall) executedToolCall {
+	args := call.ArgumentsJSON()
+	result, err := a.todoTool.Execute(ctx, args)
+	if err != nil {
+		result = tools.Error(err.Error())
+	}
+	if result.Status == "" {
+		result.Status = "success"
+	}
+	if result.Status == "success" {
+		a.emit(runtimeevent.Event{
+			Step:  step,
+			Type:  runtimeevent.TypeTodoUpdate,
+			Todos: a.todoTool.Items(),
+		})
+	} else {
+		a.emit(runtimeevent.Event{
+			Step:   step,
+			Type:   runtimeevent.TypeToolResult,
+			Tool:   call.Function.Name,
+			Args:   args,
+			Result: &result,
+		})
+	}
+	return executedToolCall{index: index, call: call, result: result}
+}
+
 func (a *Agent) approveTool(ctx context.Context, step int, tool string, category approval.Category, args json.RawMessage, impact approval.WriteImpact, loopApprovals map[string]bool) bool {
 	if !approval.RequiresApproval(category) && !impact.Writes {
 		return true
@@ -288,12 +318,13 @@ func (a *Agent) approveTool(ctx context.Context, step int, tool string, category
 		return true
 	}
 	a.emit(runtimeevent.Event{
-		Step:     step,
-		Type:     runtimeevent.TypeApprovalRequest,
-		Tool:     tool,
-		Category: category,
-		Args:     args,
-		Reason:   request.Reason,
+		Step:      step,
+		Type:      runtimeevent.TypeApprovalRequest,
+		Tool:      tool,
+		Category:  category,
+		Args:      args,
+		Decisions: approval.DecisionOptions(request),
+		Reason:    request.Reason,
 	})
 	decision := a.approver.Approve(ctx, request)
 	if request.Scope == approval.ScopeLoop && decision == approval.DecisionAlways {
@@ -384,7 +415,7 @@ func (a *Agent) emit(event runtimeevent.Event) {
 func (a *Agent) functionTools() []llm.FunctionTool {
 	specs := a.registry.Specs()
 	out := make([]llm.FunctionTool, 0, len(specs)+1)
-	out = append(out, todoFunctionTool())
+	out = append(out, functionToolFromTool(a.todoTool))
 	for _, spec := range specs {
 		out = append(out, llm.FunctionTool{
 			Name:        spec.Name,
@@ -393,4 +424,40 @@ func (a *Agent) functionTools() []llm.FunctionTool {
 		})
 	}
 	return out
+}
+
+func functionToolFromTool(tool tools.Tool) llm.FunctionTool {
+	return llm.FunctionTool{
+		Name:        tool.Name(),
+		Description: tool.Description(),
+		Parameters:  tool.Parameters(),
+	}
+}
+
+func (a *Agent) pruneTransientToolHistory() {
+	transientToolIDs := map[string]bool{}
+	messages := make([]llm.Message, 0, len(a.messages))
+	for _, message := range a.messages {
+		if message.Role == "assistant" && len(message.ToolCalls) > 0 {
+			toolCalls := make([]llm.ToolCall, 0, len(message.ToolCalls))
+			for _, call := range message.ToolCalls {
+				if tools.IsUpdateTodosTool(call.Function.Name) {
+					if call.ID != "" {
+						transientToolIDs[call.ID] = true
+					}
+					continue
+				}
+				toolCalls = append(toolCalls, call)
+			}
+			message.ToolCalls = toolCalls
+			if strings.TrimSpace(message.Content) == "" && len(message.ToolCalls) == 0 {
+				continue
+			}
+		}
+		if message.Role == "tool" && transientToolIDs[message.ToolCallID] {
+			continue
+		}
+		messages = append(messages, message)
+	}
+	a.messages = messages
 }

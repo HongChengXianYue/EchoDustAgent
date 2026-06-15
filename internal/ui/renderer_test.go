@@ -3,6 +3,7 @@ package ui
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -265,6 +266,41 @@ func TestBlockRendererLiveFrameUsesCRLF(t *testing.T) {
 	}
 	if strings.Contains(strings.ReplaceAll(text, "\r\n", ""), "\n") {
 		t.Fatalf("live frame output should not leave bare LF bytes; output=%q", text)
+	}
+}
+
+func TestBlockRendererClearsApprovalPromptLinesOnDecision(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+	renderer.rewriteFrame = true
+
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:  runtimeevent.TypeTodoUpdate,
+		Todos: []runtimeevent.TodoItem{{Text: "Write file", Status: runtimeevent.TodoInProgress}},
+	})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:      runtimeevent.TypeApprovalRequest,
+		Tool:      "write_file",
+		Category:  approval.CategoryWorkspaceWrite,
+		Args:      json.RawMessage(`{"path":"hello.txt","content":"hello"}`),
+		Decisions: []approval.Decision{approval.DecisionAlways, approval.DecisionDeny},
+		Reason:    "workspace write requested",
+	})
+	clearLines := renderer.frameLines + renderer.pendingPromptLines
+
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:     runtimeevent.TypeApprovalDecision,
+		Tool:     "write_file",
+		Decision: string(approval.DecisionAlways),
+		Reason:   "workspace write requested",
+	})
+
+	if !strings.Contains(out.String(), fmt.Sprintf("\x1b[%dA", clearLines)) {
+		t.Fatalf("approval decision redraw should clear frame plus prompt lines (%d); output=%q", clearLines, out.String())
+	}
+	if renderer.pendingPromptLines != 0 {
+		t.Fatalf("pending prompt lines = %d, want cleared", renderer.pendingPromptLines)
 	}
 }
 
