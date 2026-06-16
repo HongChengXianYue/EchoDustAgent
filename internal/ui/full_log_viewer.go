@@ -25,6 +25,7 @@ type fullLogViewer struct {
 	height            int
 	offset            int
 	pollInterval      time.Duration
+	pendingInput      []byte
 }
 
 type fullLogState struct {
@@ -86,6 +87,9 @@ func (v *fullLogViewer) Run() {
 		if err != nil {
 			if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK) {
 				time.Sleep(v.pollInterval)
+				if v.handlePendingInputIdle() {
+					return
+				}
 				if v.refreshLines() {
 					v.render()
 				}
@@ -116,7 +120,15 @@ func (v *fullLogViewer) refreshLines() bool {
 }
 
 func (v *fullLogViewer) handleInput(input []byte) bool {
-	for i := 0; i < len(input); i++ {
+	if len(v.pendingInput) > 0 {
+		combined := make([]byte, 0, len(v.pendingInput)+len(input))
+		combined = append(combined, v.pendingInput...)
+		combined = append(combined, input...)
+		input = combined
+		v.pendingInput = nil
+	}
+
+	for i := 0; i < len(input); {
 		switch input[i] {
 		case 'q', 'Q', 20:
 			return true
@@ -126,14 +138,13 @@ func (v *fullLogViewer) handleInput(input []byte) bool {
 			}
 			return true
 		case 27:
-			if i+2 < len(input) && input[i+1] == '[' {
-				consumed := v.handleEscape(input[i+2:])
-				if consumed > 0 {
-					i += consumed + 1
-					continue
-				}
+			consumed, complete := v.handleEscapeSequence(input[i:])
+			if !complete {
+				v.pendingInput = append(v.pendingInput[:0], input[i:]...)
+				return false
 			}
-			return true
+			i += consumed
+			continue
 		case 'j':
 			v.scroll(1)
 		case 'k':
@@ -147,8 +158,71 @@ func (v *fullLogViewer) handleInput(input []byte) bool {
 		case '1', '2', '3', '4', '5':
 			v.toggleSubagent(int(input[i] - '0'))
 		}
+		i++
 	}
 	return false
+}
+
+func (v *fullLogViewer) handlePendingInputIdle() bool {
+	if len(v.pendingInput) == 0 {
+		return false
+	}
+	pending := v.pendingInput
+	v.pendingInput = nil
+
+	// A raw Esc key is indistinguishable from the start of an escape sequence
+	// until the terminal has had a short chance to provide more bytes.
+	return len(pending) == 1 && pending[0] == 27
+}
+
+func (v *fullLogViewer) handleEscapeSequence(input []byte) (int, bool) {
+	if len(input) < 2 {
+		return 0, false
+	}
+	switch input[1] {
+	case '[':
+		if len(input) < 3 {
+			return 0, false
+		}
+		if input[2] == 'M' {
+			if len(input) < 6 {
+				return 0, false
+			}
+			v.handleX10Mouse(input[3])
+			return 6, true
+		}
+		final := -1
+		for i := 2; i < len(input); i++ {
+			if input[i] >= 0x40 && input[i] <= 0x7e {
+				final = i
+				break
+			}
+		}
+		if final < 0 {
+			return 0, false
+		}
+		sequence := input[2 : final+1]
+		v.handleEscape(sequence)
+		v.handleSGRMouse(sequence)
+		return final + 1, true
+	case 'O':
+		if len(input) < 3 {
+			return 0, false
+		}
+		switch input[2] {
+		case 'A':
+			v.scroll(-1)
+		case 'B':
+			v.scroll(1)
+		case 'H':
+			v.offset = 0
+		case 'F':
+			v.offset = v.maxOffset()
+		}
+		return 3, true
+	default:
+		return 2, true
+	}
 }
 
 func (v *fullLogViewer) handleEscape(input []byte) int {
@@ -183,6 +257,44 @@ func (v *fullLogViewer) handleEscape(input []byte) int {
 		}
 	}
 	return 0
+}
+
+func (v *fullLogViewer) handleSGRMouse(input []byte) bool {
+	if len(input) < 3 || input[0] != '<' {
+		return false
+	}
+	final := input[len(input)-1]
+	if final != 'M' && final != 'm' {
+		return false
+	}
+	parts := strings.Split(string(input[1:len(input)-1]), ";")
+	if len(parts) < 1 {
+		return false
+	}
+	button, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return false
+	}
+	return v.handleMouseButton(button)
+}
+
+func (v *fullLogViewer) handleX10Mouse(buttonByte byte) bool {
+	if buttonByte < 32 {
+		return false
+	}
+	return v.handleMouseButton(int(buttonByte) - 32)
+}
+
+func (v *fullLogViewer) handleMouseButton(button int) bool {
+	switch button &^ (4 | 8 | 16 | 32) {
+	case 64:
+		v.scroll(-1)
+	case 65:
+		v.scroll(1)
+	default:
+		return false
+	}
+	return true
 }
 
 func (v *fullLogViewer) handleCSIu(input []byte) int {

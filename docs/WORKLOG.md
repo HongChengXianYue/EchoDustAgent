@@ -209,3 +209,17 @@
 - 主要模块：`internal/ui`、`internal/agent`。
 - 验证：`go test ./internal/agent ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
 - 备注：运行中仍可用 `Ctrl+E` 展开工具日志；只在 `RunEnd` 的最后一帧自动收起，保证 final answer 优先可见。
+
+## 2026-06-15 - Ctrl+T 滚轮输入解析修复
+
+- 摘要：修复 `Ctrl+T` 全量工具日志查看器中大幅滚轮滚动可能退出预览界面的问题；输入解析现在会缓存被读取缓冲区截断的 ESC/CSI 序列，并支持 SGR/X10 鼠标滚轮事件，只在确认是单独 `Esc` 后关闭查看器。
+- 主要模块：`internal/ui`。
+- 验证：`go test ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
+- 备注：单独 `Esc` 关闭会等待一次短轮询以区分它和 ESC 序列前缀；若终端长时间只发送半截转义序列，该半截输入会被丢弃而不是关闭查看器。
+
+## 2026-06-16 - 最终回答显示修复
+
+- 摘要：修复交互式运行结束后最终回答被前一个 Todo/Tools 实时帧挤出终端可视区的问题；最终回答渲染前会清除临时 live frame，再从原位置打印完整 Markdown 内容。
+- 主要模块：`internal/ui`。
+- 验证：`go test ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：该修复不依赖缩短工具输出预览，`config.yaml` 中工具预览字符数保持默认值；全量工具日志仍可通过 `Ctrl+T` 查看。

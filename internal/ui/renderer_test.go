@@ -432,6 +432,51 @@ func TestBlockRendererRunEndCollapsesExpandedToolsBeforeFinal(t *testing.T) {
 	}
 }
 
+func TestBlockRendererClearsLiveFrameBeforeFinal(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+	renderer.rewriteFrame = true
+	renderer.liveFrameMaxLines = 12
+	renderer.liveFrameMaxWidth = 100
+
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type: runtimeevent.TypeTodoUpdate,
+		Todos: []runtimeevent.TodoItem{
+			{Text: "Analyze project", Status: runtimeevent.TodoCompleted},
+			{Text: "Summarize findings", Status: runtimeevent.TodoCompleted},
+		},
+	})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type: runtimeevent.TypeToolResult,
+		Tool: "read_file",
+		Args: json.RawMessage(`{"path":"README.md"}`),
+		Result: &tools.Result{
+			Status: "success",
+			Output: strings.Repeat("project detail\n", 12),
+		},
+	})
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunEnd})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:    runtimeevent.TypeFinal,
+		Message: "第一行最终回答\n\n第二行最终回答\n\n第三行最终回答",
+	})
+
+	frame := latestFrame(out.String())
+	normalized := strings.ReplaceAll(frame, "\r\n", "\n")
+	if strings.Contains(normalized, "• Todo") || strings.Contains(normalized, "• Tools") {
+		t.Fatalf("final answer should replace the live frame instead of appending below it:\n%q", normalized)
+	}
+	for _, want := range []string{"第一行最终回答", "第二行最终回答", "第三行最终回答"} {
+		if !strings.Contains(normalized, want) {
+			t.Fatalf("final output missing %q:\n%s", want, normalized)
+		}
+	}
+	if renderer.renderedFrame || renderer.frameLines != 0 || renderer.pendingPromptLines != 0 {
+		t.Fatalf("live frame state after final = rendered:%v frame:%d prompt:%d, want cleared", renderer.renderedFrame, renderer.frameLines, renderer.pendingPromptLines)
+	}
+}
+
 func TestBlockRendererApprovalRequestStopsWatcherOutsideRendererLock(t *testing.T) {
 	var out bytes.Buffer
 	stop := make(chan struct{})
@@ -688,6 +733,74 @@ func TestFullLogViewerTogglesMainBlock(t *testing.T) {
 	}
 	if strings.Join(viewer.lines, "\n") != "main expanded" {
 		t.Fatalf("lines = %#v, want main expanded", viewer.lines)
+	}
+}
+
+func TestFullLogViewerKeepsSplitWheelEscapeSequenceOpen(t *testing.T) {
+	viewer := &fullLogViewer{
+		height:            6,
+		lines:             make([]string, 40),
+		mainExpanded:      true,
+		expandedSubagents: map[int]bool{},
+	}
+	for i := range viewer.lines {
+		viewer.lines[i] = fmt.Sprintf("line %d", i)
+	}
+
+	input := bytes.Repeat([]byte{27, '[', 'B'}, 11)
+	if len(input) != 33 {
+		t.Fatalf("test input length = %d, want 33", len(input))
+	}
+	if viewer.handleInput(input[:32]) {
+		t.Fatalf("split wheel escape sequence should not close viewer")
+	}
+	if viewer.offset != 10 {
+		t.Fatalf("offset after first chunk = %d, want 10", viewer.offset)
+	}
+	if len(viewer.pendingInput) == 0 {
+		t.Fatalf("first chunk should retain the partial escape sequence")
+	}
+
+	if viewer.handleInput(input[32:]) {
+		t.Fatalf("completed wheel escape sequence should not close viewer")
+	}
+	if viewer.offset != 11 {
+		t.Fatalf("offset after completed sequence = %d, want 11", viewer.offset)
+	}
+	if len(viewer.pendingInput) != 0 {
+		t.Fatalf("completed escape sequence should clear pending input")
+	}
+}
+
+func TestFullLogViewerHandlesMouseWheelCSI(t *testing.T) {
+	viewer := &fullLogViewer{
+		height:            6,
+		lines:             make([]string, 40),
+		mainExpanded:      true,
+		expandedSubagents: map[int]bool{},
+	}
+
+	if viewer.handleInput([]byte("\x1b[<65;10;10M")) {
+		t.Fatalf("mouse wheel down should not close viewer")
+	}
+	if viewer.offset != 1 {
+		t.Fatalf("offset after wheel down = %d, want 1", viewer.offset)
+	}
+	if viewer.handleInput([]byte("\x1b[<64;10;10M")) {
+		t.Fatalf("mouse wheel up should not close viewer")
+	}
+	if viewer.offset != 0 {
+		t.Fatalf("offset after wheel up = %d, want 0", viewer.offset)
+	}
+}
+
+func TestFullLogViewerClosesSingleEscapeAfterIdle(t *testing.T) {
+	viewer := &fullLogViewer{}
+	if viewer.handleInput([]byte{27}) {
+		t.Fatalf("single escape should wait briefly before closing")
+	}
+	if !viewer.handlePendingInputIdle() {
+		t.Fatalf("idle single escape should close viewer")
 	}
 }
 

@@ -14,6 +14,7 @@ func (r *BlockRenderer) renderFinal(message string) {
 	if message == "" {
 		return
 	}
+	r.clearLiveFrame()
 	fmt.Fprintln(r.output, separatorLine(r.options.SeparatorWidth))
 	rendered, err := renderMarkdown(r.markdownRenderer, message)
 	if err != nil {
@@ -24,6 +25,20 @@ func (r *BlockRenderer) renderFinal(message string) {
 	if !strings.HasSuffix(rendered, "\n") {
 		fmt.Fprintln(r.output)
 	}
+}
+
+func (r *BlockRenderer) clearLiveFrame() {
+	if !r.rewriteFrame || !r.renderedFrame || r.frameLines <= 0 {
+		return
+	}
+	clearLines := r.frameLines + r.pendingPromptLines
+	// The final answer is a stable block, not another live status frame. Clear
+	// the transient Todo/Tools frame first so a long answer starts at the frame's
+	// position instead of being pushed below it and out of the visible terminal.
+	fmt.Fprintf(r.output, "\r\x1b[%dA\x1b[J", clearLines)
+	r.pendingPromptLines = 0
+	r.frameLines = 0
+	r.renderedFrame = false
 }
 
 func renderMarkdown(renderer *glamour.TermRenderer, message string) (string, error) {
