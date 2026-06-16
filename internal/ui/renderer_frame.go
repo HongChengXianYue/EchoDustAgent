@@ -10,6 +10,7 @@ import (
 
 func (r *BlockRenderer) renderFrame() {
 	var buf bytes.Buffer
+	r.writeUserMessage(&buf)
 	r.writeTodoBlock(&buf)
 	r.writeToolsBlock(&buf)
 	text := buf.String()
@@ -29,6 +30,14 @@ func (r *BlockRenderer) renderFrame() {
 	fmt.Fprint(r.output, r.frameOutputText(text))
 	r.frameLines = countLines(text)
 	r.renderedFrame = true
+}
+
+func (r *BlockRenderer) writeUserMessage(output *bytes.Buffer) {
+	message := strings.TrimSpace(r.userMessage)
+	if message == "" {
+		return
+	}
+	printIndented(output, "› ", message)
 }
 
 func (r *BlockRenderer) frameOutputText(text string) string {

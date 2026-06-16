@@ -223,3 +223,10 @@
 - 主要模块：`internal/ui`。
 - 验证：`go test ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
 - 备注：该修复不依赖缩短工具输出预览，`config.yaml` 中工具预览字符数保持默认值；全量工具日志仍可通过 `Ctrl+T` 查看。
+
+## 2026-06-16 - 第二轮输入提示显示修复
+
+- 摘要：修复第二轮任务开始后，用户刚提交的提示词可能被实时 UI 帧滚动或重绘挤出可视区的问题；Agent 现在发出 `user_message` 运行事件，交互式 renderer 将用户问题纳入 live frame，并在最终回答前重新打印为稳定 transcript 行。
+- 主要模块：`internal/agent`、`internal/runtimeevent`、`internal/ui`。
+- 验证：`go test ./internal/ui` 通过；`go test ./internal/agent` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：`user_message` 不计入 Tools event 数量；交互式输入行提交后会清空编辑行，由 renderer 负责统一回显，避免 prompt 残留与 live frame 重绘互相覆盖。

@@ -50,7 +50,10 @@ func (p *Prompt) ReadLine(prompt string) (string, bool) {
 		}
 		if line, done, ok := state.applyKey(key); done {
 			raw.restore()
-			fmt.Fprintln(p.output)
+			// The renderer echoes submitted prompts as part of the run transcript.
+			// Clear the editable input row so live-frame redraws do not depend on
+			// terminal line-editor leftovers.
+			fmt.Fprint(p.output, "\r\x1b[2K")
 			if ok {
 				p.addHistory(line)
 			}

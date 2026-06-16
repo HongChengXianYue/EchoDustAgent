@@ -23,6 +23,7 @@ type BlockRenderer struct {
 	pendingPromptLines int
 	liveFrameMaxLines  int
 	liveFrameMaxWidth  int
+	userMessage        string
 	todos              []runtimeevent.TodoItem
 	toolEvents         []runtimeevent.Event
 	keyWatcher         *toggleKeyWatcher
@@ -93,6 +94,11 @@ func (r *BlockRenderer) HandleEvent(event runtimeevent.Event) {
 	switch event.Type {
 	case runtimeevent.TypeRunStart:
 		r.beginRun()
+	case runtimeevent.TypeUserMessage:
+		if r.inRun && r.rewriteFrame {
+			r.userMessage = cleanTerminalText(event.Message)
+			r.renderFrame()
+		}
 	case runtimeevent.TypeAssistantMessage:
 		if r.inRun {
 			r.toolEvents = append(r.toolEvents, event)
@@ -150,6 +156,7 @@ func (r *BlockRenderer) beginRun() {
 	r.renderedFrame = false
 	r.frameLines = 0
 	r.pendingPromptLines = 0
+	r.userMessage = ""
 	r.todos = nil
 	r.toolEvents = nil
 	r.startKeyWatcher()

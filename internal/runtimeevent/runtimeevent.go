@@ -12,6 +12,7 @@ type Type string
 const (
 	TypeRunStart         Type = "run_start"
 	TypeRunEnd           Type = "run_end"
+	TypeUserMessage      Type = "user_message"
 	TypeAssistantMessage Type = "assistant_message"
 	TypeTodoUpdate       Type = "todo_update"
 	TypeToolCall         Type = "tool_call"

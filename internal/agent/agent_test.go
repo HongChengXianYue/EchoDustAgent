@@ -467,7 +467,7 @@ func TestRunProcessesTodoBeforeOtherToolsInSameTurn(t *testing.T) {
 	if len(tool.calls) != 1 {
 		t.Fatalf("tool calls = %d, want 1", len(tool.calls))
 	}
-	if len(renderer.events) < 4 || renderer.events[1].Type != runtimeevent.TypeTodoUpdate || renderer.events[2].Type != runtimeevent.TypeToolCall {
+	if len(renderer.events) < 5 || renderer.events[2].Type != runtimeevent.TypeTodoUpdate || renderer.events[3].Type != runtimeevent.TypeToolCall {
 		t.Fatalf("events = %#v, want todo update before tool call", renderer.events)
 	}
 
@@ -597,6 +597,7 @@ func TestRunEmitsToolAndFinalEvents(t *testing.T) {
 	}
 	want := []runtimeevent.Type{
 		runtimeevent.TypeRunStart,
+		runtimeevent.TypeUserMessage,
 		runtimeevent.TypeAssistantMessage,
 		runtimeevent.TypeTodoUpdate,
 		runtimeevent.TypeToolCall,
@@ -612,14 +613,17 @@ func TestRunEmitsToolAndFinalEvents(t *testing.T) {
 			t.Fatalf("events = %v, want %v", got, want)
 		}
 	}
-	if len(renderer.events[2].Todos) != 1 || renderer.events[2].Todos[0].Text != "Echo hello" {
-		t.Fatalf("todo event = %#v", renderer.events[2])
+	if renderer.events[1].Message != "say hello" {
+		t.Fatalf("user event = %#v", renderer.events[1])
 	}
-	if renderer.events[3].Tool != "echo" || string(renderer.events[3].Args) != `{"text":"hello"}` {
-		t.Fatalf("tool call event = %#v", renderer.events[3])
+	if len(renderer.events[3].Todos) != 1 || renderer.events[3].Todos[0].Text != "Echo hello" {
+		t.Fatalf("todo event = %#v", renderer.events[3])
 	}
-	if renderer.events[4].Result == nil || renderer.events[4].Result.Output != "hello" {
-		t.Fatalf("tool result event = %#v", renderer.events[4])
+	if renderer.events[4].Tool != "echo" || string(renderer.events[4].Args) != `{"text":"hello"}` {
+		t.Fatalf("tool call event = %#v", renderer.events[4])
+	}
+	if renderer.events[5].Result == nil || renderer.events[5].Result.Output != "hello" {
+		t.Fatalf("tool result event = %#v", renderer.events[5])
 	}
 }
 
@@ -700,6 +704,7 @@ func TestRunDeniesHighRiskToolWithoutExecuting(t *testing.T) {
 	}
 	want := []runtimeevent.Type{
 		runtimeevent.TypeRunStart,
+		runtimeevent.TypeUserMessage,
 		runtimeevent.TypeTodoUpdate,
 		runtimeevent.TypeApprovalRequest,
 		runtimeevent.TypeApprovalDecision,

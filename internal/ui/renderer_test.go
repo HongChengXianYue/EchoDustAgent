@@ -432,6 +432,34 @@ func TestBlockRendererRunEndCollapsesExpandedToolsBeforeFinal(t *testing.T) {
 	}
 }
 
+func TestBlockRendererKeepsUserPromptInLiveFrame(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+	renderer.rewriteFrame = true
+	renderer.liveFrameMaxLines = 12
+	renderer.liveFrameMaxWidth = 100
+
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:    runtimeevent.TypeUserMessage,
+		Message: "你觉得当前项目还缺少什么？",
+	})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type: runtimeevent.TypeTodoUpdate,
+		Todos: []runtimeevent.TodoItem{
+			{Text: "分析项目缺失能力", Status: runtimeevent.TodoInProgress},
+		},
+	})
+
+	frame := strings.ReplaceAll(latestFrame(out.String()), "\r\n", "\n")
+	if !strings.Contains(frame, "› 你觉得当前项目还缺少什么？") {
+		t.Fatalf("live frame should include the submitted prompt:\n%s", frame)
+	}
+	if !strings.Contains(frame, "• Todo") {
+		t.Fatalf("live frame should still include todo block:\n%s", frame)
+	}
+}
+
 func TestBlockRendererClearsLiveFrameBeforeFinal(t *testing.T) {
 	var out bytes.Buffer
 	renderer := NewBlockRenderer(&out)
@@ -440,6 +468,10 @@ func TestBlockRendererClearsLiveFrameBeforeFinal(t *testing.T) {
 	renderer.liveFrameMaxWidth = 100
 
 	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:    runtimeevent.TypeUserMessage,
+		Message: "你觉得当前项目还缺少什么？",
+	})
 	renderer.HandleEvent(runtimeevent.Event{
 		Type: runtimeevent.TypeTodoUpdate,
 		Todos: []runtimeevent.TodoItem{
@@ -467,13 +499,13 @@ func TestBlockRendererClearsLiveFrameBeforeFinal(t *testing.T) {
 	if strings.Contains(normalized, "• Todo") || strings.Contains(normalized, "• Tools") {
 		t.Fatalf("final answer should replace the live frame instead of appending below it:\n%q", normalized)
 	}
-	for _, want := range []string{"第一行最终回答", "第二行最终回答", "第三行最终回答"} {
+	for _, want := range []string{"› 你觉得当前项目还缺少什么？", "第一行最终回答", "第二行最终回答", "第三行最终回答"} {
 		if !strings.Contains(normalized, want) {
 			t.Fatalf("final output missing %q:\n%s", want, normalized)
 		}
 	}
-	if renderer.renderedFrame || renderer.frameLines != 0 || renderer.pendingPromptLines != 0 {
-		t.Fatalf("live frame state after final = rendered:%v frame:%d prompt:%d, want cleared", renderer.renderedFrame, renderer.frameLines, renderer.pendingPromptLines)
+	if renderer.renderedFrame || renderer.frameLines != 0 || renderer.pendingPromptLines != 0 || renderer.userMessage != "" {
+		t.Fatalf("live frame state after final = rendered:%v frame:%d prompt:%d user:%q, want cleared", renderer.renderedFrame, renderer.frameLines, renderer.pendingPromptLines, renderer.userMessage)
 	}
 }
 

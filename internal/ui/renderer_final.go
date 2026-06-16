@@ -14,7 +14,12 @@ func (r *BlockRenderer) renderFinal(message string) {
 	if message == "" {
 		return
 	}
+	userMessage := strings.TrimSpace(r.userMessage)
 	r.clearLiveFrame()
+	if userMessage != "" {
+		printIndented(r.output, "› ", userMessage)
+		r.userMessage = ""
+	}
 	fmt.Fprintln(r.output, separatorLine(r.options.SeparatorWidth))
 	rendered, err := renderMarkdown(r.markdownRenderer, message)
 	if err != nil {
