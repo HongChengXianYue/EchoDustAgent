@@ -44,6 +44,15 @@ type ChatResponse struct {
 	Usage     *TokenUsage
 }
 
+type StreamDelta struct {
+	Content   string
+	ToolCalls []ToolCall
+	Usage     *TokenUsage
+	Done      bool
+}
+
+type StreamHandler func(StreamDelta) error
+
 type TokenUsage struct {
 	PromptTokens     int `json:"prompt_tokens,omitempty"`
 	CompletionTokens int `json:"completion_tokens,omitempty"`
@@ -52,4 +61,9 @@ type TokenUsage struct {
 
 type Client interface {
 	ChatWithTools(ctx context.Context, messages []Message, tools []FunctionTool) (*ChatResponse, error)
+}
+
+type StreamingClient interface {
+	Client
+	ChatWithToolsStream(ctx context.Context, messages []Message, tools []FunctionTool, onDelta StreamHandler) (*ChatResponse, error)
 }

@@ -36,6 +36,18 @@ func jsonArgString(raw json.RawMessage, key string) string {
 	return value
 }
 
+func jsonArgInt(raw json.RawMessage, key string) int {
+	var args map[string]any
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return 0
+	}
+	value, ok := args[key].(float64)
+	if !ok {
+		return 0
+	}
+	return int(value)
+}
+
 func printIndented(output io.Writer, prefix string, text string) {
 	text = strings.TrimRight(text, "\n")
 	if strings.TrimSpace(text) == "" {

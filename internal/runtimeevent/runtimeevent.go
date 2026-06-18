@@ -13,6 +13,7 @@ const (
 	TypeRunStart         Type = "run_start"
 	TypeRunEnd           Type = "run_end"
 	TypeUserMessage      Type = "user_message"
+	TypeAssistantDelta   Type = "assistant_delta"
 	TypeAssistantMessage Type = "assistant_message"
 	TypeTodoUpdate       Type = "todo_update"
 	TypeToolCall         Type = "tool_call"
@@ -60,6 +61,7 @@ type Event struct {
 	Before     int                 `json:"before,omitempty"`
 	After      int                 `json:"after,omitempty"`
 	Count      int                 `json:"count,omitempty"`
+	Delta      string              `json:"delta,omitempty"`
 	// SubagentIndex is assigned by the parent agent for grouping forwarded
 	// subagent events in the UI. It is scoped to one parent Run.
 	SubagentIndex int `json:"subagent_index,omitempty"`

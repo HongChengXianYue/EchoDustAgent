@@ -63,6 +63,8 @@ func (r *BlockRenderer) toolEventTitle(event runtimeevent.Event) string {
 func toolEventTitle(event runtimeevent.Event, argsLimit int) string {
 	prefix := eventTitlePrefix(event)
 	switch event.Type {
+	case runtimeevent.TypeAssistantDelta:
+		return prefix + "Assistant streaming"
 	case runtimeevent.TypeAssistantMessage:
 		return prefix + "Assistant"
 	case runtimeevent.TypeToolCall:
@@ -123,6 +125,8 @@ func toolEventTitle(event runtimeevent.Event, argsLimit int) string {
 
 func (r *BlockRenderer) toolEventDetail(event runtimeevent.Event) string {
 	switch event.Type {
+	case runtimeevent.TypeAssistantDelta:
+		return withEventSourceDetail(event, cleanTerminalText(event.Delta))
 	case runtimeevent.TypeAssistantMessage:
 		return withEventSourceDetail(event, cleanTerminalText(event.Message))
 	case runtimeevent.TypeToolCall:
@@ -371,6 +375,8 @@ func writeFullLogEventNumber(out io.Writer, number int, color string) {
 func fullToolEventTitle(event runtimeevent.Event) string {
 	prefix := eventTitlePrefix(event)
 	switch event.Type {
+	case runtimeevent.TypeAssistantDelta:
+		return prefix + "Assistant streaming"
 	case runtimeevent.TypeAssistantMessage:
 		return prefix + "Assistant"
 	case runtimeevent.TypeToolCall:
@@ -399,6 +405,8 @@ func fullToolEventTitle(event runtimeevent.Event) string {
 
 func (r *BlockRenderer) fullToolEventDetail(event runtimeevent.Event) string {
 	switch event.Type {
+	case runtimeevent.TypeAssistantDelta:
+		return withEventSourceDetail(event, cleanTerminalText(event.Delta))
 	case runtimeevent.TypeAssistantMessage:
 		return withEventSourceDetail(event, cleanTerminalText(event.Message))
 	case runtimeevent.TypeToolCall:
@@ -523,7 +531,7 @@ func (r *BlockRenderer) renderToolResult(event runtimeevent.Event) {
 
 func isExploreTool(tool string) bool {
 	switch tool {
-	case "list_files", "find_files", "read_file", "search_files":
+	case "list_files", "find_files", "read_file", "read_file_range", "search_files", "find_symbol", "find_references", "find_callers", "find_callees", "git_status", "git_diff", "git_log":
 		return true
 	default:
 		return false
@@ -560,6 +568,14 @@ func exploreDetail(event runtimeevent.Event, argsLimit int) string {
 			path = "(missing path)"
 		}
 		return "Read " + path
+	case "read_file_range":
+		path := jsonArgString(event.Args, "path")
+		if path == "" {
+			path = "(missing path)"
+		}
+		start := jsonArgInt(event.Args, "start_line")
+		end := jsonArgInt(event.Args, "end_line")
+		return fmt.Sprintf("Read %s lines %d-%d", path, start, end)
 	case "search_files":
 		query := jsonArgString(event.Args, "query")
 		path := jsonArgString(event.Args, "path")
@@ -567,6 +583,28 @@ func exploreDetail(event runtimeevent.Event, argsLimit int) string {
 			path = "."
 		}
 		return "Search " + query + " in " + path
+	case "find_symbol":
+		query := jsonArgString(event.Args, "query")
+		return "Find symbol " + query
+	case "find_references":
+		path := jsonArgString(event.Args, "path")
+		return "Find references in " + path
+	case "find_callers":
+		path := jsonArgString(event.Args, "path")
+		return "Find callers in " + path
+	case "find_callees":
+		path := jsonArgString(event.Args, "path")
+		return "Find callees in " + path
+	case "git_status":
+		return "Git status"
+	case "git_diff":
+		path := jsonArgString(event.Args, "path")
+		if path == "" {
+			return "Git diff"
+		}
+		return "Git diff " + path
+	case "git_log":
+		return "Git log"
 	default:
 		return compactJSON(event.Args, argsLimit)
 	}

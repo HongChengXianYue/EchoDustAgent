@@ -208,6 +208,33 @@ func TestBlockRendererRendersDelegateTaskAsSubagent(t *testing.T) {
 	}
 }
 
+func TestBlockRendererShowsAssistantStreamingInLiveFrame(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+	renderer.rewriteFrame = true
+
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:    runtimeevent.TypeUserMessage,
+		Message: "stream this",
+	})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:  runtimeevent.TypeAssistantDelta,
+		Delta: "partial answer",
+	})
+
+	text := out.String()
+	for _, want := range []string{
+		"› stream this",
+		"• Assistant (streaming)",
+		"partial answer",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("output missing %q:\n%s", want, text)
+		}
+	}
+}
+
 func TestBlockRendererLabelsForwardedSubagentEvents(t *testing.T) {
 	var out bytes.Buffer
 	renderer := NewBlockRenderer(&out)

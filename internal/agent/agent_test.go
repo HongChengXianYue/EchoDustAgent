@@ -20,6 +20,8 @@ type fakeClient struct {
 	calls     int
 	messages  [][]llm.Message
 	tools     [][]llm.FunctionTool
+	stream    bool
+	deltas    [][]string
 }
 
 func (f *fakeClient) ChatWithTools(ctx context.Context, messages []llm.Message, specs []llm.FunctionTool) (*llm.ChatResponse, error) {
@@ -29,6 +31,31 @@ func (f *fakeClient) ChatWithTools(ctx context.Context, messages []llm.Message, 
 		return &llm.ChatResponse{Content: "done"}, nil
 	}
 	resp := f.responses[f.calls]
+	f.calls++
+	return resp, nil
+}
+
+func (f *fakeClient) ChatWithToolsStream(ctx context.Context, messages []llm.Message, specs []llm.FunctionTool, onDelta llm.StreamHandler) (*llm.ChatResponse, error) {
+	f.messages = append(f.messages, append([]llm.Message(nil), messages...))
+	f.tools = append(f.tools, append([]llm.FunctionTool(nil), specs...))
+	if f.calls >= len(f.responses) {
+		if onDelta != nil {
+			_ = onDelta(llm.StreamDelta{Content: "done"})
+		}
+		return &llm.ChatResponse{Content: "done"}, nil
+	}
+	resp := f.responses[f.calls]
+	if onDelta != nil {
+		var deltas []string
+		if f.calls < len(f.deltas) {
+			deltas = f.deltas[f.calls]
+		}
+		for _, delta := range deltas {
+			if err := onDelta(llm.StreamDelta{Content: delta}); err != nil {
+				return nil, err
+			}
+		}
+	}
 	f.calls++
 	return resp, nil
 }
@@ -653,6 +680,47 @@ func TestRunEmitsToolAndFinalEvents(t *testing.T) {
 	}
 	if renderer.events[5].Result == nil || renderer.events[5].Result.Output != "hello" {
 		t.Fatalf("tool result event = %#v", renderer.events[5])
+	}
+}
+
+func TestRunEmitsAssistantDeltaBeforeFinal(t *testing.T) {
+	client := &fakeClient{
+		responses: []*llm.ChatResponse{
+			{Content: "hello world"},
+		},
+		deltas: [][]string{
+			{"hello ", "world"},
+		},
+	}
+	registry := tools.NewRegistry()
+	registry.Register(&echoTool{})
+	renderer := &captureRenderer{}
+
+	agent := New(client, registry, 2)
+	agent.SetRenderer(renderer)
+	answer, err := agent.Run(context.Background(), "say hello")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if answer != "hello world" {
+		t.Fatalf("answer = %q, want hello world", answer)
+	}
+
+	foundDelta := false
+	foundFinal := false
+	for _, event := range renderer.events {
+		if event.Type == runtimeevent.TypeAssistantDelta && strings.TrimSpace(event.Delta) != "" {
+			foundDelta = true
+		}
+		if event.Type == runtimeevent.TypeFinal && event.Message == "hello world" {
+			foundFinal = true
+		}
+	}
+	if !foundDelta {
+		t.Fatalf("expected assistant delta event, got %#v", renderer.events)
+	}
+	if !foundFinal {
+		t.Fatalf("expected final event, got %#v", renderer.events)
 	}
 }
 

@@ -24,6 +24,7 @@ type BlockRenderer struct {
 	liveFrameMaxLines  int
 	liveFrameMaxWidth  int
 	userMessage        string
+	assistantMessage   string
 	todos              []runtimeevent.TodoItem
 	toolEvents         []runtimeevent.Event
 	keyWatcher         *toggleKeyWatcher
@@ -99,8 +100,15 @@ func (r *BlockRenderer) HandleEvent(event runtimeevent.Event) {
 			r.userMessage = cleanTerminalText(event.Message)
 			r.renderFrame()
 		}
+	case runtimeevent.TypeAssistantDelta:
+		if r.inRun {
+			r.assistantMessage += event.Delta
+			r.renderFrame()
+			return
+		}
 	case runtimeevent.TypeAssistantMessage:
 		if r.inRun {
+			r.assistantMessage = cleanTerminalText(event.Message)
 			r.toolEvents = append(r.toolEvents, event)
 			r.renderFrame()
 			return
@@ -164,6 +172,7 @@ func (r *BlockRenderer) beginRun() {
 	r.frameLines = 0
 	r.pendingPromptLines = 0
 	r.userMessage = ""
+	r.assistantMessage = ""
 	r.todos = nil
 	r.toolEvents = nil
 	r.startKeyWatcher()

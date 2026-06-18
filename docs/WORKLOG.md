@@ -258,3 +258,10 @@
 - 主要模块：`internal/tools`、`internal/approval`、`internal/agent`、`README.md`、`docs/WORKLOG.md`。
 - 验证：`gofmt -w ...` 完成；`go test ./internal/tools ./internal/approval ./internal/agent` 通过；`go test ./...` 通过；`go vet ./...` 通过。
 - 备注：Go 代码导航工具当前复用本地 `codegraph` 与 `gopls` CLI，运行时会落到 `/tmp` 下的私有缓存目录；`find_references` / `find_callers` / `find_callees` 目前按 Go 文件位置工作，不做跨语言语义分析。
+
+## 2026-06-18 - 终端流式输出
+
+- 摘要：为 OpenAI-compatible client 增加流式 chat completion 支持，Agent 在 provider 支持时优先走 streaming，把增量 assistant 文本通过新的 runtime event 发给 UI；终端 live frame 现在可在最终回答前实时显示 assistant 正在输出的内容，同时保留原有 tool call、tool result 和最终 Markdown 渲染路径。
+- 主要模块：`internal/llm`、`internal/agent`、`internal/runtimeevent`、`internal/ui`、`README.md`、`docs/WORKLOG.md`。
+- 验证：`gofmt -w ...` 完成；`go test ./internal/llm ./internal/agent ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：当前流式仅对 assistant 文本增量生效；tool call 仍按单个 assistant turn 完整落地后再调度执行。若 provider 的 SSE 工具调用增量格式有差异，后续可能还需补更严格的兼容解析。

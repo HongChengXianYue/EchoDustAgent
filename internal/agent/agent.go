@@ -132,7 +132,7 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 	a.messages = append(a.messages, llm.Message{Role: "user", Content: input})
 
 	for step := 0; step < a.maxSteps; step++ {
-		resp, err := a.client.ChatWithTools(ctx, a.messages, a.functionTools())
+		resp, err := a.chatWithTools(ctx, step)
 		if err != nil {
 			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeError, Error: err.Error()})
 			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeRunEnd})
@@ -166,6 +166,26 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeError, Error: err.Error()})
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeRunEnd})
 	return "", err
+}
+
+func (a *Agent) chatWithTools(ctx context.Context, step int) (*llm.ChatResponse, error) {
+	tools := a.functionTools()
+	streamingClient, ok := a.client.(llm.StreamingClient)
+	if !ok {
+		return a.client.ChatWithTools(ctx, a.messages, tools)
+	}
+	return streamingClient.ChatWithToolsStream(ctx, a.messages, tools, func(delta llm.StreamDelta) error {
+		if strings.TrimSpace(delta.Content) == "" {
+			return nil
+		}
+		a.emit(runtimeevent.Event{
+			Step:    step,
+			Type:    runtimeevent.TypeAssistantDelta,
+			Delta:   delta.Content,
+			Message: delta.Content,
+		})
+		return nil
+	})
 }
 
 func (a *Agent) Messages() []llm.Message {

@@ -153,6 +153,52 @@ func TestOpenAICompatibleClientOmitsToolControlsWhenNoTools(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleClientStreamsContent(t *testing.T) {
+	client := NewOpenAICompatibleClient("https://example.test/v1", "test-key", "test-model")
+	client.Client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		var req map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if req["stream"] != true {
+			t.Fatalf("stream = %v, want true", req["stream"])
+		}
+		body := strings.Join([]string{
+			`data: {"choices":[{"delta":{"content":"hello "}}]}`,
+			``,
+			`data: {"choices":[{"delta":{"content":"world"}}],"usage":{"total_tokens":9}}`,
+			``,
+			`data: [DONE]`,
+			``,
+		}, "\n")
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(body)),
+		}, nil
+	})}
+
+	var deltas []string
+	resp, err := client.ChatWithToolsStream(context.Background(), []Message{{Role: "user", Content: "hello"}}, nil, func(delta StreamDelta) error {
+		if delta.Content != "" {
+			deltas = append(deltas, delta.Content)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ChatWithToolsStream() error = %v", err)
+	}
+	if strings.Join(deltas, "") != "hello world" {
+		t.Fatalf("deltas = %#v, want hello world", deltas)
+	}
+	if resp.Content != "hello world" {
+		t.Fatalf("content = %q, want hello world", resp.Content)
+	}
+	if resp.Usage == nil || resp.Usage.TotalTokens != 9 {
+		t.Fatalf("usage = %#v, want total 9", resp.Usage)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {

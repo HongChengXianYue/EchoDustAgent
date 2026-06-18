@@ -58,6 +58,12 @@ Configured areas:
 
 The agent only executes tools from provider-returned `tool_calls`. It does not parse assistant text as a JSON tool protocol.
 
+## Streaming Output
+
+When the configured OpenAI-compatible endpoint supports streaming chat completions, the agent now prefers streaming responses for assistant text. Partial assistant text is forwarded into runtime events and shown in the live terminal frame before the final answer block is rendered.
+
+Tool calls still remain turn-based. The agent accumulates streamed assistant content, waits for the provider's final tool-call payload or final text completion, and then continues through the existing tool scheduler and final-answer rendering path.
+
 ## Memory
 
 When enabled, memory loads once at startup and is appended to the system prompt after the stable base instructions. This keeps the base prompt cache-friendly while still giving the model durable project context.

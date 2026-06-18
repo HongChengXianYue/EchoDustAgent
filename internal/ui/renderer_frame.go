@@ -11,6 +11,7 @@ import (
 func (r *BlockRenderer) renderFrame() {
 	var buf bytes.Buffer
 	r.writeUserMessage(&buf)
+	r.writeAssistantMessage(&buf)
 	r.writeTodoBlock(&buf)
 	r.writeToolsBlock(&buf)
 	text := buf.String()
@@ -38,6 +39,16 @@ func (r *BlockRenderer) writeUserMessage(output *bytes.Buffer) {
 		return
 	}
 	printIndented(output, "› ", message)
+}
+
+func (r *BlockRenderer) writeAssistantMessage(output *bytes.Buffer) {
+	message := strings.TrimSpace(cleanTerminalText(r.assistantMessage))
+	if message == "" {
+		return
+	}
+	fmt.Fprintln(output, separatorLine(r.options.SeparatorWidth))
+	fmt.Fprintln(output, "• Assistant (streaming)")
+	printIndented(output, "  └ ", truncate(message, r.options.ToolPreviewOutputChars))
 }
 
 func (r *BlockRenderer) frameOutputText(text string) string {
