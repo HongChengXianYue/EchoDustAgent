@@ -610,6 +610,24 @@ func TestBlockRendererApprovalRequestStopsWatcherOutsideRendererLock(t *testing.
 	}
 }
 
+func TestBlockRendererReleaseTerminalStopsWatcher(t *testing.T) {
+	var out bytes.Buffer
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	renderer := NewBlockRenderer(&out)
+	renderer.keyWatcher = &toggleKeyWatcher{running: true, stop: stop, done: done}
+
+	finished := make(chan struct{})
+	go func() {
+		renderer.ReleaseTerminal()
+		close(finished)
+	}()
+
+	waitForClosed(t, stop, "watcher stop")
+	close(done)
+	waitForClosed(t, finished, "release terminal")
+}
+
 func TestBlockRendererLimitsExpandedLiveFrame(t *testing.T) {
 	var out bytes.Buffer
 	renderer := NewBlockRenderer(&out)

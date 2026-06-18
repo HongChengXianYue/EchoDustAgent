@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"local-agent/internal/agent"
@@ -50,7 +53,8 @@ func main() {
 		ParallelToolCalls: cfg.LLM.ParallelToolCalls,
 	})
 	codingAgent := agent.NewWithWorkspaceAndOptions(client, registry, cfg.Agent.MaxSteps, workdir, agentOptions(cfg.Agent, cfg.Subagents, cfg.Context, loadedMemory))
-	codingAgent.SetRenderer(ui.NewInteractiveBlockRendererWithOptions(os.Stdin, os.Stdout, uiOptions(cfg.UI)))
+	renderer := ui.NewInteractiveBlockRendererWithOptions(os.Stdin, os.Stdout, uiOptions(cfg.UI))
+	codingAgent.SetRenderer(renderer)
 	codingAgent.SetApprover(approval.NewMemoryApprover(approval.NewTerminalApprover(os.Stdin, os.Stdout)))
 
 	fmt.Println("local-agent started")
@@ -58,6 +62,33 @@ func main() {
 	fmt.Println("model:", cfg.LLM.Model)
 	fmt.Println("log file:", logger.Path())
 	fmt.Println("type exit or quit to stop")
+
+	var runMu sync.Mutex
+	var running bool
+	var cancelCurrent context.CancelFunc
+	interrupts := make(chan os.Signal, 1)
+	signal.Notify(interrupts, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(interrupts)
+	go func() {
+		for sig := range interrupts {
+			logs.Errorf("received signal: %v", sig)
+			renderer.ReleaseTerminal()
+
+			runMu.Lock()
+			cancel := cancelCurrent
+			active := running
+			cancelCurrent = nil
+			runMu.Unlock()
+
+			if cancel != nil {
+				cancel()
+			}
+			if !active {
+				fmt.Fprintln(os.Stderr)
+				os.Exit(130)
+			}
+		}
+	}()
 
 	prompt := ui.NewPrompt(os.Stdin, os.Stdout)
 	for {
@@ -73,10 +104,21 @@ func main() {
 			return
 		}
 
-		if _, err := codingAgent.Run(context.Background(), input); err != nil {
+		runCtx, cancel := context.WithCancel(context.Background())
+		runMu.Lock()
+		running = true
+		cancelCurrent = cancel
+		runMu.Unlock()
+
+		if _, err := codingAgent.Run(runCtx, input); err != nil {
 			logs.Errorf("agent run failed: input=%q err=%v", input, err)
 			fmt.Fprintln(os.Stderr, "run failed:", err)
 		}
+		cancel()
+		runMu.Lock()
+		running = false
+		cancelCurrent = nil
+		runMu.Unlock()
 	}
 }
 

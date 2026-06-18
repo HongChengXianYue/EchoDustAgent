@@ -234,6 +234,12 @@ func (r *BlockRenderer) stopKeyWatcher() {
 	}
 }
 
+// ReleaseTerminal stops any live key watcher so terminal raw mode is restored.
+// Use this before interrupt-driven shutdown while a run is active.
+func (r *BlockRenderer) ReleaseTerminal() {
+	r.stopKeyWatcher()
+}
+
 func (r *BlockRenderer) ToggleTools() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
