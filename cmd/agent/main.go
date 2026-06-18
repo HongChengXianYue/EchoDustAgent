@@ -11,6 +11,7 @@ import (
 	"local-agent/internal/approval"
 	"local-agent/internal/config"
 	"local-agent/internal/llm"
+	"local-agent/internal/memory"
 	"local-agent/internal/tools"
 	"local-agent/internal/ui"
 )
@@ -29,11 +30,18 @@ func main() {
 
 	registry := tools.NewRegistry()
 	tools.RegisterBuiltinsWithOptions(registry, workdir, toolOptions(cfg.Tools))
+	var loadedMemory *memory.Set
+	if cfg.Memory.Enabled {
+		loadedMemory = memory.Load(memory.Options{CWD: workdir, UserDir: cfg.Memory.UserDir})
+		registry.Register(memory.NewRecallTool(loadedMemory.Store))
+		registry.Register(memory.NewRememberTool(loadedMemory.Store))
+		registry.Register(memory.NewForgetTool(loadedMemory.Store))
+	}
 	client := llm.NewOpenAICompatibleClientWithOptions(cfg.LLM.BaseURL, cfg.APIKey, cfg.LLM.Model, llm.OpenAICompatibleOptions{
 		Timeout:           time.Duration(cfg.LLM.RequestTimeoutSeconds) * time.Second,
 		ParallelToolCalls: cfg.LLM.ParallelToolCalls,
 	})
-	codingAgent := agent.NewWithWorkspaceAndOptions(client, registry, cfg.Agent.MaxSteps, workdir, agentOptions(cfg.Agent, cfg.Subagents))
+	codingAgent := agent.NewWithWorkspaceAndOptions(client, registry, cfg.Agent.MaxSteps, workdir, agentOptions(cfg.Agent, cfg.Subagents, loadedMemory))
 	codingAgent.SetRenderer(ui.NewInteractiveBlockRendererWithOptions(os.Stdin, os.Stdout, uiOptions(cfg.UI)))
 	codingAgent.SetApprover(approval.NewMemoryApprover(approval.NewTerminalApprover(os.Stdin, os.Stdout)))
 
@@ -97,9 +105,14 @@ func uiOptions(cfg config.UIConfig) ui.Options {
 	}
 }
 
-func agentOptions(agentCfg config.AgentConfig, subagentsCfg config.SubagentsConfig) agent.Options {
+func agentOptions(agentCfg config.AgentConfig, subagentsCfg config.SubagentsConfig, loadedMemory *memory.Set) agent.Options {
+	memoryBlock := ""
+	if loadedMemory != nil {
+		memoryBlock = loadedMemory.Block()
+	}
 	return agent.Options{
 		MaxParallelToolCalls: agentCfg.MaxParallelToolCalls,
+		SystemPromptSuffix:   memoryBlock,
 		Subagents: agent.SubagentOptions{
 			Enabled:        subagentsCfg.Enabled,
 			MaxConcurrent:  subagentsCfg.MaxConcurrent,

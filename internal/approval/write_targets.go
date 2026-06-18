@@ -34,6 +34,8 @@ func AnalyzeWrite(tool string, args json.RawMessage, workspace string, category 
 		return analyzePatchTargets(args, workspace)
 	case "run_command":
 		return analyzeCommandWrites(CommandFromArgs(args), workspace, category)
+	case "remember", "forget":
+		return externalUnknownWrite()
 	default:
 		if RequiresApproval(category) {
 			return workspaceUnknownWrite(workspace)

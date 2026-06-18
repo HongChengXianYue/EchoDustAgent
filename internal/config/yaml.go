@@ -99,6 +99,10 @@ func applyConfigValue(cfg *Config, key string, value string) error {
 		return setPositiveInt(key, value, &cfg.Subagents.MaxSteps)
 	case "subagents.result_max_bytes":
 		return setPositiveInt(key, value, &cfg.Subagents.ResultMaxBytes)
+	case "memory.enabled":
+		return setBool(key, value, &cfg.Memory.Enabled)
+	case "memory.user_dir":
+		cfg.Memory.UserDir = value
 	case "tools.list_max_entries":
 		return setPositiveInt(key, value, &cfg.Tools.ListMaxEntries)
 	case "tools.find_max_matches":

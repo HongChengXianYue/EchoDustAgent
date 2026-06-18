@@ -393,6 +393,29 @@ func TestNewWithWorkspaceAddsCurrentWorkspaceToSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestNewWithWorkspaceAndOptionsAppendsSystemPromptSuffix(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{Content: "done"},
+	}}
+	options := DefaultOptions()
+	options.SystemPromptSuffix = "# Memory\n\nProject rule."
+	agent := NewWithWorkspaceAndOptions(client, tools.NewRegistry(), 3, "/tmp/local-agent-work", options)
+
+	if _, err := agent.Run(context.Background(), "what memory is loaded?"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(client.messages) != 1 || len(client.messages[0]) == 0 {
+		t.Fatalf("missing captured messages: %#v", client.messages)
+	}
+	systemPrompt := client.messages[0][0].Content
+	if !strings.Contains(systemPrompt, "You are a local coding agent.") {
+		t.Fatalf("system prompt lost base content:\n%s", systemPrompt)
+	}
+	if !strings.Contains(systemPrompt, "# Memory\n\nProject rule.") {
+		t.Fatalf("system prompt missing suffix:\n%s", systemPrompt)
+	}
+}
+
 func TestRunExposesToolsForWorkspaceTask(t *testing.T) {
 	client := &fakeClient{responses: []*llm.ChatResponse{
 		{Content: "done"},

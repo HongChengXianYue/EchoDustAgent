@@ -26,6 +26,7 @@ Configured areas:
 - `llm`: base URL, model, request timeout, and `parallel_tool_calls`.
 - `agent`: maximum ReAct steps per user request and maximum parallel tool calls per assistant turn.
 - `subagents`: delegate-task availability, concurrency, max steps, and result size.
+- `memory`: persistent memory loading and user memory directory.
 - `tools`: list/find/read/search limits, command and patch timeouts, output caps, and file-change preview lines.
 - `ui`: separator width, live frame bounds, full-log viewer sizes, polling intervals, Markdown wrap width, and preview truncation lengths.
 
@@ -42,8 +43,24 @@ Configured areas:
 - `run_command`: run a shell command in the workdir.
 - `apply_patch`: apply a unified diff patch.
 - `delegate_task`: delegate an isolated read-only research task to a subagent.
+- `memory`: list, search, or read saved durable memories.
+- `remember`: save or update a durable memory for future sessions.
+- `forget`: archive a stale saved memory.
 
 The agent only executes tools from provider-returned `tool_calls`. It does not parse assistant text as a JSON tool protocol.
+
+## Memory
+
+When enabled, memory loads once at startup and is appended to the system prompt after the stable base instructions. This keeps the base prompt cache-friendly while still giving the model durable project context.
+
+Document memory is discovered from `REASONIX.md`, `AGENTS.md`, and `CLAUDE.md`, plus local variants such as `AGENTS.local.md`. Discovery starts from the workspace, stops at the nearest Git root, also reads the configured user directory, and supports single-line `@relative/path.md` imports.
+
+Saved memories live under `memory.user_dir` as plain Markdown files:
+
+- `memory/global`: user and feedback memories shared across projects.
+- `projects/<workspace-slug>/memory`: project and reference memories for the current workspace.
+
+The `memory` tool is read-only. `remember` and `forget` modify the user memory directory and therefore use the existing approval flow.
 
 ## Subagents
 

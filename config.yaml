@@ -27,6 +27,13 @@ subagents:
   # 子代理最终结论最多回传多少字节，超过后截断。
   result_max_bytes: 16888
 
+# 持久记忆配置。文档记忆会在启动时加载一次并拼入 system prompt。
+memory:
+  # 是否启用 memory / remember / forget 工具和启动时记忆加载。
+  enabled: true
+  # 用户级记忆目录；支持 ~。项目记忆会按当前 workspace 分目录存放在这里。
+  user_dir: ~/.local-agent
+
 # 内置工具限制和执行上限。
 tools:
   # list_files 最多返回多少个目录项，超过后截断。

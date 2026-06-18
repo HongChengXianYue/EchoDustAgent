@@ -40,7 +40,11 @@ func NewWithWorkspace(client llm.Client, registry *tools.Registry, maxSteps int,
 
 func NewWithWorkspaceAndOptions(client llm.Client, registry *tools.Registry, maxSteps int, workspace string, options Options) *Agent {
 	options = normalizeOptions(options)
-	return newAgent(client, registry, maxSteps, workspace, systemPrompt(workspace, options.MaxParallelToolCalls), options)
+	prompt := systemPrompt(workspace, options.MaxParallelToolCalls)
+	if suffix := strings.TrimSpace(options.SystemPromptSuffix); suffix != "" {
+		prompt = strings.TrimRight(prompt, "\n") + "\n\n" + suffix
+	}
+	return newAgent(client, registry, maxSteps, workspace, prompt, options)
 }
 
 func newAgent(client llm.Client, registry *tools.Registry, maxSteps int, workspace string, prompt string, options Options) *Agent {

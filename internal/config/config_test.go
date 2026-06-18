@@ -22,6 +22,9 @@ subagents:
   max_concurrent: 4
   max_steps: 5
   result_max_bytes: 6789
+memory:
+  enabled: false
+  user_dir: /tmp/local-agent-memory
 tools:
   list_max_entries: 11
   file_change_preview_lines: 3
@@ -65,6 +68,12 @@ ui:
 	}
 	if cfg.Subagents.ResultMaxBytes != 6789 {
 		t.Fatalf("subagents result max bytes = %d", cfg.Subagents.ResultMaxBytes)
+	}
+	if cfg.Memory.Enabled {
+		t.Fatalf("memory enabled = true, want false")
+	}
+	if cfg.Memory.UserDir != "/tmp/local-agent-memory" {
+		t.Fatalf("memory user dir = %q", cfg.Memory.UserDir)
 	}
 	if cfg.Tools.ListMaxEntries != 11 {
 		t.Fatalf("list max entries = %d", cfg.Tools.ListMaxEntries)

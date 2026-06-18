@@ -3,6 +3,7 @@ package agent
 type Options struct {
 	MaxParallelToolCalls int
 	Subagents            SubagentOptions
+	SystemPromptSuffix   string
 }
 
 type SubagentOptions struct {

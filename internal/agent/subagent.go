@@ -97,7 +97,11 @@ func (a *Agent) newSubagent(task string, index int) *Agent {
 	options := a.options
 	options.Subagents.Enabled = false
 	registry := a.subagentRegistry()
-	subagent := newAgent(a.client, registry, a.options.Subagents.MaxSteps, a.workspace, subagentSystemPrompt(a.workspace, options.MaxParallelToolCalls), options)
+	prompt := subagentSystemPrompt(a.workspace, options.MaxParallelToolCalls)
+	if suffix := strings.TrimSpace(options.SystemPromptSuffix); suffix != "" {
+		prompt = strings.TrimRight(prompt, "\n") + "\n\n" + suffix
+	}
+	subagent := newAgent(a.client, registry, a.options.Subagents.MaxSteps, a.workspace, prompt, options)
 	subagent.autoTodoText = subagentAutoTodoText(task)
 	subagent.SetApprover(denyAllApprover{})
 	if a.renderer != nil {

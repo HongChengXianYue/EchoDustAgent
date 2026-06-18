@@ -230,3 +230,17 @@
 - 主要模块：`internal/agent`、`internal/runtimeevent`、`internal/ui`。
 - 验证：`go test ./internal/ui` 通过；`go test ./internal/agent` 通过；`go test ./...` 通过；`go vet ./...` 通过。
 - 备注：`user_message` 不计入 Tools event 数量；交互式输入行提交后会清空编辑行，由 renderer 负责统一回显，避免 prompt 残留与 live frame 重绘互相覆盖。
+
+## 2026-06-18 - Reasonix 上下文工程分析文档
+
+- 摘要：新增 DeepSeek Reasonix Go 版本上下文工程剖析文档，说明其通过稳定 system prompt、工具 schema 规范化、append-only 会话日志、reasoning 内容克制回放、低频 compaction、子代理隔离和 cache telemetry 来提高 DeepSeek prefix cache 命中率。
+- 主要模块：`docs/DEEPSEEK_REASONIX_CONTEXT_ENGINEERING.md`、`docs/WORKLOG.md`。
+- 验证：`git diff --check` 通过；未运行 Go 测试，因为本次仅新增和更新文档。
+- 备注：分析依据来自上游 `main-v2` Go 版本源码和 legacy 缓存基准文档；缓存命中率数字引用上游报告，未在本地独立复测。
+
+## 2026-06-18 - Reasonix 风格 Memory
+
+- 摘要：新增 `internal/memory` 包，实现启动时层级文档记忆加载、`@path` 导入、稳定 system prompt 拼接、Markdown 持久 fact store，以及 `memory`、`remember`、`forget` 三个原生工具；入口按配置加载 memory 并注册工具，主 agent 和 subagent 都继承同一个 memory block。
+- 主要模块：`internal/memory`、`cmd/agent`、`internal/agent`、`internal/config`、`internal/approval`、`README.md`、`config.yaml`。
+- 验证：`gofmt -w ...` 完成；`go test ./internal/memory` 通过；`go test ./internal/config ./internal/agent ./internal/approval` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：`memory` 工具是只读；`remember` 和 `forget` 写入 `memory.user_dir` 下的用户记忆目录，按现有审批系统作为外部写入处理。当前搜索使用标准库的轻量文本匹配，后续可替换为更强检索而不改变工具接口。

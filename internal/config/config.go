@@ -16,6 +16,7 @@ type Config struct {
 	LLM       LLMConfig
 	Agent     AgentConfig
 	Subagents SubagentsConfig
+	Memory    MemoryConfig
 	Tools     ToolsConfig
 	UI        UIConfig
 }
@@ -37,6 +38,11 @@ type SubagentsConfig struct {
 	MaxConcurrent  int
 	MaxSteps       int
 	ResultMaxBytes int
+}
+
+type MemoryConfig struct {
+	Enabled bool
+	UserDir string
 }
 
 type ToolsConfig struct {
@@ -117,6 +123,10 @@ func Default() Config {
 			MaxConcurrent:  2,
 			MaxSteps:       8,
 			ResultMaxBytes: 12 * 1024,
+		},
+		Memory: MemoryConfig{
+			Enabled: true,
+			UserDir: "~/.local-agent",
 		},
 		Tools: ToolsConfig{
 			ListMaxEntries:               200,
