@@ -8,6 +8,7 @@ import (
 
 	"local-agent/internal/approval"
 	"local-agent/internal/llm"
+	"local-agent/internal/logs"
 	"local-agent/internal/runtimeevent"
 	"local-agent/internal/tools"
 )
@@ -134,6 +135,7 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 	for step := 0; step < a.maxSteps; step++ {
 		resp, err := a.chatWithTools(ctx, step)
 		if err != nil {
+			logs.Errorf("agent chat failed: step=%d err=%v", step, err)
 			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeError, Error: err.Error()})
 			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeRunEnd})
 			return "", err
@@ -163,6 +165,7 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 		}
 	}
 	err := fmt.Errorf("agent stopped after %d steps without a final response", a.maxSteps)
+	logs.Errorf("agent stopped without final response: max_steps=%d", a.maxSteps)
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeError, Error: err.Error()})
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeRunEnd})
 	return "", err

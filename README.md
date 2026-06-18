@@ -9,6 +9,8 @@ export AGENT_API_KEY=...
 go run ./cmd/agent
 ```
 
+The CLI writes runtime logs to `.local-agent/logs/agent.log` under the current workspace. This is useful for diagnosing provider, streaming, and runtime failures that may not be fully visible in the terminal UI.
+
 Optional environment overrides:
 
 ```bash

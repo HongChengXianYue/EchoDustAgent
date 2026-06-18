@@ -199,6 +199,42 @@ func TestOpenAICompatibleClientStreamsContent(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleClientStreamsToolCallsKeepFunctionType(t *testing.T) {
+	client := NewOpenAICompatibleClient("https://example.test/v1", "test-key", "test-model")
+	client.Client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		body := strings.Join([]string{
+			`data: {"choices":[{"delta":{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\"path\":\""}}]}}]}`,
+			``,
+			`data: {"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"README.md\"}"}}]}}]}`,
+			``,
+			`data: [DONE]`,
+			``,
+		}, "\n")
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(body)),
+		}, nil
+	})}
+
+	resp, err := client.ChatWithToolsStream(context.Background(), []Message{{Role: "user", Content: "read"}}, nil, nil)
+	if err != nil {
+		t.Fatalf("ChatWithToolsStream() error = %v", err)
+	}
+	if len(resp.ToolCalls) != 1 {
+		t.Fatalf("tool calls = %d, want 1", len(resp.ToolCalls))
+	}
+	if resp.ToolCalls[0].Type != "function" {
+		t.Fatalf("tool call type = %q, want function", resp.ToolCalls[0].Type)
+	}
+	if resp.ToolCalls[0].Function.Name != "read_file" {
+		t.Fatalf("tool name = %q, want read_file", resp.ToolCalls[0].Function.Name)
+	}
+	if resp.ToolCalls[0].Function.Arguments != `{"path":"README.md"}` {
+		t.Fatalf("tool arguments = %q", resp.ToolCalls[0].Function.Arguments)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {

@@ -287,31 +287,31 @@ func TestGoCodeNavigationTools(t *testing.T) {
 	references := &FindReferencesTool{Workdir: workdir}
 	result, execErr := references.Execute(ctx, mustJSON(t, map[string]any{
 		"path":                "internal/agent/agent.go",
-		"line":                121,
+		"line":                174,
 		"column":              17,
 		"include_declaration": true,
 	}))
-	if execErr != nil || result.Status != "success" || !strings.Contains(result.Output, "internal/agent/agent_test.go") {
+	if execErr != nil || result.Status != "success" || !strings.Contains(result.Output, "internal/agent/agent.go") {
 		t.Fatalf("find references result = %#v err = %v", result, execErr)
 	}
 
 	callers := &FindCallersTool{Workdir: workdir}
 	result, execErr = callers.Execute(ctx, mustJSON(t, map[string]any{
 		"path":   "internal/agent/agent.go",
-		"line":   121,
+		"line":   174,
 		"column": 17,
 	}))
-	if execErr != nil || result.Status != "success" || !strings.Contains(result.Output, "caller[") || !strings.Contains(result.Output, "agent_test.go") {
+	if execErr != nil || result.Status != "success" || !strings.Contains(result.Output, "caller[") || !strings.Contains(result.Output, "function Run") {
 		t.Fatalf("find callers result = %#v err = %v", result, execErr)
 	}
 
 	callees := &FindCalleesTool{Workdir: workdir}
 	result, execErr = callees.Execute(ctx, mustJSON(t, map[string]any{
 		"path":   "internal/agent/agent.go",
-		"line":   121,
+		"line":   174,
 		"column": 17,
 	}))
-	if execErr != nil || result.Status != "success" || !strings.Contains(result.Output, "callee[") || !strings.Contains(result.Output, "executeToolCalls") {
+	if execErr != nil || result.Status != "success" || !strings.Contains(result.Output, "callee[") || !strings.Contains(result.Output, "ChatWithToolsStream") {
 		t.Fatalf("find callees result = %#v err = %v", result, execErr)
 	}
 }

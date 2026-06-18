@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"local-agent/internal/logs"
 )
 
 type OpenAICompatibleClient struct {
@@ -98,15 +100,18 @@ func (c *OpenAICompatibleClient) doChatRequest(ctx context.Context, reqBody chat
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
+		logs.Errorf("llm request transport failed: stream=false model=%s err=%v", c.Model, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		logs.Errorf("llm response read failed: stream=false model=%s err=%v", c.Model, err)
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		logs.Errorf("llm request failed: stream=false model=%s status=%d body=%s", c.Model, resp.StatusCode, string(respBody))
 		return nil, fmt.Errorf("llm request failed: status=%d body=%s", resp.StatusCode, string(respBody))
 	}
 	return parseChatCompletionResponse(respBody)
@@ -130,6 +135,7 @@ func (c *OpenAICompatibleClient) doChatStreamRequest(ctx context.Context, reqBod
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
+		logs.Errorf("llm request transport failed: stream=true model=%s err=%v", c.Model, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -137,8 +143,10 @@ func (c *OpenAICompatibleClient) doChatStreamRequest(ctx context.Context, reqBod
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		respBody, readErr := io.ReadAll(resp.Body)
 		if readErr != nil {
+			logs.Errorf("llm request failed: stream=true model=%s status=%d body_read_err=%v", c.Model, resp.StatusCode, readErr)
 			return nil, fmt.Errorf("llm request failed: status=%d", resp.StatusCode)
 		}
+		logs.Errorf("llm request failed: stream=true model=%s status=%d body=%s", c.Model, resp.StatusCode, string(respBody))
 		return nil, fmt.Errorf("llm request failed: status=%d body=%s", resp.StatusCode, string(respBody))
 	}
 
@@ -197,9 +205,11 @@ func buildToolSpecs(tools []FunctionTool) []toolSpec {
 func parseChatCompletionResponse(body []byte) (*ChatResponse, error) {
 	var parsed chatCompletionResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {
+		logs.Errorf("llm response decode failed: stream=false err=%v body=%s", err, string(body))
 		return nil, err
 	}
 	if len(parsed.Choices) == 0 {
+		logs.Errorf("llm response has no choices: stream=false body=%s", string(body))
 		return nil, fmt.Errorf("llm response has no choices")
 	}
 	message := parsed.Choices[0].Message
@@ -217,6 +227,7 @@ func parseChatCompletionStream(body io.Reader, onDelta StreamHandler) (*ChatResp
 	var content strings.Builder
 	toolCallsByID := map[string]*ToolCall{}
 	toolCallOrder := []string{}
+	lastToolCallID := ""
 	var usage *TokenUsage
 
 	flushDelta := func(delta StreamDelta) error {
@@ -244,6 +255,7 @@ func parseChatCompletionStream(body io.Reader, onDelta StreamHandler) (*ChatResp
 
 		var chunk chatCompletionChunk
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			logs.Errorf("llm stream chunk decode failed: err=%v payload=%s", err, payload)
 			return nil, err
 		}
 		if chunk.Usage != nil {
@@ -258,17 +270,28 @@ func parseChatCompletionStream(body io.Reader, onDelta StreamHandler) (*ChatResp
 			for _, partial := range choice.Delta.ToolCalls {
 				id := partial.ID
 				if id == "" {
-					id = fmt.Sprintf("tool_%d", len(toolCallOrder))
+					if lastToolCallID != "" {
+						id = lastToolCallID
+					} else {
+						id = fmt.Sprintf("tool_%d", len(toolCallOrder))
+					}
+				}
+				toolType := partial.Type
+				if toolType == "" {
+					toolType = "function"
 				}
 				existing, ok := toolCallsByID[id]
 				if !ok {
-					call := &ToolCall{ID: id, Type: partial.Type}
+					call := &ToolCall{ID: id, Type: toolType}
 					call.Function.Name = partial.Function.Name
 					call.Function.Arguments = partial.Function.Arguments
 					toolCallsByID[id] = call
 					toolCallOrder = append(toolCallOrder, id)
 					existing = call
 				} else {
+					if existing.Type == "" {
+						existing.Type = "function"
+					}
 					if partial.Type != "" {
 						existing.Type = partial.Type
 					}
@@ -279,15 +302,18 @@ func parseChatCompletionStream(body io.Reader, onDelta StreamHandler) (*ChatResp
 						existing.Function.Arguments += partial.Function.Arguments
 					}
 				}
+				lastToolCallID = id
 			}
 		}
 		if delta.Content != "" || delta.Usage != nil {
 			if err := flushDelta(delta); err != nil {
+				logs.Errorf("llm stream delta handler failed: err=%v delta=%q", err, delta.Content)
 				return nil, err
 			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		logs.Errorf("llm stream scanner failed: err=%v", err)
 		return nil, err
 	}
 

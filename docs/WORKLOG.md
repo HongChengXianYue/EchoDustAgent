@@ -265,3 +265,10 @@
 - 主要模块：`internal/llm`、`internal/agent`、`internal/runtimeevent`、`internal/ui`、`README.md`、`docs/WORKLOG.md`。
 - 验证：`gofmt -w ...` 完成；`go test ./internal/llm ./internal/agent ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
 - 备注：当前流式仅对 assistant 文本增量生效；tool call 仍按单个 assistant turn 完整落地后再调度执行。若 provider 的 SSE 工具调用增量格式有差异，后续可能还需补更严格的兼容解析。
+
+## 2026-06-18 - 运行错误日志
+
+- 摘要：新增 `internal/logs` 包，默认把 CLI 运行日志写到工作区 `.local-agent/logs/agent.log`；主程序现在会打印日志路径，并记录 agent run 错误、LLM 普通请求错误、streaming SSE 解析错误和无最终回答的中止错误，便于复现终端异常时直接查看具体失败原因。
+- 主要模块：`internal/logs`、`cmd/agent`、`internal/llm`、`internal/agent`、`README.md`、`docs/WORKLOG.md`。
+- 验证：`gofmt -w ...` 完成；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：当前日志仍是本地文件单点追加，不做轮转；后续如果错误量变大，可再加级别过滤、大小轮转和按运行会话分文件。

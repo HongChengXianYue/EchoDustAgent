@@ -11,6 +11,7 @@ import (
 	"local-agent/internal/approval"
 	"local-agent/internal/config"
 	"local-agent/internal/llm"
+	"local-agent/internal/logs"
 	"local-agent/internal/memory"
 	"local-agent/internal/tools"
 	"local-agent/internal/ui"
@@ -27,6 +28,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	logger, err := logs.New(workdir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	defer logger.Close()
+	logs.SetDefault(logger)
 
 	registry := tools.NewRegistry()
 	tools.RegisterBuiltinsWithOptions(registry, workdir, toolOptions(cfg.Tools))
@@ -48,6 +56,7 @@ func main() {
 	fmt.Println("local-agent started")
 	fmt.Println("workdir:", workdir)
 	fmt.Println("model:", cfg.LLM.Model)
+	fmt.Println("log file:", logger.Path())
 	fmt.Println("type exit or quit to stop")
 
 	prompt := ui.NewPrompt(os.Stdin, os.Stdout)
@@ -64,7 +73,10 @@ func main() {
 			return
 		}
 
-		_, _ = codingAgent.Run(context.Background(), input)
+		if _, err := codingAgent.Run(context.Background(), input); err != nil {
+			logs.Errorf("agent run failed: input=%q err=%v", input, err)
+			fmt.Fprintln(os.Stderr, "run failed:", err)
+		}
 	}
 }
 
