@@ -219,6 +219,12 @@ func TestBlockRendererShowsAssistantStreamingInLiveFrame(t *testing.T) {
 		Message: "stream this",
 	})
 	renderer.HandleEvent(runtimeevent.Event{
+		Type: runtimeevent.TypeTodoUpdate,
+		Todos: []runtimeevent.TodoItem{
+			{Text: "Inspect project", Status: runtimeevent.TodoInProgress},
+		},
+	})
+	renderer.HandleEvent(runtimeevent.Event{
 		Type:  runtimeevent.TypeAssistantDelta,
 		Delta: "partial answer",
 	})
@@ -226,12 +232,21 @@ func TestBlockRendererShowsAssistantStreamingInLiveFrame(t *testing.T) {
 	text := out.String()
 	for _, want := range []string{
 		"› stream this",
+		"• Todo",
+		"[>] Inspect project",
 		"• Assistant (streaming)",
 		"partial answer",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("output missing %q:\n%s", want, text)
 		}
+	}
+	normalized := strings.ReplaceAll(latestFrame(text), "\r\n", "\n")
+	todoIndex := strings.Index(normalized, "• Todo")
+	toolsIndex := strings.Index(normalized, "• Tools")
+	streamIndex := strings.Index(normalized, "• Assistant (streaming)")
+	if todoIndex == -1 || toolsIndex == -1 || streamIndex == -1 || todoIndex > toolsIndex || toolsIndex > streamIndex {
+		t.Fatalf("todo and tools blocks should appear before streaming block:\n%s", normalized)
 	}
 }
 
@@ -533,6 +548,35 @@ func TestBlockRendererClearsLiveFrameBeforeFinal(t *testing.T) {
 	}
 	if renderer.renderedFrame || renderer.frameLines != 0 || renderer.pendingPromptLines != 0 || renderer.userMessage != "" {
 		t.Fatalf("live frame state after final = rendered:%v frame:%d prompt:%d user:%q, want cleared", renderer.renderedFrame, renderer.frameLines, renderer.pendingPromptLines, renderer.userMessage)
+	}
+}
+
+func TestBlockRendererClearsAssistantStreamingStateOnRunEnd(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+	renderer.rewriteFrame = true
+
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:  runtimeevent.TypeAssistantDelta,
+		Delta: "partial answer",
+	})
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunEnd})
+	if renderer.assistantMessage != "" {
+		t.Fatalf("assistant streaming state = %q, want cleared", renderer.assistantMessage)
+	}
+
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type: runtimeevent.TypeTodoUpdate,
+		Todos: []runtimeevent.TodoItem{
+			{Text: "Next task", Status: runtimeevent.TodoInProgress},
+		},
+	})
+	parts := strings.Split(strings.ReplaceAll(out.String(), "\r\n", "\n"), "\x1b[J")
+	frame := parts[len(parts)-1]
+	if strings.Contains(frame, "partial answer") {
+		t.Fatalf("next run frame should not include previous streaming text:\n%s", frame)
 	}
 }
 

@@ -94,6 +94,9 @@ func (r *BlockRenderer) HandleEvent(event runtimeevent.Event) {
 
 	switch event.Type {
 	case runtimeevent.TypeRunStart:
+		if r.renderedFrame {
+			r.clearLiveFrame()
+		}
 		r.beginRun()
 	case runtimeevent.TypeUserMessage:
 		if r.inRun && r.rewriteFrame {
@@ -108,7 +111,7 @@ func (r *BlockRenderer) HandleEvent(event runtimeevent.Event) {
 		}
 	case runtimeevent.TypeAssistantMessage:
 		if r.inRun {
-			r.assistantMessage = cleanTerminalText(event.Message)
+			r.assistantMessage = ""
 			r.toolEvents = append(r.toolEvents, event)
 			r.renderFrame()
 			return
@@ -187,6 +190,7 @@ func (r *BlockRenderer) handleRunEnd() {
 		r.renderFrame()
 	}
 	r.inRun = false
+	r.assistantMessage = ""
 	r.mu.Unlock()
 
 	// Stop may wait for the Ctrl+T full-log viewer to close. The viewer redraws

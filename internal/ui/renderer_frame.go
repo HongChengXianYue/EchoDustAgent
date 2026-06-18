@@ -11,9 +11,9 @@ import (
 func (r *BlockRenderer) renderFrame() {
 	var buf bytes.Buffer
 	r.writeUserMessage(&buf)
-	r.writeAssistantMessage(&buf)
 	r.writeTodoBlock(&buf)
 	r.writeToolsBlock(&buf)
+	r.writeAssistantMessage(&buf)
 	text := buf.String()
 	if strings.TrimSpace(text) == "" {
 		return
