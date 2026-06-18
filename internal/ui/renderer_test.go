@@ -628,6 +628,35 @@ func TestBlockRendererReleaseTerminalStopsWatcher(t *testing.T) {
 	waitForClosed(t, finished, "release terminal")
 }
 
+func TestRefreshLiveFrameBoundsNoopsWithoutTerminal(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+	renderer.rewriteFrame = true
+	renderer.liveFrameMaxLines = 7
+	renderer.liveFrameMaxWidth = 33
+
+	renderer.refreshLiveFrameBounds()
+
+	if renderer.liveFrameMaxLines != 7 || renderer.liveFrameMaxWidth != 33 {
+		t.Fatalf("non-terminal refresh should keep cached bounds, got lines=%d width=%d", renderer.liveFrameMaxLines, renderer.liveFrameMaxWidth)
+	}
+}
+
+func TestCurrentFrameLinesForClearRewrapsStoredFrameText(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+	renderer.rewriteFrame = true
+	renderer.renderedFrame = true
+	renderer.frameLines = 2
+	renderer.frameText = "1234567890\nabc\n"
+	renderer.liveFrameMaxWidth = 4
+
+	got := renderer.currentFrameLinesForClear()
+	if got != 4 {
+		t.Fatalf("currentFrameLinesForClear() = %d, want 4", got)
+	}
+}
+
 func TestBlockRendererLimitsExpandedLiveFrame(t *testing.T) {
 	var out bytes.Buffer
 	renderer := NewBlockRenderer(&out)

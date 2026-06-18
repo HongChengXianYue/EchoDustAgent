@@ -143,6 +143,30 @@ func truncateDisplayLine(line string, maxWidth int) string {
 	return out.String()
 }
 
+func stripANSI(text string) string {
+	if text == "" {
+		return ""
+	}
+	var out strings.Builder
+	for i := 0; i < len(text); {
+		if text[i] == '\x1b' {
+			next := copyANSISequence(nil, text, i)
+			if next > i {
+				i = next
+				continue
+			}
+		}
+		r, size := utf8.DecodeRuneInString(text[i:])
+		if r == utf8.RuneError && size == 1 {
+			i++
+			continue
+		}
+		out.WriteRune(r)
+		i += size
+	}
+	return out.String()
+}
+
 func copyANSISequence(out *strings.Builder, text string, start int) int {
 	if start+1 >= len(text) || text[start+1] != '[' {
 		return start
@@ -150,7 +174,9 @@ func copyANSISequence(out *strings.Builder, text string, start int) int {
 	for i := start + 2; i < len(text); i++ {
 		b := text[i]
 		if b >= 0x40 && b <= 0x7e {
-			out.WriteString(text[start : i+1])
+			if out != nil {
+				out.WriteString(text[start : i+1])
+			}
 			return i + 1
 		}
 	}

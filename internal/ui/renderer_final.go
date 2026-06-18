@@ -36,13 +36,15 @@ func (r *BlockRenderer) clearLiveFrame() {
 	if !r.rewriteFrame || !r.renderedFrame || r.frameLines <= 0 {
 		return
 	}
-	clearLines := r.frameLines + r.pendingPromptLines
+	clearLines := r.currentFrameLinesForClear() + r.pendingPromptLines
 	// The final answer is a stable block, not another live status frame. Clear
 	// the transient Todo/Tools frame first so a long answer starts at the frame's
 	// position instead of being pushed below it and out of the visible terminal.
 	fmt.Fprintf(r.output, "\r\x1b[%dA\x1b[J", clearLines)
 	r.pendingPromptLines = 0
 	r.frameLines = 0
+	r.frameText = ""
+	r.frameWrapWidth = 0
 	r.renderedFrame = false
 }
 

@@ -20,6 +20,8 @@ type BlockRenderer struct {
 	rewriteFrame       bool
 	renderedFrame      bool
 	frameLines         int
+	frameText          string
+	frameWrapWidth     int
 	pendingPromptLines int
 	liveFrameMaxLines  int
 	liveFrameMaxWidth  int
@@ -77,6 +79,17 @@ func liveFrameBounds(output *os.File, options Options) (int, int) {
 		maxWidth = width - 1
 	}
 	return maxLines, maxWidth
+}
+
+func (r *BlockRenderer) refreshLiveFrameBounds() {
+	if r == nil || !r.rewriteFrame {
+		return
+	}
+	outputFile, ok := r.output.(*os.File)
+	if !ok || !isTerminal(outputFile) {
+		return
+	}
+	r.liveFrameMaxLines, r.liveFrameMaxWidth = liveFrameBounds(outputFile, r.options)
 }
 
 func (r *BlockRenderer) HandleEvent(event runtimeevent.Event) {
@@ -173,6 +186,8 @@ func (r *BlockRenderer) beginRun() {
 	r.expandedTools = false
 	r.renderedFrame = false
 	r.frameLines = 0
+	r.frameText = ""
+	r.frameWrapWidth = 0
 	r.pendingPromptLines = 0
 	r.userMessage = ""
 	r.assistantMessage = ""

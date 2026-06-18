@@ -9,6 +9,7 @@ import (
 )
 
 func (r *BlockRenderer) renderFrame() {
+	r.refreshLiveFrameBounds()
 	var buf bytes.Buffer
 	r.writeUserMessage(&buf)
 	r.writeTodoBlock(&buf)
@@ -18,11 +19,12 @@ func (r *BlockRenderer) renderFrame() {
 	if strings.TrimSpace(text) == "" {
 		return
 	}
+	clearFrameLines := r.currentFrameLinesForClear()
 	if r.rewriteFrame {
 		text = r.limitLiveFrameText(text)
 	}
-	if r.rewriteFrame && r.renderedFrame && r.frameLines > 0 {
-		clearLines := r.frameLines + r.pendingPromptLines
+	if r.rewriteFrame && r.renderedFrame && clearFrameLines > 0 {
+		clearLines := clearFrameLines + r.pendingPromptLines
 		// Cursor-up keeps the current column on most terminals. Return to column
 		// zero first so repeated live-frame redraws do not drift diagonally.
 		fmt.Fprintf(r.output, "\r\x1b[%dA\x1b[J", clearLines)
@@ -30,6 +32,8 @@ func (r *BlockRenderer) renderFrame() {
 	r.pendingPromptLines = 0
 	fmt.Fprint(r.output, r.frameOutputText(text))
 	r.frameLines = countLines(text)
+	r.frameText = text
+	r.frameWrapWidth = r.liveFrameMaxWidth
 	r.renderedFrame = true
 }
 
@@ -101,4 +105,38 @@ func countLines(text string) int {
 		count++
 	}
 	return count
+}
+
+func (r *BlockRenderer) currentFrameLinesForClear() int {
+	if !r.renderedFrame {
+		return 0
+	}
+	if strings.TrimSpace(r.frameText) == "" {
+		return r.frameLines
+	}
+	width := r.liveFrameMaxWidth
+	if width <= 0 {
+		width = r.frameWrapWidth
+	}
+	if width <= 0 {
+		return r.frameLines
+	}
+	return countWrappedLines(r.frameText, width)
+}
+
+func countWrappedLines(text string, width int) int {
+	if strings.TrimSpace(text) == "" {
+		return 0
+	}
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	total := 0
+	for _, line := range lines {
+		lineWidth := displayWidth([]rune(stripANSI(line)))
+		wrapped := 1
+		if width > 0 && lineWidth > width {
+			wrapped = (lineWidth-1)/width + 1
+		}
+		total += wrapped
+	}
+	return total
 }

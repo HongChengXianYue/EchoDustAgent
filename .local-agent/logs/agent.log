@@ -1,0 +1,7 @@
+2026/06/18 14:57:42.413496 [ERROR] llm request failed: stream=true model=deepseek-v4-flash status=400 body={"error":{"message":"Failed to deserialize the JSON body into the target type: messages[2]: missing field `type` at line 1 column 5924","type":"invalid_request_error","param":null,"code":"invalid_request_error"}}
+2026/06/18 14:57:42.413566 [ERROR] agent chat failed: step=1 err=llm request failed: status=400 body={"error":{"message":"Failed to deserialize the JSON body into the target type: messages[2]: missing field `type` at line 1 column 5924","type":"invalid_request_error","param":null,"code":"invalid_request_error"}}
+2026/06/18 14:57:42.422977 [ERROR] agent run failed: input="当前项目是做什么的？" err=llm request failed: status=400 body={"error":{"message":"Failed to deserialize the JSON body into the target type: messages[2]: missing field `type` at line 1 column 5924","type":"invalid_request_error","param":null,"code":"invalid_request_error"}}
+2026/06/18 16:14:52.938123 [ERROR] received signal: interrupt
+2026/06/18 16:14:52.979243 [ERROR] llm stream scanner failed: err=context canceled
+2026/06/18 16:14:52.979275 [ERROR] agent chat failed: step=2 err=context canceled
+2026/06/18 16:14:52.979351 [ERROR] agent run failed: input="当前项目是什么？" err=context canceled

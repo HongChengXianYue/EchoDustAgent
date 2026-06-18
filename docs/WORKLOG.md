@@ -279,3 +279,17 @@
 - 主要模块：`internal/ui/prompt.go`、`internal/ui/prompt_test.go`、`docs/WORKLOG.md`。
 - 验证：`gofmt -w ...` 完成；`go test ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
 - 备注：当前样式仍基于 ANSI 颜色和空格填充模拟输入条，不做真实圆角；后续若继续增强视觉效果，可在不影响 raw-mode 光标定位的前提下再调色和彩色边框。
+
+## 2026-06-18 - 终端缩放时实时面板尺寸刷新
+
+- 摘要：修复 live frame 在终端窗口被频繁缩小和放大时继续沿用旧尺寸渲染的问题；`renderFrame()` 现在会在每次重绘前重新读取当前终端宽高，更新实时区域的行数和宽度限制，减少缩放过程中的重复叠印和错位。
+- 主要模块：`internal/ui/renderer.go`、`internal/ui/renderer_frame.go`、`internal/ui/renderer_test.go`、`docs/WORKLOG.md`。
+- 验证：`gofmt -w ...` 完成；`go test ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：这次修复先解决“尺寸只在初始化时读取一次”的根因；若后续仍存在极端缩放场景的残影，需继续补针对 terminal resize 的更强清屏和 frameLines 重算策略。
+
+## 2026-06-18 - 缩放后实时面板清理行数重算
+
+- 摘要：继续修复终端极端缩放时 live frame 残留叠印问题；为 renderer 增加上一帧文本和宽度缓存，在清理旧 frame 与最终回答前，不再只依赖旧的 `frameLines`，而是按当前宽度重新估算上一帧的折行占用，提升缩窄后回退清屏的准确性。
+- 主要模块：`internal/ui/renderer.go`、`internal/ui/renderer_frame.go`、`internal/ui/renderer_final.go`、`internal/ui/format.go`、`internal/ui/renderer_test.go`、`docs/WORKLOG.md`。
+- 验证：`gofmt -w ...` 完成；`go test ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：当前按可见宽度和去 ANSI 后文本宽度估算折行数，已覆盖最常见的缩放重复渲染问题；若后续发现某些终端在 resize 过程中还会主动重排历史滚动区，可能仍需结合 SIGWINCH 或强制整块重绘策略进一步兜底。
