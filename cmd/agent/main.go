@@ -41,7 +41,7 @@ func main() {
 		Timeout:           time.Duration(cfg.LLM.RequestTimeoutSeconds) * time.Second,
 		ParallelToolCalls: cfg.LLM.ParallelToolCalls,
 	})
-	codingAgent := agent.NewWithWorkspaceAndOptions(client, registry, cfg.Agent.MaxSteps, workdir, agentOptions(cfg.Agent, cfg.Subagents, loadedMemory))
+	codingAgent := agent.NewWithWorkspaceAndOptions(client, registry, cfg.Agent.MaxSteps, workdir, agentOptions(cfg.Agent, cfg.Subagents, cfg.Context, loadedMemory))
 	codingAgent.SetRenderer(ui.NewInteractiveBlockRendererWithOptions(os.Stdin, os.Stdout, uiOptions(cfg.UI)))
 	codingAgent.SetApprover(approval.NewMemoryApprover(approval.NewTerminalApprover(os.Stdin, os.Stdout)))
 
@@ -105,7 +105,7 @@ func uiOptions(cfg config.UIConfig) ui.Options {
 	}
 }
 
-func agentOptions(agentCfg config.AgentConfig, subagentsCfg config.SubagentsConfig, loadedMemory *memory.Set) agent.Options {
+func agentOptions(agentCfg config.AgentConfig, subagentsCfg config.SubagentsConfig, contextCfg config.ContextConfig, loadedMemory *memory.Set) agent.Options {
 	memoryBlock := ""
 	if loadedMemory != nil {
 		memoryBlock = loadedMemory.Block()
@@ -113,6 +113,17 @@ func agentOptions(agentCfg config.AgentConfig, subagentsCfg config.SubagentsConf
 	return agent.Options{
 		MaxParallelToolCalls: agentCfg.MaxParallelToolCalls,
 		SystemPromptSuffix:   memoryBlock,
+		Context: agent.ContextOptions{
+			WindowTokens:             contextCfg.WindowTokens,
+			PruneToolResultMaxBytes:  contextCfg.PruneToolResultMaxBytes,
+			PruneKeepRecentMessages:  contextCfg.PruneKeepRecentMessages,
+			CompactEnabled:           contextCfg.CompactEnabled,
+			CompactRatioPercent:      contextCfg.CompactRatioPercent,
+			CompactForceRatioPercent: contextCfg.CompactForceRatioPercent,
+			CompactTargetPercent:     contextCfg.CompactTargetPercent,
+			CompactKeepTailTokens:    contextCfg.CompactKeepTailTokens,
+			CompactMinMessages:       contextCfg.CompactMinMessages,
+		},
 		Subagents: agent.SubagentOptions{
 			Enabled:        subagentsCfg.Enabled,
 			MaxConcurrent:  subagentsCfg.MaxConcurrent,

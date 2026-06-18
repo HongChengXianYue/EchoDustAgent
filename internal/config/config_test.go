@@ -25,6 +25,16 @@ subagents:
 memory:
   enabled: false
   user_dir: /tmp/local-agent-memory
+context:
+  window_tokens: 5000
+  prune_tool_result_max_bytes: 64
+  prune_keep_recent_messages: 3
+  compact_enabled: false
+  compact_ratio_percent: 75
+  compact_force_ratio_percent: 90
+  compact_target_percent: 45
+  compact_keep_tail_tokens: 1200
+  compact_min_messages: 2
 tools:
   list_max_entries: 11
   file_change_preview_lines: 3
@@ -74,6 +84,27 @@ ui:
 	}
 	if cfg.Memory.UserDir != "/tmp/local-agent-memory" {
 		t.Fatalf("memory user dir = %q", cfg.Memory.UserDir)
+	}
+	if cfg.Context.WindowTokens != 5000 {
+		t.Fatalf("context window tokens = %d", cfg.Context.WindowTokens)
+	}
+	if cfg.Context.PruneToolResultMaxBytes != 64 {
+		t.Fatalf("context prune max bytes = %d", cfg.Context.PruneToolResultMaxBytes)
+	}
+	if cfg.Context.PruneKeepRecentMessages != 3 {
+		t.Fatalf("context prune keep recent = %d", cfg.Context.PruneKeepRecentMessages)
+	}
+	if cfg.Context.CompactEnabled {
+		t.Fatalf("context compact enabled = true, want false")
+	}
+	if cfg.Context.CompactRatioPercent != 75 || cfg.Context.CompactForceRatioPercent != 90 || cfg.Context.CompactTargetPercent != 45 {
+		t.Fatalf("context compact percentages = %#v", cfg.Context)
+	}
+	if cfg.Context.CompactKeepTailTokens != 1200 {
+		t.Fatalf("context compact tail tokens = %d", cfg.Context.CompactKeepTailTokens)
+	}
+	if cfg.Context.CompactMinMessages != 2 {
+		t.Fatalf("context compact min messages = %d", cfg.Context.CompactMinMessages)
 	}
 	if cfg.Tools.ListMaxEntries != 11 {
 		t.Fatalf("list max entries = %d", cfg.Tools.ListMaxEntries)

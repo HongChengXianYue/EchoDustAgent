@@ -21,6 +21,10 @@ const (
 	TypeError            Type = "error"
 	TypeApprovalRequest  Type = "approval_request"
 	TypeApprovalDecision Type = "approval_decision"
+	TypeContextPruned    Type = "context_pruned"
+	TypeCompactionStart  Type = "compaction_started"
+	TypeCompactionDone   Type = "compaction_done"
+	TypeCompactionSkip   Type = "compaction_skipped"
 )
 
 type TodoStatus = tools.TodoStatus
@@ -53,6 +57,9 @@ type Event struct {
 	Todos      []TodoItem          `json:"todos,omitempty"`
 	ParentTool string              `json:"parent_tool,omitempty"`
 	Source     string              `json:"source,omitempty"`
+	Before     int                 `json:"before,omitempty"`
+	After      int                 `json:"after,omitempty"`
+	Count      int                 `json:"count,omitempty"`
 	// SubagentIndex is assigned by the parent agent for grouping forwarded
 	// subagent events in the UI. It is scoped to one parent Run.
 	SubagentIndex int `json:"subagent_index,omitempty"`

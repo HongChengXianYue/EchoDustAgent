@@ -103,6 +103,24 @@ func applyConfigValue(cfg *Config, key string, value string) error {
 		return setBool(key, value, &cfg.Memory.Enabled)
 	case "memory.user_dir":
 		cfg.Memory.UserDir = value
+	case "context.window_tokens":
+		return setPositiveInt(key, value, &cfg.Context.WindowTokens)
+	case "context.prune_tool_result_max_bytes":
+		return setPositiveInt(key, value, &cfg.Context.PruneToolResultMaxBytes)
+	case "context.prune_keep_recent_messages":
+		return setPositiveInt(key, value, &cfg.Context.PruneKeepRecentMessages)
+	case "context.compact_enabled":
+		return setBool(key, value, &cfg.Context.CompactEnabled)
+	case "context.compact_ratio_percent":
+		return setPositiveInt(key, value, &cfg.Context.CompactRatioPercent)
+	case "context.compact_force_ratio_percent":
+		return setPositiveInt(key, value, &cfg.Context.CompactForceRatioPercent)
+	case "context.compact_target_percent":
+		return setPositiveInt(key, value, &cfg.Context.CompactTargetPercent)
+	case "context.compact_keep_tail_tokens":
+		return setPositiveInt(key, value, &cfg.Context.CompactKeepTailTokens)
+	case "context.compact_min_messages":
+		return setPositiveInt(key, value, &cfg.Context.CompactMinMessages)
 	case "tools.list_max_entries":
 		return setPositiveInt(key, value, &cfg.Tools.ListMaxEntries)
 	case "tools.find_max_matches":

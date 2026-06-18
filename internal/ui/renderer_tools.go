@@ -106,6 +106,14 @@ func toolEventTitle(event runtimeevent.Event, argsLimit int) string {
 		return prefix + "Approval requested"
 	case runtimeevent.TypeApprovalDecision:
 		return prefix + "Approval " + event.Decision
+	case runtimeevent.TypeContextPruned:
+		return prefix + "Pruned context"
+	case runtimeevent.TypeCompactionStart:
+		return prefix + "Compacting context"
+	case runtimeevent.TypeCompactionDone:
+		return prefix + "Compacted context"
+	case runtimeevent.TypeCompactionSkip:
+		return prefix + "Skipped compaction"
 	case runtimeevent.TypeError:
 		return prefix + "Error"
 	default:
@@ -152,6 +160,8 @@ func (r *BlockRenderer) toolEventDetail(event runtimeevent.Event) string {
 		return withEventSourceDetail(event, approvalDetail(event, r.options.ApprovalArgsPreviewChars))
 	case runtimeevent.TypeApprovalDecision:
 		return withEventSourceDetail(event, event.Reason)
+	case runtimeevent.TypeContextPruned, runtimeevent.TypeCompactionStart, runtimeevent.TypeCompactionDone, runtimeevent.TypeCompactionSkip:
+		return withEventSourceDetail(event, cleanTerminalText(event.Message))
 	case runtimeevent.TypeError:
 		return withEventSourceDetail(event, event.Error)
 	default:

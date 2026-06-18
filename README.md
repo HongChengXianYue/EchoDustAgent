@@ -27,6 +27,7 @@ Configured areas:
 - `agent`: maximum ReAct steps per user request and maximum parallel tool calls per assistant turn.
 - `subagents`: delegate-task availability, concurrency, max steps, and result size.
 - `memory`: persistent memory loading and user memory directory.
+- `context`: stale tool-result pruning and conservative conversation compaction thresholds.
 - `tools`: list/find/read/search limits, command and patch timeouts, output caps, and file-change preview lines.
 - `ui`: separator width, live frame bounds, full-log viewer sizes, polling intervals, Markdown wrap width, and preview truncation lengths.
 
@@ -61,6 +62,14 @@ Saved memories live under `memory.user_dir` as plain Markdown files:
 - `projects/<workspace-slug>/memory`: project and reference memories for the current workspace.
 
 The `memory` tool is read-only. `remember` and `forget` modify the user memory directory and therefore use the existing approval flow.
+
+## Context Maintenance
+
+At the start of each user request, the agent removes transient `update_todos` history, prunes stale oversized tool outputs outside the recent tail, and then checks whether older history should be compacted.
+
+Pruning keeps the tool message and `tool_call_id` intact, preserving native function-call pairing while replacing only large old `output` fields with a short marker. Recent messages are protected so the current task can still use fresh tool output.
+
+Compaction is conservative and only runs near the configured context window. It keeps the system prompt and recent tail verbatim, summarizes older messages with a no-tools LLM call, and inserts the result as a `<compaction-summary>` user message. If summarization fails or would not reduce context, the original history is kept.
 
 ## Subagents
 

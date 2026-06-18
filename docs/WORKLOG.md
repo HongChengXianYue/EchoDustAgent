@@ -244,3 +244,10 @@
 - 主要模块：`internal/memory`、`cmd/agent`、`internal/agent`、`internal/config`、`internal/approval`、`README.md`、`config.yaml`。
 - 验证：`gofmt -w ...` 完成；`go test ./internal/memory` 通过；`go test ./internal/config ./internal/agent ./internal/approval` 通过；`go test ./...` 通过；`go vet ./...` 通过。
 - 备注：`memory` 工具是只读；`remember` 和 `forget` 写入 `memory.user_dir` 下的用户记忆目录，按现有审批系统作为外部写入处理。当前搜索使用标准库的轻量文本匹配，后续可替换为更强检索而不改变工具接口。
+
+## 2026-06-18 - 上下文裁剪与压缩
+
+- 摘要：新增上下文维护配置和运行事件；每轮任务开始时先裁剪旧的大型 tool result 输出，保持 tool call 配对不变；接近上下文窗口阈值时执行保守 compaction，用无工具 LLM 摘要旧历史并插入 `<compaction-summary>`，失败或无收益时保留原历史。
+- 主要模块：`internal/agent`、`internal/config`、`internal/runtimeevent`、`internal/ui`、`README.md`、`config.yaml`。
+- 验证：`gofmt -w ...` 完成；`go test ./internal/agent ./internal/config ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：当前 token 统计仍是字符数近似，compaction 没有归档被折叠原文；后续可在缓存观测和 PrefixShape 诊断完成后再做更精确的触发策略和归档。

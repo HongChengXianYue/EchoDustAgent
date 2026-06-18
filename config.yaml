@@ -34,6 +34,27 @@ memory:
   # 用户级记忆目录；支持 ~。项目记忆会按当前 workspace 分目录存放在这里。
   user_dir: ~/.local-agent
 
+# 上下文维护。优先裁剪旧工具输出，接近窗口上限时再压缩旧历史。
+context:
+  # 估算上下文窗口大小；当前用字符数近似 token，仅用于触发维护。
+  window_tokens: 128000
+  # 旧 tool result 的 output 超过多少字节后会被替换为裁剪标记。
+  prune_tool_result_max_bytes: 8192
+  # 最近多少条消息永远不裁剪，避免影响当前任务。
+  prune_keep_recent_messages: 16
+  # 是否启用自动 compaction。
+  compact_enabled: true
+  # 达到窗口多少百分比时触发 compaction。
+  compact_ratio_percent: 80
+  # 达到窗口多少百分比时强制 compaction，忽略最小消息数限制。
+  compact_force_ratio_percent: 90
+  # 压缩后目标 tail 预算上限占窗口百分比。
+  compact_target_percent: 50
+  # 压缩时最近 tail 原样保留的 token 预算。
+  compact_keep_tail_tokens: 16000
+  # 非强制压缩时，至少要有多少条旧消息可折叠。
+  compact_min_messages: 4
+
 # 内置工具限制和执行上限。
 tools:
   # list_files 最多返回多少个目录项，超过后截断。

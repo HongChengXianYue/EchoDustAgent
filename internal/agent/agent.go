@@ -126,6 +126,8 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 	defer a.pruneTransientToolHistory()
 
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
+	a.pruneStaleToolResults()
+	a.maybeCompact(ctx)
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeUserMessage, Message: input})
 	a.messages = append(a.messages, llm.Message{Role: "user", Content: input})
 

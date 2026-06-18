@@ -17,6 +17,7 @@ type Config struct {
 	Agent     AgentConfig
 	Subagents SubagentsConfig
 	Memory    MemoryConfig
+	Context   ContextConfig
 	Tools     ToolsConfig
 	UI        UIConfig
 }
@@ -43,6 +44,18 @@ type SubagentsConfig struct {
 type MemoryConfig struct {
 	Enabled bool
 	UserDir string
+}
+
+type ContextConfig struct {
+	WindowTokens             int
+	PruneToolResultMaxBytes  int
+	PruneKeepRecentMessages  int
+	CompactEnabled           bool
+	CompactRatioPercent      int
+	CompactForceRatioPercent int
+	CompactTargetPercent     int
+	CompactKeepTailTokens    int
+	CompactMinMessages       int
 }
 
 type ToolsConfig struct {
@@ -128,6 +141,17 @@ func Default() Config {
 			Enabled: true,
 			UserDir: "~/.local-agent",
 		},
+		Context: ContextConfig{
+			WindowTokens:             128000,
+			PruneToolResultMaxBytes:  8192,
+			PruneKeepRecentMessages:  16,
+			CompactEnabled:           true,
+			CompactRatioPercent:      80,
+			CompactForceRatioPercent: 90,
+			CompactTargetPercent:     50,
+			CompactKeepTailTokens:    16000,
+			CompactMinMessages:       4,
+		},
 		Tools: ToolsConfig{
 			ListMaxEntries:               200,
 			FindMaxMatches:               50,
@@ -191,6 +215,14 @@ func validate(cfg Config) error {
 		"subagents.max_concurrent":              cfg.Subagents.MaxConcurrent,
 		"subagents.max_steps":                   cfg.Subagents.MaxSteps,
 		"subagents.result_max_bytes":            cfg.Subagents.ResultMaxBytes,
+		"context.window_tokens":                 cfg.Context.WindowTokens,
+		"context.prune_tool_result_max_bytes":   cfg.Context.PruneToolResultMaxBytes,
+		"context.prune_keep_recent_messages":    cfg.Context.PruneKeepRecentMessages,
+		"context.compact_ratio_percent":         cfg.Context.CompactRatioPercent,
+		"context.compact_force_ratio_percent":   cfg.Context.CompactForceRatioPercent,
+		"context.compact_target_percent":        cfg.Context.CompactTargetPercent,
+		"context.compact_keep_tail_tokens":      cfg.Context.CompactKeepTailTokens,
+		"context.compact_min_messages":          cfg.Context.CompactMinMessages,
 		"tools.list_max_entries":                cfg.Tools.ListMaxEntries,
 		"tools.find_max_matches":                cfg.Tools.FindMaxMatches,
 		"tools.read_file_max_bytes":             cfg.Tools.ReadFileMaxBytes,
@@ -232,6 +264,21 @@ func validate(cfg Config) error {
 	}
 	if cfg.Tools.CommandDefaultTimeoutSeconds > cfg.Tools.CommandMaxTimeoutSeconds {
 		return fmt.Errorf("tools.command_default_timeout_seconds must be <= tools.command_max_timeout_seconds")
+	}
+	if cfg.Context.CompactRatioPercent > cfg.Context.CompactForceRatioPercent {
+		return fmt.Errorf("context.compact_ratio_percent must be <= context.compact_force_ratio_percent")
+	}
+	if cfg.Context.CompactTargetPercent >= cfg.Context.CompactRatioPercent {
+		return fmt.Errorf("context.compact_target_percent must be < context.compact_ratio_percent")
+	}
+	for key, value := range map[string]int{
+		"context.compact_ratio_percent":       cfg.Context.CompactRatioPercent,
+		"context.compact_force_ratio_percent": cfg.Context.CompactForceRatioPercent,
+		"context.compact_target_percent":      cfg.Context.CompactTargetPercent,
+	} {
+		if value > 100 {
+			return fmt.Errorf("%s must be <= 100", key)
+		}
 	}
 	return nil
 }
