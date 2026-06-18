@@ -4,7 +4,22 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"os"
 	"strings"
+
+	"golang.org/x/term"
+)
+
+const (
+	promptBoxBG         = "\x1b[48;5;238m"
+	promptBoxFG         = "\x1b[38;5;255m"
+	promptBoxAccentFG   = "\x1b[38;5;252m"
+	promptBoxMutedFG    = "\x1b[38;5;246m"
+	promptBoxReset      = "\x1b[0m"
+	promptBoxLeftPad    = 1
+	promptBoxRightPad   = 2
+	promptPlaceholder   = `Try "create a util logging.py that..."`
+	promptPromptSpacing = 1
 )
 
 type Prompt struct {
@@ -38,7 +53,6 @@ func (p *Prompt) ReadLine(prompt string) (string, bool) {
 	}
 
 	state := newLineState(p.history)
-	fmt.Fprint(p.output, prompt)
 	renderPromptLine(p.output, prompt, state.runes, state.cursor)
 
 	for {
@@ -148,11 +162,42 @@ func (s *lineState) historyDown() {
 
 func renderPromptLine(output io.Writer, prompt string, runes []rune, cursor int) {
 	line := string(runes)
-	right := displayWidth(runes[cursor:])
-	fmt.Fprintf(output, "\r\x1b[2K%s%s", prompt, line)
-	if right > 0 {
-		fmt.Fprintf(output, "\x1b[%dD", right)
+	display := line
+	style := promptBoxFG
+	cursorBack := 0
+	if len(runes) == 0 {
+		display = promptPlaceholder
+		style = promptBoxMutedFG
+		cursorBack = displayWidth([]rune(display))
+	} else {
+		cursorBack = displayWidth(runes[cursor:])
 	}
+	fill := promptLineFillWidth(output, prompt, display)
+	leftPad := strings.Repeat(" ", promptBoxLeftPad)
+	rightPad := strings.Repeat(" ", promptBoxRightPad)
+	gap := strings.Repeat(" ", promptPromptSpacing)
+	fmt.Fprintf(output, "\r\x1b[2K%s%s%s%s%s%s%s%s%s", promptBoxBG, leftPad, promptBoxAccentFG, prompt, gap, style, display, strings.Repeat(" ", fill)+rightPad, promptBoxReset)
+	fmt.Fprint(output, promptBoxReset)
+	if cursorBack+fill+promptBoxRightPad > 0 {
+		fmt.Fprintf(output, "\x1b[%dD", cursorBack+fill+promptBoxRightPad)
+	}
+}
+
+func promptLineFillWidth(output io.Writer, prompt string, display string) int {
+	file, ok := output.(*os.File)
+	if !ok || !isTerminal(file) {
+		return 1
+	}
+	width, _, err := term.GetSize(int(file.Fd()))
+	if err != nil || width <= 0 {
+		return 1
+	}
+	used := promptBoxLeftPad + displayWidth([]rune(prompt)) + promptPromptSpacing + displayWidth([]rune(display)) + promptBoxRightPad
+	fill := width - used - 1
+	if fill < 1 {
+		return 1
+	}
+	return fill
 }
 
 func displayWidth(runes []rune) int {

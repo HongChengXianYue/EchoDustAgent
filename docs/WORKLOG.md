@@ -272,3 +272,10 @@
 - 主要模块：`internal/logs`、`cmd/agent`、`internal/llm`、`internal/agent`、`README.md`、`docs/WORKLOG.md`。
 - 验证：`gofmt -w ...` 完成；`go test ./...` 通过；`go vet ./...` 通过。
 - 备注：当前日志仍是本地文件单点追加，不做轮转；后续如果错误量变大，可再加级别过滤、大小轮转和按运行会话分文件。
+
+## 2026-06-18 - 输入框样式优化
+
+- 摘要：重做终端输入框渲染，改为带淡色背景的单行输入条；空输入时显示浅灰 placeholder，输入时显示高亮提示箭头，并补齐光标回退和整行背景铺满逻辑，修复 placeholder 状态下光标跑到最右侧的问题。
+- 主要模块：`internal/ui/prompt.go`、`internal/ui/prompt_test.go`、`docs/WORKLOG.md`。
+- 验证：`gofmt -w ...` 完成；`go test ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：当前样式仍基于 ANSI 颜色和空格填充模拟输入条，不做真实圆角；后续若继续增强视觉效果，可在不影响 raw-mode 光标定位的前提下再调色和彩色边框。
