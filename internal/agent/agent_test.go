@@ -421,6 +421,7 @@ func TestRunExposesToolsForWorkspaceTask(t *testing.T) {
 		{Content: "done"},
 	}}
 	registry := tools.NewRegistry()
+	tools.RegisterBuiltins(registry, t.TempDir())
 	registry.Register(&echoTool{})
 
 	agent := New(client, registry, 3)
@@ -438,6 +439,11 @@ func TestRunExposesToolsForWorkspaceTask(t *testing.T) {
 	}
 	if !foundTodoTool {
 		t.Fatalf("update_todos was not exposed: %#v", client.tools[0])
+	}
+	for _, name := range []string{"read_file_range", "find_symbol", "find_references", "find_callers", "find_callees", "git_status", "git_diff", "git_log"} {
+		if !toolListContains(client.tools[0], name) {
+			t.Fatalf("%s was not exposed: %#v", name, client.tools[0])
+		}
 	}
 }
 

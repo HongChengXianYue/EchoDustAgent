@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -36,6 +37,10 @@ func (t *SearchFilesTool) Parameters() json.RawMessage {
 			"type":        "string",
 			"description": "Workdir-relative directory path. Defaults to '.'.",
 		},
+		"regex": map[string]any{
+			"type":        "boolean",
+			"description": "Treat query as a regular expression when true. Defaults to false.",
+		},
 	})
 }
 
@@ -43,6 +48,7 @@ func (t *SearchFilesTool) Execute(ctx context.Context, args json.RawMessage) (Re
 	var params struct {
 		Query string `json:"query"`
 		Path  string `json:"path"`
+		Regex bool   `json:"regex"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return Error("invalid arguments: " + err.Error()), nil
@@ -65,6 +71,10 @@ func (t *SearchFilesTool) Execute(ctx context.Context, args json.RawMessage) (Re
 	maxFileBytes := t.MaxFileBytes
 	if maxFileBytes <= 0 {
 		maxFileBytes = int64(DefaultOptions().SearchMaxFileBytes)
+	}
+	matchesLine, err := contentMatcher(params.Query, params.Regex)
+	if err != nil {
+		return Error(err.Error()), nil
 	}
 	var matches []string
 	walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
@@ -96,7 +106,7 @@ func (t *SearchFilesTool) Execute(ctx context.Context, args json.RawMessage) (Re
 		for scanner.Scan() {
 			lineNo++
 			line := scanner.Text()
-			if strings.Contains(line, params.Query) {
+			if matchesLine(line) {
 				matches = append(matches, fmt.Sprintf("%s:%d:%s", displayPath(t.Workdir, path), lineNo, strings.TrimSpace(line)))
 				if len(matches) >= maxMatches {
 					break
@@ -113,4 +123,19 @@ func (t *SearchFilesTool) Execute(ctx context.Context, args json.RawMessage) (Re
 		summary += " (truncated)"
 	}
 	return Success(summary, strings.Join(matches, "\n")), nil
+}
+
+type contentMatcherFunc func(value string) bool
+
+func contentMatcher(query string, regex bool) (contentMatcherFunc, error) {
+	if !regex {
+		return func(value string) bool {
+			return strings.Contains(value, query)
+		}, nil
+	}
+	pattern, err := regexp.Compile(query)
+	if err != nil {
+		return nil, err
+	}
+	return pattern.MatchString, nil
 }

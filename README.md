@@ -38,11 +38,19 @@ Configured areas:
 - `list_files`: list a workdir-relative directory.
 - `find_files`: find files or directories by name or relative path under a directory.
 - `read_file`: read a workdir-relative text file.
-- `search_files`: search literal text under a directory.
+- `read_file_range`: read selected line ranges from a workdir-relative text file.
+- `search_files`: search literal text or regex text under a directory.
+- `find_symbol`: search code symbols by name.
+- `find_references`: find references to a Go symbol at a specific file position.
+- `find_callers`: find callers of a Go symbol at a specific file position.
+- `find_callees`: find callees of a Go symbol at a specific file position.
 - `write_file`: write a file and create parent directories.
 - `replace_in_file`: replace exact text in a file.
 - `run_command`: run a shell command in the workdir.
 - `apply_patch`: apply a unified diff patch.
+- `git_status`: show concise workspace git status.
+- `git_diff`: show unstaged or staged git diff.
+- `git_log`: show recent commits in one-line format.
 - `delegate_task`: delegate an isolated read-only research task to a subagent.
 - `memory`: list, search, or read saved durable memories.
 - `remember`: save or update a durable memory for future sessions.

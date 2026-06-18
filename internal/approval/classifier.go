@@ -8,9 +8,9 @@ import (
 
 func Classify(tool string, args json.RawMessage) Category {
 	switch tool {
-	case "update_todos", "delegate_task", "list_files", "find_files", "read_file", "memory":
+	case "update_todos", "delegate_task", "list_files", "find_files", "read_file", "read_file_range", "memory", "find_symbol", "find_references", "find_callers", "find_callees", "git_status", "git_log":
 		return CategoryReadOnly
-	case "search_files":
+	case "search_files", "git_diff":
 		return CategorySearchInspect
 	case "write_file", "replace_in_file", "apply_patch":
 		return CategoryWorkspaceWrite

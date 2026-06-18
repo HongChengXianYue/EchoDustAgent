@@ -116,7 +116,7 @@ func (a *Agent) newSubagent(task string, index int) *Agent {
 
 func (a *Agent) subagentRegistry() *tools.Registry {
 	registry := tools.NewRegistry()
-	for _, name := range []string{"list_files", "find_files", "read_file", "search_files", "run_command"} {
+	for _, name := range []string{"list_files", "find_files", "read_file", "read_file_range", "search_files", "find_symbol", "find_references", "find_callers", "find_callees", "git_status", "git_diff", "git_log", "run_command"} {
 		if tool, ok := a.registry.Get(name); ok {
 			registry.Register(tool)
 		}

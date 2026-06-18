@@ -251,3 +251,10 @@
 - 主要模块：`internal/agent`、`internal/config`、`internal/runtimeevent`、`internal/ui`、`README.md`、`config.yaml`。
 - 验证：`gofmt -w ...` 完成；`go test ./internal/agent ./internal/config ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
 - 备注：当前 token 统计仍是字符数近似，compaction 没有归档被折叠原文；后续可在缓存观测和 PrefixShape 诊断完成后再做更精确的触发策略和归档。
+
+## 2026-06-18 - 工具补全与模型注册
+
+- 摘要：新增 `read_file_range`、`find_symbol`、`find_references`、`find_callers`、`find_callees`、`git_status`、`git_diff`、`git_log`，并为 `search_files` 增加 regex 搜索；所有新工具都已注册到主 agent，读写/搜索风险分类已接入审批系统，子代理也同步获得只读代码导航和 Git 检查能力。
+- 主要模块：`internal/tools`、`internal/approval`、`internal/agent`、`README.md`、`docs/WORKLOG.md`。
+- 验证：`gofmt -w ...` 完成；`go test ./internal/tools ./internal/approval ./internal/agent` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：Go 代码导航工具当前复用本地 `codegraph` 与 `gopls` CLI，运行时会落到 `/tmp` 下的私有缓存目录；`find_references` / `find_callers` / `find_callees` 目前按 Go 文件位置工作，不做跨语言语义分析。

@@ -32,6 +32,16 @@ func TestFileToolsRoundTrip(t *testing.T) {
 		t.Fatalf("read result = %#v err = %v", result, err)
 	}
 
+	readRange := &ReadFileRangeTool{Workdir: workdir}
+	result, err = readRange.Execute(ctx, mustJSON(t, map[string]any{
+		"path":       "notes/todo.txt",
+		"start_line": 2,
+		"end_line":   2,
+	}))
+	if err != nil || result.Output != "beta\n" {
+		t.Fatalf("read range result = %#v err = %v", result, err)
+	}
+
 	replace := &ReplaceInFileTool{Workdir: workdir}
 	result, err = replace.Execute(ctx, mustJSON(t, map[string]any{
 		"path":     "notes/todo.txt",
@@ -49,6 +59,11 @@ func TestFileToolsRoundTrip(t *testing.T) {
 	result, err = search.Execute(ctx, mustJSON(t, map[string]any{"query": "gamma"}))
 	if err != nil || !strings.Contains(result.Output, "notes/todo.txt:2:gamma") {
 		t.Fatalf("search result = %#v err = %v", result, err)
+	}
+
+	result, err = search.Execute(ctx, mustJSON(t, map[string]any{"query": "^gamm.", "regex": true}))
+	if err != nil || !strings.Contains(result.Output, "notes/todo.txt:2:gamma") {
+		t.Fatalf("regex search result = %#v err = %v", result, err)
 	}
 
 	if err := os.MkdirAll(filepath.Join(workdir, "internal", "test"), 0755); err != nil {
@@ -152,6 +167,15 @@ func TestRegisterBuiltinsIncludesFindFiles(t *testing.T) {
 	if _, ok := registry.Get("find_files"); !ok {
 		t.Fatal("find_files was not registered")
 	}
+	if _, ok := registry.Get("read_file_range"); !ok {
+		t.Fatal("read_file_range was not registered")
+	}
+	if _, ok := registry.Get("find_symbol"); !ok {
+		t.Fatal("find_symbol was not registered")
+	}
+	if _, ok := registry.Get("git_status"); !ok {
+		t.Fatal("git_status was not registered")
+	}
 }
 
 func TestRegisterBuiltinsAppliesFileChangePreviewLines(t *testing.T) {
@@ -187,4 +211,107 @@ func mustJSON(t *testing.T, value any) json.RawMessage {
 		t.Fatal(err)
 	}
 	return data
+}
+
+func TestGitTools(t *testing.T) {
+	workdir := t.TempDir()
+	ctx := context.Background()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = workdir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
+	}
+	run("init")
+	run("config", "user.name", "Test User")
+	run("config", "user.email", "test@example.com")
+	if err := os.WriteFile(filepath.Join(workdir, "a.txt"), []byte("alpha\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "a.txt")
+	run("commit", "-m", "init")
+	if err := os.WriteFile(filepath.Join(workdir, "a.txt"), []byte("beta\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	status := &GitStatusTool{Workdir: workdir}
+	result, err := status.Execute(ctx, mustJSON(t, map[string]any{}))
+	if err != nil || !strings.Contains(result.Output, "a.txt") {
+		t.Fatalf("git status result = %#v err = %v", result, err)
+	}
+
+	diff := &GitDiffTool{Workdir: workdir, OutputMaxBytes: 8192}
+	result, err = diff.Execute(ctx, mustJSON(t, map[string]any{"path": "a.txt"}))
+	if err != nil || !strings.Contains(result.Output, "-alpha") || !strings.Contains(result.Output, "+beta") {
+		t.Fatalf("git diff result = %#v err = %v", result, err)
+	}
+
+	logTool := &GitLogTool{Workdir: workdir}
+	result, err = logTool.Execute(ctx, mustJSON(t, map[string]any{"limit": 1}))
+	if err != nil || !strings.Contains(result.Output, "init") {
+		t.Fatalf("git log result = %#v err = %v", result, err)
+	}
+}
+
+func TestFindSymbolTool(t *testing.T) {
+	workdir, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := &FindSymbolTool{Workdir: workdir}
+	result, execErr := tool.Execute(context.Background(), mustJSON(t, map[string]any{
+		"query": "Run",
+		"limit": 5,
+	}))
+	if execErr != nil {
+		t.Fatalf("find symbol returned Go error = %v", execErr)
+	}
+	if result.Status != "success" {
+		t.Fatalf("find symbol result = %#v", result)
+	}
+	if !strings.Contains(result.Output, "internal/agent/agent.go") {
+		t.Fatalf("find symbol output = %q, want agent.go hit", result.Output)
+	}
+}
+
+func TestGoCodeNavigationTools(t *testing.T) {
+	workdir, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	references := &FindReferencesTool{Workdir: workdir}
+	result, execErr := references.Execute(ctx, mustJSON(t, map[string]any{
+		"path":                "internal/agent/agent.go",
+		"line":                121,
+		"column":              17,
+		"include_declaration": true,
+	}))
+	if execErr != nil || result.Status != "success" || !strings.Contains(result.Output, "internal/agent/agent_test.go") {
+		t.Fatalf("find references result = %#v err = %v", result, execErr)
+	}
+
+	callers := &FindCallersTool{Workdir: workdir}
+	result, execErr = callers.Execute(ctx, mustJSON(t, map[string]any{
+		"path":   "internal/agent/agent.go",
+		"line":   121,
+		"column": 17,
+	}))
+	if execErr != nil || result.Status != "success" || !strings.Contains(result.Output, "caller[") || !strings.Contains(result.Output, "agent_test.go") {
+		t.Fatalf("find callers result = %#v err = %v", result, execErr)
+	}
+
+	callees := &FindCalleesTool{Workdir: workdir}
+	result, execErr = callees.Execute(ctx, mustJSON(t, map[string]any{
+		"path":   "internal/agent/agent.go",
+		"line":   121,
+		"column": 17,
+	}))
+	if execErr != nil || result.Status != "success" || !strings.Contains(result.Output, "callee[") || !strings.Contains(result.Output, "executeToolCalls") {
+		t.Fatalf("find callees result = %#v err = %v", result, execErr)
+	}
 }

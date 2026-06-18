@@ -9,7 +9,12 @@ func RegisterBuiltinsWithOptions(registry *Registry, workdir string, options Opt
 	registry.Register(&ListFilesTool{Workdir: workdir, MaxEntries: options.ListMaxEntries})
 	registry.Register(&FindFilesTool{Workdir: workdir, DefaultMaxMatches: options.FindMaxMatches})
 	registry.Register(&ReadFileTool{Workdir: workdir, MaxBytes: options.ReadFileMaxBytes})
+	registry.Register(&ReadFileRangeTool{Workdir: workdir, MaxBytes: options.ReadFileMaxBytes})
 	registry.Register(&SearchFilesTool{Workdir: workdir, MaxMatches: options.SearchMaxMatches, MaxFileBytes: int64(options.SearchMaxFileBytes)})
+	registry.Register(&FindSymbolTool{Workdir: workdir})
+	registry.Register(&FindReferencesTool{Workdir: workdir})
+	registry.Register(&FindCallersTool{Workdir: workdir})
+	registry.Register(&FindCalleesTool{Workdir: workdir})
 	registry.Register(&WriteFileTool{Workdir: workdir, PreviewLines: options.FileChangePreviewLines})
 	registry.Register(&ReplaceInFileTool{Workdir: workdir, PreviewLines: options.FileChangePreviewLines})
 	registry.Register(&RunCommandTool{
@@ -24,4 +29,7 @@ func RegisterBuiltinsWithOptions(registry *Registry, workdir string, options Opt
 		OutputMaxBytes: options.ApplyPatchOutputMaxBytes,
 		PreviewLines:   options.FileChangePreviewLines,
 	})
+	registry.Register(&GitStatusTool{Workdir: workdir})
+	registry.Register(&GitDiffTool{Workdir: workdir, OutputMaxBytes: options.CommandOutputMaxBytes})
+	registry.Register(&GitLogTool{Workdir: workdir})
 }
