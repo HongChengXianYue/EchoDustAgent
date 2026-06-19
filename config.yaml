@@ -1,10 +1,12 @@
 # LLM 服务配置。API Key 故意只从 AGENT_API_KEY 环境变量读取。
 llm:
-  # OpenAI 兼容接口的基础地址，不包含 /chat/completions 路径。
-  base_url: https://api.openai.com/v1
+  # OpenAI 兼容接口的基础地址，不包含 /chat/completions 或 /responses 路径。
+  base_url: https://anyrouter.top/v1
   # 发给服务商的模型名称。
-  model: gpt-4.1-mini
-  # 单次 chat completion HTTP 请求超时时间。
+  model: gpt-5.5
+  # 协议形态：chat_completions 使用 /chat/completions；responses 使用 /responses。
+  wire_api: responses
+  # 单次 LLM HTTP 请求超时时间。
   request_timeout_seconds: 120
   # 是否允许模型在一次 assistant 回复中返回多个原生 tool call。
   parallel_tool_calls: true

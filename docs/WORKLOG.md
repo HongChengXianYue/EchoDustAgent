@@ -293,3 +293,24 @@
 - 主要模块：`internal/ui/renderer.go`、`internal/ui/renderer_frame.go`、`internal/ui/renderer_final.go`、`internal/ui/format.go`、`internal/ui/renderer_test.go`、`docs/WORKLOG.md`。
 - 验证：`gofmt -w ...` 完成；`go test ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
 - 备注：当前按可见宽度和去 ANSI 后文本宽度估算折行数，已覆盖最常见的缩放重复渲染问题；若后续发现某些终端在 resize 过程中还会主动重排历史滚动区，可能仍需结合 SIGWINCH 或强制整块重绘策略进一步兜底。
+
+## 2026-06-19 - Responses API 接入
+
+- 摘要：为 OpenAI-compatible client 增加 `llm.wire_api` 协议配置，支持继续使用 `/chat/completions`，也可切换到 `/responses`；Responses 模式使用扁平 function tool schema，能回放 function call 和 function_call_output，并解析 message、function_call 与 usage。默认配置切到 AnyRouter `https://anyrouter.top/v1`、`gpt-5.5`、`responses`，对齐 Codex provider 的 wire API 形态。
+- 主要模块：`internal/llm`、`internal/config`、`cmd/agent`、`internal/tools`、`README.md`、`config.yaml`、`docs/WORKLOG.md`。
+- 验证：`gofmt -w ...` 完成；`go test ./internal/llm ./internal/config` 通过；`go test ./internal/tools` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
+- 备注：Responses 模式下 `ChatWithToolsStream` 暂时降级为非流式 `/responses` 请求，并把完整文本一次性发送给 UI；后续如需逐字流式输出，需要补 Responses SSE 事件解析。全量测试中发现 gopls 工具隔离环境缺少临时目录和模块缓存继承，已同步修复，避免代码导航测试依赖网络重新下载模块。
+
+## 2026-06-19 - AnyRouter Codex Responses 适配
+
+- 摘要：将 Responses 请求体调整为更接近 Codex CLI 的形态：system 消息提升为 `instructions`，普通消息使用 typed content 数组，工具 schema 增加 `strict:false`，并固定发送 `tool_choice`、`store`、`include`、`prompt_cache_key` 和 `client_metadata`；同时为 Responses 模式补齐真正的 SSE 流式解析，支持文本增量、完成态 usage 和 `function_call` tool call。
+- 主要模块：`internal/llm`、`docs/WORKLOG.md`。
+- 验证：`gofmt -w internal/llm/openai.go internal/llm/openai_test.go` 完成；`go test ./internal/llm` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：尚未在本地通过真实 AnyRouter 网络请求复测；如果 AnyRouter 还要求 reasoning、service_tier 或更完整的 Codex metadata，后续需要继续按返回错误补字段。用户此前贴出的 API key 应视为已泄露，建议尽快轮换。
+
+## 2026-06-19 - AnyRouter Reasoning 字段修复
+
+- 摘要：通过独立最小 `/responses` 请求矩阵确认 AnyRouter 的 `gpt-5.5` Codex 路由要求携带 `reasoning` 字段；无 reasoning 的最小请求返回 `invalid_responses_request`，加入 `reasoning: {effort: "xhigh", summary: "auto"}` 和 `include: ["reasoning.encrypted_content"]` 后返回 200。随后在 Responses client 中对 `gpt-5*` / Codex 类模型自动附加该字段。
+- 主要模块：`internal/llm`、`docs/WORKLOG.md`。
+- 验证：`curl` 最小 no-tool 请求返回 200；`curl` 最小 function-tool 请求返回 200；`gofmt -w internal/llm/openai.go internal/llm/openai_test.go` 完成；`go test ./internal/llm` 通过；`go test ./...` 通过；`go vet ./...` 通过；使用 AnyRouter token 运行 `printf "hello\nexit\n" | AGENT_API_KEY=... go run ./cmd/agent` 成功返回 “Hello! How can I help?”。
+- 备注：当前 reasoning 开关按模型名启用，避免影响普通非 reasoning Responses 模型；如后续接入新的 reasoning 模型命名，需要扩展匹配规则或做成显式配置。

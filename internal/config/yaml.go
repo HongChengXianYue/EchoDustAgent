@@ -83,6 +83,8 @@ func applyConfigValue(cfg *Config, key string, value string) error {
 		cfg.LLM.BaseURL = value
 	case "llm.model":
 		cfg.LLM.Model = value
+	case "llm.wire_api":
+		cfg.LLM.WireAPI = value
 	case "llm.request_timeout_seconds":
 		return setPositiveInt(key, value, &cfg.LLM.RequestTimeoutSeconds)
 	case "llm.parallel_tool_calls":

@@ -25,6 +25,7 @@ type Config struct {
 type LLMConfig struct {
 	BaseURL               string
 	Model                 string
+	WireAPI               string
 	RequestTimeoutSeconds int
 	ParallelToolCalls     bool
 }
@@ -103,6 +104,9 @@ func LoadFromEnv() (Config, error) {
 	if raw := strings.TrimSpace(os.Getenv("AGENT_MODEL")); raw != "" {
 		cfg.LLM.Model = raw
 	}
+	if raw := strings.TrimSpace(os.Getenv("AGENT_WIRE_API")); raw != "" {
+		cfg.LLM.WireAPI = raw
+	}
 	if raw := strings.TrimSpace(os.Getenv("AGENT_MAX_STEPS")); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n <= 0 {
@@ -124,6 +128,7 @@ func Default() Config {
 		LLM: LLMConfig{
 			BaseURL:               "https://api.openai.com/v1",
 			Model:                 "gpt-4.1-mini",
+			WireAPI:               "chat_completions",
 			RequestTimeoutSeconds: 120,
 			ParallelToolCalls:     true,
 		},
@@ -261,6 +266,11 @@ func validate(cfg Config) error {
 	}
 	if strings.TrimSpace(cfg.LLM.Model) == "" {
 		return fmt.Errorf("llm.model is required")
+	}
+	switch strings.TrimSpace(cfg.LLM.WireAPI) {
+	case "chat_completions", "responses":
+	default:
+		return fmt.Errorf("llm.wire_api must be one of: chat_completions, responses")
 	}
 	if cfg.Tools.CommandDefaultTimeoutSeconds > cfg.Tools.CommandMaxTimeoutSeconds {
 		return fmt.Errorf("tools.command_default_timeout_seconds must be <= tools.command_max_timeout_seconds")

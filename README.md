@@ -16,6 +16,7 @@ Optional environment overrides:
 ```bash
 export AGENT_BASE_URL=https://api.openai.com/v1
 export AGENT_MODEL=gpt-4.1-mini
+export AGENT_WIRE_API=chat_completions
 export AGENT_MAX_STEPS=20
 ```
 
@@ -25,7 +26,7 @@ Runtime tuning lives in `config.yaml`. The file keeps operational limits out of 
 
 Configured areas:
 
-- `llm`: base URL, model, request timeout, and `parallel_tool_calls`.
+- `llm`: base URL, model, wire API, request timeout, and `parallel_tool_calls`.
 - `agent`: maximum ReAct steps per user request and maximum parallel tool calls per assistant turn.
 - `subagents`: delegate-task availability, concurrency, max steps, and result size.
 - `memory`: persistent memory loading and user memory directory.
@@ -33,7 +34,9 @@ Configured areas:
 - `tools`: list/find/read/search limits, command and patch timeouts, output caps, and file-change preview lines.
 - `ui`: separator width, live frame bounds, full-log viewer sizes, polling intervals, Markdown wrap width, and preview truncation lengths.
 
-`AGENT_API_KEY` is intentionally loaded from the environment and is not stored in `config.yaml`. `AGENT_BASE_URL`, `AGENT_MODEL`, and `AGENT_MAX_STEPS` override the YAML values when set.
+`AGENT_API_KEY` is intentionally loaded from the environment and is not stored in `config.yaml`. `AGENT_BASE_URL`, `AGENT_MODEL`, `AGENT_WIRE_API`, and `AGENT_MAX_STEPS` override the YAML values when set.
+
+`llm.wire_api` controls the OpenAI-compatible HTTP shape. Use `chat_completions` for `/chat/completions`, or `responses` for `/responses` providers such as AnyRouter model routes that expose GPT-5 class models through the Responses API.
 
 ## Built-in Tools
 
@@ -63,6 +66,8 @@ The agent only executes tools from provider-returned `tool_calls`. It does not p
 ## Streaming Output
 
 When the configured OpenAI-compatible endpoint supports streaming chat completions, the agent now prefers streaming responses for assistant text. Partial assistant text is forwarded into runtime events and shown in the live terminal frame before the final answer block is rendered.
+
+When `llm.wire_api` is `responses`, the stream entry point currently falls back to a non-streaming `/responses` request and emits the completed assistant text once. Tool calls still work through the same scheduler.
 
 Tool calls still remain turn-based. The agent accumulates streamed assistant content, waits for the provider's final tool-call payload or final text completion, and then continues through the existing tool scheduler and final-answer rendering path.
 

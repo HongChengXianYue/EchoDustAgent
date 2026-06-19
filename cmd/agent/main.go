@@ -50,6 +50,7 @@ func main() {
 	}
 	client := llm.NewOpenAICompatibleClientWithOptions(cfg.LLM.BaseURL, cfg.APIKey, cfg.LLM.Model, llm.OpenAICompatibleOptions{
 		Timeout:           time.Duration(cfg.LLM.RequestTimeoutSeconds) * time.Second,
+		WireAPI:           cfg.LLM.WireAPI,
 		ParallelToolCalls: cfg.LLM.ParallelToolCalls,
 	})
 	codingAgent := agent.NewWithWorkspaceAndOptions(client, registry, cfg.Agent.MaxSteps, workdir, agentOptions(cfg.Agent, cfg.Subagents, cfg.Context, loadedMemory))
@@ -60,6 +61,7 @@ func main() {
 	fmt.Println("local-agent started")
 	fmt.Println("workdir:", workdir)
 	fmt.Println("model:", cfg.LLM.Model)
+	fmt.Println("wire api:", cfg.LLM.WireAPI)
 	fmt.Println("log file:", logger.Path())
 	fmt.Println("type exit or quit to stop")
 

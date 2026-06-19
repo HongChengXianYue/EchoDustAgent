@@ -12,6 +12,7 @@ func TestLoadFileOverridesDefaults(t *testing.T) {
 llm:
   base_url: "https://example.test/v1"
   model: test-model
+  wire_api: responses
   request_timeout_seconds: 7
   parallel_tool_calls: false
 agent:
@@ -54,6 +55,9 @@ ui:
 	}
 	if cfg.LLM.Model != "test-model" {
 		t.Fatalf("model = %q", cfg.LLM.Model)
+	}
+	if cfg.LLM.WireAPI != "responses" {
+		t.Fatalf("wire api = %q", cfg.LLM.WireAPI)
 	}
 	if cfg.LLM.RequestTimeoutSeconds != 7 {
 		t.Fatalf("request timeout = %d", cfg.LLM.RequestTimeoutSeconds)
@@ -134,10 +138,22 @@ func TestLoadFileRejectsUnknownKey(t *testing.T) {
 	}
 }
 
+func TestLoadFileRejectsInvalidWireAPI(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("llm:\n  wire_api: completions\n"), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if _, err := LoadFile(path); err == nil {
+		t.Fatalf("LoadFile() error = nil, want invalid wire api error")
+	}
+}
+
 func TestLoadFromEnvOverridesConfigDefaults(t *testing.T) {
 	t.Setenv("AGENT_API_KEY", "test-key")
 	t.Setenv("AGENT_BASE_URL", "https://env.example/v1")
 	t.Setenv("AGENT_MODEL", "env-model")
+	t.Setenv("AGENT_WIRE_API", "responses")
 	t.Setenv("AGENT_MAX_STEPS", "12")
 
 	cfg, err := LoadFromEnv()
@@ -152,6 +168,9 @@ func TestLoadFromEnvOverridesConfigDefaults(t *testing.T) {
 	}
 	if cfg.LLM.Model != "env-model" {
 		t.Fatalf("model = %q", cfg.LLM.Model)
+	}
+	if cfg.LLM.WireAPI != "responses" {
+		t.Fatalf("wire api = %q", cfg.LLM.WireAPI)
 	}
 	if cfg.Agent.MaxSteps != 12 {
 		t.Fatalf("max steps = %d", cfg.Agent.MaxSteps)

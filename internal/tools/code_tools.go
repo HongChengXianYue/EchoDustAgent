@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -185,13 +186,40 @@ func goplsEnv() []string {
 	tmpDir := "/tmp/local-agent-tmp"
 	goCache := "/tmp/local-agent-gocache"
 	goPath := "/tmp/local-agent-gopath"
-	return []string{
+	for _, dir := range []string{home, cacheHome, tmpDir, goCache, goPath} {
+		_ = os.MkdirAll(dir, 0755)
+	}
+	env := []string{
 		"HOME=" + home,
 		"XDG_CACHE_HOME=" + cacheHome,
 		"TMPDIR=" + tmpDir,
 		"GOCACHE=" + goCache,
 		"GOPATH=" + goPath,
 	}
+	if goModCache := currentGoModCache(); goModCache != "" {
+		// gopls needs module metadata for the workspace. Keep writable build
+		// caches isolated in /tmp, but reuse the existing module cache so
+		// read-only navigation does not depend on network downloads.
+		env = append(env, "GOMODCACHE="+goModCache)
+	}
+	return env
+}
+
+func currentGoModCache() string {
+	if raw := strings.TrimSpace(os.Getenv("GOMODCACHE")); raw != "" {
+		return raw
+	}
+	if raw := strings.TrimSpace(os.Getenv("GOPATH")); raw != "" {
+		parts := filepath.SplitList(raw)
+		if len(parts) > 0 && strings.TrimSpace(parts[0]) != "" {
+			return filepath.Join(parts[0], "pkg", "mod")
+		}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return ""
+	}
+	return filepath.Join(home, "go", "pkg", "mod")
 }
 
 func sanitizeGoplsOutput(text string) string {
