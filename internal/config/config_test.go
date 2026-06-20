@@ -26,6 +26,11 @@ subagents:
 memory:
   enabled: false
   user_dir: /tmp/local-agent-memory
+mcp:
+  enabled: true
+  dir: /tmp/local-agent-mcp
+  start_timeout_seconds: 3
+  request_timeout_seconds: 4
 context:
   window_tokens: 5000
   prune_tool_result_max_bytes: 64
@@ -88,6 +93,15 @@ ui:
 	}
 	if cfg.Memory.UserDir != "/tmp/local-agent-memory" {
 		t.Fatalf("memory user dir = %q", cfg.Memory.UserDir)
+	}
+	if !cfg.MCP.Enabled {
+		t.Fatalf("mcp enabled = false, want true")
+	}
+	if cfg.MCP.Dir != "/tmp/local-agent-mcp" {
+		t.Fatalf("mcp dir = %q", cfg.MCP.Dir)
+	}
+	if cfg.MCP.StartTimeoutSeconds != 3 || cfg.MCP.RequestTimeoutSeconds != 4 {
+		t.Fatalf("mcp timeouts = %#v", cfg.MCP)
 	}
 	if cfg.Context.WindowTokens != 5000 {
 		t.Fatalf("context window tokens = %d", cfg.Context.WindowTokens)

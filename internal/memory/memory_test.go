@@ -42,6 +42,23 @@ func TestLoadDiscoversDocsAndImports(t *testing.T) {
 	}
 }
 
+func TestLoadDiscoversLocalAgentGlobalPrompt(t *testing.T) {
+	userDir := t.TempDir()
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(userDir, "LOCAL-AGENT.md"), []byte("Global local-agent rule."), 0o644); err != nil {
+		t.Fatalf("write LOCAL-AGENT.md: %v", err)
+	}
+
+	set := Load(Options{CWD: project, UserDir: userDir})
+	block := set.Block()
+	if !strings.Contains(block, "Global local-agent rule.") {
+		t.Fatalf("memory block missing LOCAL-AGENT.md:\n%s", block)
+	}
+	if got := filepath.Base(set.DocPath(ScopeUser)); got != "LOCAL-AGENT.md" {
+		t.Fatalf("DocPath user = %s, want LOCAL-AGENT.md", got)
+	}
+}
+
 func TestDocPathPrefersExistingConvention(t *testing.T) {
 	project := t.TempDir()
 	if err := os.WriteFile(filepath.Join(project, "CLAUDE.md"), []byte("Claude rule."), 0o644); err != nil {

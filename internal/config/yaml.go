@@ -105,6 +105,14 @@ func applyConfigValue(cfg *Config, key string, value string) error {
 		return setBool(key, value, &cfg.Memory.Enabled)
 	case "memory.user_dir":
 		cfg.Memory.UserDir = value
+	case "mcp.enabled":
+		return setBool(key, value, &cfg.MCP.Enabled)
+	case "mcp.dir":
+		cfg.MCP.Dir = value
+	case "mcp.start_timeout_seconds":
+		return setPositiveInt(key, value, &cfg.MCP.StartTimeoutSeconds)
+	case "mcp.request_timeout_seconds":
+		return setPositiveInt(key, value, &cfg.MCP.RequestTimeoutSeconds)
 	case "context.window_tokens":
 		return setPositiveInt(key, value, &cfg.Context.WindowTokens)
 	case "context.prune_tool_result_max_bytes":

@@ -17,6 +17,7 @@ type Config struct {
 	Agent     AgentConfig
 	Subagents SubagentsConfig
 	Memory    MemoryConfig
+	MCP       MCPConfig
 	Context   ContextConfig
 	Tools     ToolsConfig
 	UI        UIConfig
@@ -45,6 +46,13 @@ type SubagentsConfig struct {
 type MemoryConfig struct {
 	Enabled bool
 	UserDir string
+}
+
+type MCPConfig struct {
+	Enabled               bool
+	Dir                   string
+	StartTimeoutSeconds   int
+	RequestTimeoutSeconds int
 }
 
 type ContextConfig struct {
@@ -146,6 +154,12 @@ func Default() Config {
 			Enabled: true,
 			UserDir: "~/.local-agent",
 		},
+		MCP: MCPConfig{
+			Enabled:               true,
+			Dir:                   "~/.local-agent/mcp",
+			StartTimeoutSeconds:   10,
+			RequestTimeoutSeconds: 60,
+		},
 		Context: ContextConfig{
 			WindowTokens:             128000,
 			PruneToolResultMaxBytes:  8192,
@@ -220,6 +234,8 @@ func validate(cfg Config) error {
 		"subagents.max_concurrent":              cfg.Subagents.MaxConcurrent,
 		"subagents.max_steps":                   cfg.Subagents.MaxSteps,
 		"subagents.result_max_bytes":            cfg.Subagents.ResultMaxBytes,
+		"mcp.start_timeout_seconds":             cfg.MCP.StartTimeoutSeconds,
+		"mcp.request_timeout_seconds":           cfg.MCP.RequestTimeoutSeconds,
 		"context.window_tokens":                 cfg.Context.WindowTokens,
 		"context.prune_tool_result_max_bytes":   cfg.Context.PruneToolResultMaxBytes,
 		"context.prune_keep_recent_messages":    cfg.Context.PruneKeepRecentMessages,
@@ -266,6 +282,9 @@ func validate(cfg Config) error {
 	}
 	if strings.TrimSpace(cfg.LLM.Model) == "" {
 		return fmt.Errorf("llm.model is required")
+	}
+	if cfg.MCP.Enabled && strings.TrimSpace(cfg.MCP.Dir) == "" {
+		return fmt.Errorf("mcp.dir is required when mcp.enabled is true")
 	}
 	switch strings.TrimSpace(cfg.LLM.WireAPI) {
 	case "chat_completions", "responses":

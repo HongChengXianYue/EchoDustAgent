@@ -60,6 +60,8 @@ func (s *Set) DocPath(scope Scope) string {
 			return ""
 		}
 		dir = s.UserDir
+		names = userDocNames
+		def = defaultUserDocName
 	case ScopeLocal:
 		names = localNames
 		def = defaultLocalName

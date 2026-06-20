@@ -30,6 +30,7 @@ Configured areas:
 - `agent`: maximum ReAct steps per user request and maximum parallel tool calls per assistant turn.
 - `subagents`: delegate-task availability, concurrency, max steps, and result size.
 - `memory`: persistent memory loading and user memory directory.
+- `mcp`: MCP server enablement, install/config directory, and request timeouts.
 - `context`: stale tool-result pruning and conservative conversation compaction thresholds.
 - `tools`: list/find/read/search limits, command and patch timeouts, output caps, and file-change preview lines.
 - `ui`: separator width, live frame bounds, full-log viewer sizes, polling intervals, Markdown wrap width, and preview truncation lengths.
@@ -60,8 +61,33 @@ Configured areas:
 - `memory`: list, search, or read saved durable memories.
 - `remember`: save or update a durable memory for future sessions.
 - `forget`: archive a stale saved memory.
+- `mcp__<server>__<tool>`: tools discovered from configured MCP servers.
 
 The agent only executes tools from provider-returned `tool_calls`. It does not parse assistant text as a JSON tool protocol.
+
+## MCP
+
+When `mcp.enabled` is true, the CLI reads MCP server declarations from `mcp.dir/servers.json`; by default this is `~/.local-agent/mcp/servers.json`. Server commands, helper scripts, or binaries can live under the same `~/.local-agent/mcp` directory.
+
+Example:
+
+```json
+{
+  "servers": {
+    "example": {
+      "command": "./example-server",
+      "args": ["--stdio"],
+      "env": {
+        "EXAMPLE_TOKEN": "..."
+      }
+    }
+  }
+}
+```
+
+`servers` can also be an array of objects with explicit `name` fields. Relative `command` and `cwd` values resolve from `mcp.dir`. Each MCP server is started over stdio, initialized with MCP JSON-RPC, queried with `tools/list`, and each remote tool is registered as an OpenAI-compatible native function named `mcp__<server>__<tool>`.
+
+Tool calls use MCP `tools/call`. Text content is returned as normal tool output; MCP `isError` results are returned to the model as tool errors. A broken MCP server is logged and skipped so the CLI can still start with the remaining tools.
 
 ## Streaming Output
 
@@ -76,6 +102,8 @@ Tool calls still remain turn-based. The agent accumulates streamed assistant con
 When enabled, memory loads once at startup and is appended to the system prompt after the stable base instructions. This keeps the base prompt cache-friendly while still giving the model durable project context.
 
 Document memory is discovered from `REASONIX.md`, `AGENTS.md`, and `CLAUDE.md`, plus local variants such as `AGENTS.local.md`. Discovery starts from the workspace, stops at the nearest Git root, also reads the configured user directory, and supports single-line `@relative/path.md` imports.
+
+The configured user directory also supports `LOCAL-AGENT.md` as a global prompt file. With the default memory directory, put global local-agent instructions in `~/.local-agent/LOCAL-AGENT.md`; it is loaded before project documents and behaves like Codex's global AGENTS-style guidance.
 
 Saved memories live under `memory.user_dir` as plain Markdown files:
 

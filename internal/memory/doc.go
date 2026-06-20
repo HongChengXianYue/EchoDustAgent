@@ -24,12 +24,14 @@ const (
 )
 
 var docNames = []string{"REASONIX.md", "AGENTS.md", "CLAUDE.md"}
+var userDocNames = []string{"LOCAL-AGENT.md", "REASONIX.md", "AGENTS.md", "CLAUDE.md"}
 var localNames = []string{"REASONIX.local.md", "AGENTS.local.md", "CLAUDE.local.md"}
 
 const (
-	defaultDocName   = "AGENTS.md"
-	defaultLocalName = "AGENTS.local.md"
-	maxImportDepth   = 5
+	defaultDocName     = "AGENTS.md"
+	defaultUserDocName = "LOCAL-AGENT.md"
+	defaultLocalName   = "AGENTS.local.md"
+	maxImportDepth     = 5
 )
 
 // Source is one loaded memory document with provenance.
@@ -43,7 +45,7 @@ func discoverDocs(cwd, userDir string) []Source {
 	var out []Source
 	seen := docSeen{}
 	if userDir != "" {
-		out = append(out, loadFrom(userDir, docNames, ScopeUser, &seen)...)
+		out = append(out, loadFrom(userDir, userDocNames, ScopeUser, &seen)...)
 	}
 	for _, dir := range ancestorsToRoot(cwd) {
 		scope := ScopeAncestor

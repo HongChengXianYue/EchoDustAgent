@@ -7,7 +7,7 @@ llm:
   # 协议形态：chat_completions 使用 /chat/completions；responses 使用 /responses。
   wire_api: responses
   # 单次 LLM HTTP 请求超时时间。
-  request_timeout_seconds: 120
+  request_timeout_seconds: 300
   # 是否允许模型在一次 assistant 回复中返回多个原生 tool call。
   parallel_tool_calls: true
 
@@ -35,6 +35,17 @@ memory:
   enabled: true
   # 用户级记忆目录；支持 ~。项目记忆会按当前 workspace 分目录存放在这里。
   user_dir: ~/.local-agent
+
+# MCP 服务配置。具体 server 安装和声明放在 dir/servers.json。
+mcp:
+  # 是否启动 MCP server 并把 MCP tools 注册为原生 function tools。
+  enabled: true
+  # MCP 安装和配置目录；默认读取 ~/.local-agent/mcp/servers.json。
+  dir: ~/.local-agent/mcp
+  # 单个 MCP server 初始化和 tools/list 的启动超时。
+  start_timeout_seconds: 10
+  # MCP tools/list 和 tools/call 单次请求超时。
+  request_timeout_seconds: 60
 
 # 上下文维护。优先裁剪旧工具输出，接近窗口上限时再压缩旧历史。
 context:

@@ -314,3 +314,10 @@
 - 主要模块：`internal/llm`、`docs/WORKLOG.md`。
 - 验证：`curl` 最小 no-tool 请求返回 200；`curl` 最小 function-tool 请求返回 200；`gofmt -w internal/llm/openai.go internal/llm/openai_test.go` 完成；`go test ./internal/llm` 通过；`go test ./...` 通过；`go vet ./...` 通过；使用 AnyRouter token 运行 `printf "hello\nexit\n" | AGENT_API_KEY=... go run ./cmd/agent` 成功返回 “Hello! How can I help?”。
 - 备注：当前 reasoning 开关按模型名启用，避免影响普通非 reasoning Responses 模型；如后续接入新的 reasoning 模型命名，需要扩展匹配规则或做成显式配置。
+
+## 2026-06-20 - MCP 接入与全局提示词
+
+- 摘要：新增 `internal/mcp` 包，实现 stdio MCP server 启动、JSON-RPC `initialize`、`tools/list`、`tools/call` 和工具适配；CLI 启动时按 `mcp` 配置读取 `~/.local-agent/mcp/servers.json`，将远端 MCP 工具注册为 `mcp__<server>__<tool>` 形式的原生 function tool，并在退出时关闭 MCP 子进程。记忆加载新增用户目录 `LOCAL-AGENT.md`，作为全局提示词文件优先于用户目录中的旧 AGENTS 风格文件。
+- 主要模块：`internal/mcp`、`cmd/agent`、`internal/config`、`internal/memory`、`README.md`、`config.yaml`、`docs/WORKLOG.md`。
+- 验证：`gofmt -w ...` 完成；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：当前 MCP 实现覆盖 stdio transport 和 tools 能力，暂不支持 MCP resources/prompts、SSE transport、server 动态 tool list 变更通知，失败的 MCP server 会写入运行日志并跳过，不阻塞其他工具启动。

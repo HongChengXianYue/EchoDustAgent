@@ -15,6 +15,7 @@ import (
 	"local-agent/internal/config"
 	"local-agent/internal/llm"
 	"local-agent/internal/logs"
+	"local-agent/internal/mcp"
 	"local-agent/internal/memory"
 	"local-agent/internal/tools"
 	"local-agent/internal/ui"
@@ -48,6 +49,20 @@ func main() {
 		registry.Register(memory.NewRememberTool(loadedMemory.Store))
 		registry.Register(memory.NewForgetTool(loadedMemory.Store))
 	}
+	var mcpManager *mcp.Manager
+	if cfg.MCP.Enabled {
+		mcpManager, err = mcp.Load(context.Background(), mcp.Options{
+			Dir:            cfg.MCP.Dir,
+			StartTimeout:   time.Duration(cfg.MCP.StartTimeoutSeconds) * time.Second,
+			RequestTimeout: time.Duration(cfg.MCP.RequestTimeoutSeconds) * time.Second,
+		})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		defer mcpManager.Close()
+		mcpManager.Register(registry)
+	}
 	client := llm.NewOpenAICompatibleClientWithOptions(cfg.LLM.BaseURL, cfg.APIKey, cfg.LLM.Model, llm.OpenAICompatibleOptions{
 		Timeout:           time.Duration(cfg.LLM.RequestTimeoutSeconds) * time.Second,
 		WireAPI:           cfg.LLM.WireAPI,
@@ -62,6 +77,9 @@ func main() {
 	fmt.Println("workdir:", workdir)
 	fmt.Println("model:", cfg.LLM.Model)
 	fmt.Println("wire api:", cfg.LLM.WireAPI)
+	if mcpManager != nil {
+		fmt.Println("mcp tools:", len(mcpManager.Tools()))
+	}
 	fmt.Println("log file:", logger.Path())
 	fmt.Println("type exit or quit to stop")
 
