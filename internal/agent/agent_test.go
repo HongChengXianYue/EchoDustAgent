@@ -1410,3 +1410,55 @@ func TestRunEmitsTokenUsageEventsWithCumulativeTotal(t *testing.T) {
 		}
 	}
 }
+
+func TestRunFallsBackToNonStreamingWhenUsageOmitted(t *testing.T) {
+	// First response: streaming returns content but no usage.
+	// Second response: non-streaming path returns content with usage.
+	client := &fakeClient{
+		responses: []*llm.ChatResponse{
+			{
+				Content:   "",
+				ToolCalls: []llm.ToolCall{testToolCall("call_1", "echo", `{"text":"a"}`)},
+				// Usage is nil — simulates Bailian streaming behavior.
+			},
+			{
+				Content: "finished",
+				Usage:   &llm.TokenUsage{PromptTokens: 100, CompletionTokens: 20, TotalTokens: 120},
+			},
+		},
+	}
+	registry := tools.NewRegistry()
+	registry.Register(&echoTool{})
+	renderer := &captureRenderer{}
+	agent := NewWithWorkspace(client, registry, 5, "")
+	agent.SetRenderer(renderer)
+
+	if _, err := agent.Run(context.Background(), "hello"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	// After first streaming call with nil usage, streaming should be disabled.
+	if !agent.streamingDisabled {
+		t.Fatal("streamingDisabled should be true after streaming returns nil usage")
+	}
+
+	// Verify token usage was captured from the second (non-streaming) call.
+	usage := agent.TokenUsage()
+	if usage.TotalTokens != 120 {
+		t.Errorf("TotalTokens = %d, want 120", usage.TotalTokens)
+	}
+
+	// Verify token event was emitted.
+	var tokenEvents []runtimeevent.Event
+	for _, event := range renderer.events {
+		if event.Type == runtimeevent.TypeTokenUsage {
+			tokenEvents = append(tokenEvents, event)
+		}
+	}
+	if len(tokenEvents) != 1 {
+		t.Fatalf("token events = %d, want 1", len(tokenEvents))
+	}
+	if tokenEvents[0].CumulativeTotal != 120 {
+		t.Errorf("cumulative total = %d, want 120", tokenEvents[0].CumulativeTotal)
+	}
+}

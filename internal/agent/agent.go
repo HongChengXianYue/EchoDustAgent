@@ -41,6 +41,11 @@ type Agent struct {
 	// callbacks may arrive on a different goroutine.
 	tokenMu    sync.Mutex
 	tokenUsage tokenUsage
+
+	// streamingDisabled is set when a streaming call returns without usage
+	// data. Subsequent calls fall back to non-streaming so token tracking
+	// works for providers that omit usage in SSE chunks (e.g. Bailian qwen).
+	streamingDisabled bool
 }
 
 func New(client llm.Client, registry *tools.Registry, maxSteps int) *Agent {
@@ -191,7 +196,10 @@ func (a *Agent) chatWithTools(ctx context.Context, step int) (*llm.ChatResponse,
 	streamingClient, ok := a.client.(llm.StreamingClient)
 	var resp *llm.ChatResponse
 	var err error
-	if !ok {
+
+	// Fall back to non-streaming when a previous streaming call returned no
+	// usage data. Some providers (e.g. Bailian qwen) omit usage in SSE chunks.
+	if !ok || a.streamingDisabled {
 		resp, err = a.client.ChatWithTools(ctx, a.messages, tools)
 	} else {
 		resp, err = streamingClient.ChatWithToolsStream(ctx, a.messages, tools, func(delta llm.StreamDelta) error {
@@ -207,6 +215,7 @@ func (a *Agent) chatWithTools(ctx context.Context, step int) (*llm.ChatResponse,
 			return nil
 		})
 	}
+
 	if resp != nil && resp.Usage != nil {
 		cumulative := a.addTokenUsage(resp.Usage)
 		a.emit(runtimeevent.Event{
@@ -216,6 +225,11 @@ func (a *Agent) chatWithTools(ctx context.Context, step int) (*llm.ChatResponse,
 			CompletionTokens: resp.Usage.CompletionTokens,
 			CumulativeTotal:  cumulative,
 		})
+	} else if ok && !a.streamingDisabled {
+		// Streaming call returned without usage — disable streaming so the
+		// next call uses the non-streaming path which usually includes usage.
+		a.streamingDisabled = true
+		logs.Infof("streaming returned no usage, falling back to non-streaming")
 	}
 	return resp, err
 }
