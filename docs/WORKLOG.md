@@ -356,3 +356,10 @@
 - 主要模块：`internal/ui/renderer_frame.go`、`docs/WORKLOG.md`。
 - 验证：`go build ./...` 通过；`go test ./internal/ui` 通过；手动测试确认百炼流式响应所有 chunk 的 `usage` 均为 `null`。
 - 备注：若需要准确 token 统计，可临时禁用流式（设置 `llm.parallel_tool_calls: false` 或类似配置强制非流式），但会失去实时显示优势。百炼未来可能补上流式 usage，届时会自动显示真实数值。
+
+## 2026-06-28 - 流式无 usage 时自动降级到非流式
+
+- 摘要：百炼平台 qwen 模型流式 SSE 所有 chunk 的 `usage` 均为 `null`，导致 token 计数器始终为 0。新增 `Agent.streamingDisabled` 标志：当流式调用返回 `resp.Usage == nil` 时自动设置该标志，后续调用切换到非流式路径（`ChatWithTools` 而非 `ChatWithToolsStream`），非流式响应正常返回 usage。降级时记录日志 `streaming returned no usage, falling back to non-streaming`。
+- 主要模块：`internal/agent/agent.go`、`internal/agent/agent_test.go`、`docs/WORKLOG.md`。
+- 验证：`go build ./...` 通过；`go test ./internal/agent` 通过（新增 `TestRunFallsBackToNonStreamingWhenUsageOmitted`）；`go vet ./...` 通过。
+- 备注：降级是 per-session 的——一旦检测到流式无 usage，当前 agent 实例剩余调用全部走非流式。代价是失去实时流式显示，换来准确的 token 统计。非流式模式下用户看不到逐字输出，但最终回答仍正常渲染。

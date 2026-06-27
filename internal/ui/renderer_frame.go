@@ -93,15 +93,14 @@ func formatTokenCount(count int) string {
 // answer. Unlike the live-frame token block, this persists in the terminal
 // scrollback so the user can actually see the consumption.
 func (r *BlockRenderer) writeFinalTokenSummary() {
-	fmt.Fprintln(r.output, separatorLine(r.options.SeparatorWidth))
 	if r.mainTokenTotal == 0 && len(r.subagentTokens) == 0 {
-		// Provider did not return usage data. Common reasons:
-		// - Streaming mode: many providers (including Bailian qwen) omit usage
-		//   in SSE chunks. Non-streaming requests usually include it.
-		// - The provider simply doesn't support usage reporting.
-		fmt.Fprintln(r.output, "• Tokens: N/A (streaming mode or provider omitted usage)")
+		// No token data available — skip the summary entirely.
+		// This happens when the provider omits usage in streaming responses
+		// (e.g. Bailian qwen). After the streaming fallback kicks in, subsequent
+		// calls return usage and the summary will appear.
 		return
 	}
+	fmt.Fprintln(r.output, separatorLine(r.options.SeparatorWidth))
 	total := r.mainTokenTotal
 	if len(r.subagentTokens) == 0 {
 		fmt.Fprintf(r.output, "• Tokens: %s\n", formatTokenCount(r.mainTokenTotal))

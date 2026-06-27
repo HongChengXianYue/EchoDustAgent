@@ -1229,7 +1229,7 @@ func TestBlockRendererPrintsTokenSummaryAfterFinalAnswer(t *testing.T) {
 	}
 }
 
-func TestBlockRendererShowsNAWhenProviderOmitsUsage(t *testing.T) {
+func TestBlockRendererHidesTokenSummaryWhenProviderOmitsUsage(t *testing.T) {
 	var out bytes.Buffer
 	renderer := NewBlockRenderer(&out)
 
@@ -1243,7 +1243,11 @@ func TestBlockRendererShowsNAWhenProviderOmitsUsage(t *testing.T) {
 	})
 
 	text := stripANSI(out.String())
-	if !strings.Contains(text, "Tokens: N/A") {
-		t.Fatalf("expected N/A token summary when provider omits usage, got:\n%s", text)
+	if strings.Contains(text, "Tokens:") {
+		t.Fatalf("token summary should be hidden when provider omits usage, got:\n%s", text)
+	}
+	// Final answer should still be present.
+	if !strings.Contains(text, "Answer without usage data.") {
+		t.Fatalf("final answer missing from output:\n%s", text)
 	}
 }
