@@ -15,7 +15,7 @@ const (
 	prunedToolOutputPrefix  = "[stale tool result pruned:"
 	compactionSummaryOpen   = "<compaction-summary>"
 	compactionSummaryClose  = "</compaction-summary>"
-	summarySystemPromptText = `You are compacting the earlier part of a coding agent conversation.
+	summarySystemPromptText = `You are compacting the earlier part of an agent conversation.
 Write a concise but complete briefing that lets the agent continue without rereading the original messages.
 Preserve user goals, decisions, constraints, files changed or inspected, commands and outcomes, errors and fixes, and pending next steps.
 Do not invent facts.`

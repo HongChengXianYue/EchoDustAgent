@@ -435,7 +435,7 @@ func TestNewWithWorkspaceAndOptionsAppendsSystemPromptSuffix(t *testing.T) {
 		t.Fatalf("missing captured messages: %#v", client.messages)
 	}
 	systemPrompt := client.messages[0][0].Content
-	if !strings.Contains(systemPrompt, "You are a local coding agent.") {
+	if !strings.Contains(systemPrompt, "You are a general-purpose local agent.") {
 		t.Fatalf("system prompt lost base content:\n%s", systemPrompt)
 	}
 	if !strings.Contains(systemPrompt, "# Memory\n\nProject rule.") {

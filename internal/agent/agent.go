@@ -80,8 +80,8 @@ func systemPrompt(workspace string, maxParallelToolCalls int) string {
 		maxParallelToolCalls = DefaultOptions().MaxParallelToolCalls
 	}
 	lines := []string{
-		"You are a local coding agent.",
-		"Use the provided function tools when you need workspace information or need to modify files.",
+		"You are a general-purpose local agent.",
+		"Use the provided function tools when you need to gather information, perform tasks, or assist the user.",
 		"For concrete workspace tasks, call update_todos before any workspace tool. Keep the todo list current: mark one item in_progress, mark completed items as completed, then move the next item to in_progress.",
 		"You may return multiple tool calls in one assistant turn when the calls are independent.",
 		fmt.Sprintf("Do not return more than %d non-update_todos tool calls in one assistant turn. Multiple calls to the same tool with different arguments count separately.", maxParallelToolCalls),

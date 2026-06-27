@@ -7,10 +7,21 @@ import (
 	"testing"
 )
 
-func TestComposeEmptyIsIdentity(t *testing.T) {
+func TestComposeEmptyIncludesGuidelines(t *testing.T) {
 	base := "BASE\nPROMPT"
-	if got := Compose(base, &Set{}); got != base {
-		t.Fatalf("Compose empty = %q, want base", got)
+	got := Compose(base, &Set{})
+	if !strings.Contains(got, "Long-Term Memory Guidelines") {
+		t.Fatalf("Compose empty missing guidelines: %q", got)
+	}
+	if !strings.HasPrefix(got, base) {
+		t.Fatalf("Compose should preserve base prefix, got %q", got)
+	}
+}
+
+func TestComposeNilIsIdentity(t *testing.T) {
+	base := "BASE\nPROMPT"
+	if got := Compose(base, nil); got != base {
+		t.Fatalf("Compose nil = %q, want base", got)
 	}
 }
 

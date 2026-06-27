@@ -77,29 +77,43 @@ func (s *Set) DocPath(scope Scope) string {
 
 // Empty reports whether Compose can leave the base prompt byte-for-byte intact.
 func (s *Set) Empty() bool {
-	return s == nil || (len(s.Docs) == 0 && strings.TrimSpace(s.Index) == "")
+	return s == nil
 }
 
 // Block renders deterministic Markdown for the system prompt.
 func (s *Set) Block() string {
-	if s.Empty() {
+	if s == nil {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("# Memory\n\n")
-	b.WriteString("Persistent context loaded from memory files. Treat it as durable, user-authored guidance for this project.\n")
-	for _, doc := range s.Docs {
-		fmt.Fprintf(&b, "\n## %s (%s)\n\n%s\n", doc.Path, doc.Scope, strings.TrimSpace(doc.Body))
+	hasContent := false
+	if len(s.Docs) > 0 {
+		b.WriteString("Persistent context loaded from memory files. Treat it as durable, user-authored guidance for this project.\n")
+		hasContent = true
+		for _, doc := range s.Docs {
+			fmt.Fprintf(&b, "\n## %s (%s)\n\n%s\n", doc.Path, doc.Scope, strings.TrimSpace(doc.Body))
+		}
 	}
 	if index := strings.TrimSpace(s.Index); index != "" {
-		b.WriteString("\n## Saved memories\n\n")
-		b.WriteString("Saved durable facts from earlier sessions. Treat them as background context, not proof that the code still matches them. Use the `memory` tool to read a full fact when its index entry is relevant, `remember` to save or update durable facts, and `forget` to archive stale ones.\n\n")
+		if hasContent {
+			b.WriteString("\n")
+		}
+		b.WriteString("## Saved memories\n\n")
+		b.WriteString("Saved durable facts from earlier sessions. Treat them as background context, not proof that the code still matches them. Use the `memory` tool to read a full fact when its index entry is relevant, and `forget` to archive stale ones.\n\n")
 		b.WriteString(index)
 		if s.Store.Dir != "" || s.Store.GlobalDir != "" {
 			b.WriteString("\n\n(stored under ")
 			b.WriteString(strings.Join(nonEmpty(s.Store.dirs()), " and "))
 			b.WriteString(")\n")
 		}
+		hasContent = true
+	}
+	b.WriteString("\n")
+	b.WriteString(memoryGuidelines)
+	if !hasContent {
+		// No docs or saved memories yet, but guidelines still apply
+		b.WriteString("\nNo memories loaded yet. Use `remember` to start saving durable facts.\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
