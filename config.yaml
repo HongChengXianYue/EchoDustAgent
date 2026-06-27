@@ -50,7 +50,7 @@ mcp:
 # 上下文维护。优先裁剪旧工具输出，接近窗口上限时再压缩旧历史。
 context:
   # 估算上下文窗口大小；当前用字符数近似 token，仅用于触发维护。
-  window_tokens: 128000
+  window_tokens: 256000
   # 旧 tool result 的 output 超过多少字节后会被替换为裁剪标记。
   prune_tool_result_max_bytes: 8192
   # 最近多少条消息永远不裁剪，避免影响当前任务。

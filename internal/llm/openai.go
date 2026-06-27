@@ -70,7 +70,8 @@ func NewOpenAICompatibleClientWithOptions(baseURL, apiKey, model string, options
 }
 
 func (c *OpenAICompatibleClient) ChatWithTools(ctx context.Context, messages []Message, tools []FunctionTool) (*ChatResponse, error) {
-	switch c.effectiveWireAPI() {
+	wireAPI := c.effectiveWireAPI()
+	switch wireAPI {
 	case WireAPIChatCompletions:
 		reqBody := c.requestBody(messages, tools, false)
 		return c.doChatRequest(ctx, reqBody)
@@ -78,17 +79,18 @@ func (c *OpenAICompatibleClient) ChatWithTools(ctx context.Context, messages []M
 		reqBody := c.responsesRequestBody(messages, tools, false)
 		return c.doResponsesRequest(ctx, reqBody)
 	default:
-		return nil, fmt.Errorf("unsupported OpenAI wire API %q", c.effectiveWireAPI())
+		return nil, fmt.Errorf("unsupported OpenAI wire API %q", wireAPI)
 	}
 }
 
 func (c *OpenAICompatibleClient) ChatWithToolsStream(ctx context.Context, messages []Message, tools []FunctionTool, onDelta StreamHandler) (*ChatResponse, error) {
-	if c.effectiveWireAPI() == WireAPIResponses {
+	wireAPI := c.effectiveWireAPI()
+	if wireAPI == WireAPIResponses {
 		reqBody := c.responsesRequestBody(messages, tools, true)
 		return c.doResponsesStreamRequest(ctx, reqBody, onDelta)
 	}
-	if c.effectiveWireAPI() != WireAPIChatCompletions {
-		return nil, fmt.Errorf("unsupported OpenAI wire API %q", c.effectiveWireAPI())
+	if wireAPI != WireAPIChatCompletions {
+		return nil, fmt.Errorf("unsupported OpenAI wire API %q", wireAPI)
 	}
 	reqBody := c.requestBody(messages, tools, false)
 	reqBody.Stream = true
@@ -100,7 +102,17 @@ func (c *OpenAICompatibleClient) effectiveWireAPI() string {
 	if wireAPI == "" {
 		return WireAPIChatCompletions
 	}
+	// DeepSeek-compatible routes commonly expose native tools through
+	// /chat/completions only; sending these models to /responses returns 404.
+	if wireAPI == WireAPIResponses && usesChatCompletionsOnly(c.Model) {
+		return WireAPIChatCompletions
+	}
 	return wireAPI
+}
+
+func usesChatCompletionsOnly(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.Contains(model, "deepseek")
 }
 
 func (c *OpenAICompatibleClient) requestBody(messages []Message, tools []FunctionTool, stream bool) chatCompletionRequest {

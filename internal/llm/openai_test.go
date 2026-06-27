@@ -283,6 +283,76 @@ func TestOpenAICompatibleClientResponsesSendsFlatToolSpecAndParsesOutput(t *test
 	}
 }
 
+func TestOpenAICompatibleClientUsesChatCompletionsForDeepSeekModels(t *testing.T) {
+	client := NewOpenAICompatibleClientWithOptions("https://example.test/v1", "test-key", "deepseek-v4-flash", OpenAICompatibleOptions{
+		WireAPI:           WireAPIResponses,
+		ParallelToolCalls: true,
+	})
+	client.Client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("path = %s, want /v1/chat/completions", r.URL.Path)
+		}
+		var req map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if req["model"] != "deepseek-v4-flash" {
+			t.Fatalf("model = %v", req["model"])
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"choices":[{"message":{"content":"ok"}}]}`)),
+		}, nil
+	})}
+
+	resp, err := client.ChatWithTools(context.Background(), []Message{{Role: "user", Content: "hello"}}, nil)
+	if err != nil {
+		t.Fatalf("ChatWithTools() error = %v", err)
+	}
+	if resp.Content != "ok" {
+		t.Fatalf("content = %q, want ok", resp.Content)
+	}
+}
+
+func TestOpenAICompatibleClientStreamsDeepSeekModelsThroughChatCompletions(t *testing.T) {
+	client := NewOpenAICompatibleClientWithOptions("https://example.test/v1", "test-key", "deepseek-v4-flash", OpenAICompatibleOptions{
+		WireAPI:           WireAPIResponses,
+		ParallelToolCalls: true,
+	})
+	client.Client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("path = %s, want /v1/chat/completions", r.URL.Path)
+		}
+		var req map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if req["stream"] != true {
+			t.Fatalf("stream = %v, want true", req["stream"])
+		}
+		body := strings.Join([]string{
+			`data: {"choices":[{"delta":{"content":"ok"}}]}`,
+			``,
+			`data: [DONE]`,
+			``,
+		}, "\n")
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(body)),
+		}, nil
+	})}
+
+	resp, err := client.ChatWithToolsStream(context.Background(), []Message{{Role: "user", Content: "hello"}}, nil, nil)
+	if err != nil {
+		t.Fatalf("ChatWithToolsStream() error = %v", err)
+	}
+	if resp.Content != "ok" {
+		t.Fatalf("content = %q, want ok", resp.Content)
+	}
+}
+
 func TestOpenAICompatibleClientResponsesSerializesPriorToolExchange(t *testing.T) {
 	client := NewOpenAICompatibleClientWithOptions("https://example.test/v1", "test-key", "test-model", OpenAICompatibleOptions{
 		WireAPI: WireAPIResponses,
