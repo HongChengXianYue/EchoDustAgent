@@ -112,7 +112,9 @@ func (c *OpenAICompatibleClient) effectiveWireAPI() string {
 
 func usesChatCompletionsOnly(model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
-	return strings.Contains(model, "deepseek")
+	// DeepSeek and Qwen-compatible routes commonly expose native tools through
+	// /chat/completions only; sending these models to /responses returns 404.
+	return strings.Contains(model, "deepseek") || strings.Contains(model, "qwen")
 }
 
 func (c *OpenAICompatibleClient) requestBody(messages []Message, tools []FunctionTool, stream bool) chatCompletionRequest {

@@ -353,6 +353,38 @@ func TestOpenAICompatibleClientStreamsDeepSeekModelsThroughChatCompletions(t *te
 	}
 }
 
+func TestOpenAICompatibleClientUsesChatCompletionsForQwenModels(t *testing.T) {
+	client := NewOpenAICompatibleClientWithOptions("https://example.test/v1", "test-key", "qwen3.7-plus", OpenAICompatibleOptions{
+		WireAPI:           WireAPIResponses,
+		ParallelToolCalls: true,
+	})
+	client.Client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("path = %s, want /v1/chat/completions", r.URL.Path)
+		}
+		var req map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if req["model"] != "qwen3.7-plus" {
+			t.Fatalf("model = %v", req["model"])
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"choices":[{"message":{"content":"ok"}}]}`)),
+		}, nil
+	})}
+
+	resp, err := client.ChatWithTools(context.Background(), []Message{{Role: "user", Content: "hello"}}, nil)
+	if err != nil {
+		t.Fatalf("ChatWithTools() error = %v", err)
+	}
+	if resp.Content != "ok" {
+		t.Fatalf("content = %q, want ok", resp.Content)
+	}
+}
+
 func TestOpenAICompatibleClientResponsesSerializesPriorToolExchange(t *testing.T) {
 	client := NewOpenAICompatibleClientWithOptions("https://example.test/v1", "test-key", "test-model", OpenAICompatibleOptions{
 		WireAPI: WireAPIResponses,
