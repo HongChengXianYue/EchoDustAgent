@@ -13,6 +13,13 @@ import (
 	"local-agent/internal/tools"
 )
 
+// tokenUsage tracks cumulative LLM token consumption for one agent instance.
+type tokenUsage struct {
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
+}
+
 type Agent struct {
 	client          llm.Client
 	registry        *tools.Registry
@@ -29,6 +36,11 @@ type Agent struct {
 	options         Options
 	subagentLimiter chan struct{}
 	subagentTool    *delegateTaskTool
+
+	// Token consumption tracking. Protected by tokenMu because streaming
+	// callbacks may arrive on a different goroutine.
+	tokenMu    sync.Mutex
+	tokenUsage tokenUsage
 }
 
 func New(client llm.Client, registry *tools.Registry, maxSteps int) *Agent {
@@ -136,6 +148,7 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 		resp, err := a.chatWithTools(ctx, step)
 		if err != nil {
 			logs.Errorf("agent chat failed: step=%d err=%v", step, err)
+			a.logTokenUsage()
 			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeError, Error: err.Error()})
 			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeRunEnd})
 			return "", err
@@ -149,6 +162,7 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 
 		if len(resp.ToolCalls) == 0 {
 			final := strings.TrimSpace(resp.Content)
+			a.logTokenUsage()
 			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeRunEnd})
 			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeFinal, Message: final})
 			return final, nil
@@ -166,6 +180,7 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 	}
 	err := fmt.Errorf("agent stopped after %d steps without a final response", a.maxSteps)
 	logs.Errorf("agent stopped without final response: max_steps=%d", a.maxSteps)
+	a.logTokenUsage()
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeError, Error: err.Error()})
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeRunEnd})
 	return "", err
@@ -174,27 +189,65 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 func (a *Agent) chatWithTools(ctx context.Context, step int) (*llm.ChatResponse, error) {
 	tools := a.functionTools()
 	streamingClient, ok := a.client.(llm.StreamingClient)
+	var resp *llm.ChatResponse
+	var err error
 	if !ok {
-		return a.client.ChatWithTools(ctx, a.messages, tools)
-	}
-	return streamingClient.ChatWithToolsStream(ctx, a.messages, tools, func(delta llm.StreamDelta) error {
-		if strings.TrimSpace(delta.Content) == "" {
+		resp, err = a.client.ChatWithTools(ctx, a.messages, tools)
+	} else {
+		resp, err = streamingClient.ChatWithToolsStream(ctx, a.messages, tools, func(delta llm.StreamDelta) error {
+			if strings.TrimSpace(delta.Content) == "" {
+				return nil
+			}
+			a.emit(runtimeevent.Event{
+				Step:    step,
+				Type:    runtimeevent.TypeAssistantDelta,
+				Delta:   delta.Content,
+				Message: delta.Content,
+			})
 			return nil
-		}
-		a.emit(runtimeevent.Event{
-			Step:    step,
-			Type:    runtimeevent.TypeAssistantDelta,
-			Delta:   delta.Content,
-			Message: delta.Content,
 		})
-		return nil
-	})
+	}
+	if resp != nil && resp.Usage != nil {
+		cumulative := a.addTokenUsage(resp.Usage)
+		a.emit(runtimeevent.Event{
+			Step:             step,
+			Type:             runtimeevent.TypeTokenUsage,
+			PromptTokens:     resp.Usage.PromptTokens,
+			CompletionTokens: resp.Usage.CompletionTokens,
+			CumulativeTotal:  cumulative,
+		})
+	}
+	return resp, err
 }
 
 func (a *Agent) Messages() []llm.Message {
 	out := make([]llm.Message, len(a.messages))
 	copy(out, a.messages)
 	return out
+}
+
+// addTokenUsage accumulates one LLM call's usage and returns the new cumulative total.
+func (a *Agent) addTokenUsage(usage *llm.TokenUsage) int {
+	a.tokenMu.Lock()
+	defer a.tokenMu.Unlock()
+	a.tokenUsage.PromptTokens += usage.PromptTokens
+	a.tokenUsage.CompletionTokens += usage.CompletionTokens
+	a.tokenUsage.TotalTokens += usage.TotalTokens
+	return a.tokenUsage.TotalTokens
+}
+
+// TokenUsage returns the cumulative token consumption snapshot.
+func (a *Agent) TokenUsage() tokenUsage {
+	a.tokenMu.Lock()
+	defer a.tokenMu.Unlock()
+	return a.tokenUsage
+}
+
+// logTokenUsage writes a final cumulative token usage summary to the log file.
+func (a *Agent) logTokenUsage() {
+	usage := a.TokenUsage()
+	logs.Infof("token usage: prompt=%d completion=%d total=%d",
+		usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens)
 }
 
 func (a *Agent) emit(event runtimeevent.Event) {

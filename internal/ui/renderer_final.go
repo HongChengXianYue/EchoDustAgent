@@ -24,12 +24,16 @@ func (r *BlockRenderer) renderFinal(message string) {
 	rendered, err := renderMarkdown(r.markdownRenderer, message)
 	if err != nil {
 		fmt.Fprintln(r.output, message)
-		return
+	} else {
+		fmt.Fprint(r.output, rendered)
+		if !strings.HasSuffix(rendered, "\n") {
+			fmt.Fprintln(r.output)
+		}
 	}
-	fmt.Fprint(r.output, rendered)
-	if !strings.HasSuffix(rendered, "\n") {
-		fmt.Fprintln(r.output)
-	}
+	// Print a stable token usage summary after the final answer so the user
+	// can actually see it (the live-frame token block gets cleared before the
+	// final answer is printed).
+	r.writeFinalTokenSummary()
 }
 
 func (r *BlockRenderer) clearLiveFrame() {

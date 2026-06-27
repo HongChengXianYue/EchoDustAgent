@@ -1061,3 +1061,189 @@ func TestBlockRendererSummarizesWriteApprovalArgs(t *testing.T) {
 		t.Fatalf("approval output should summarize write content instead of printing it:\n%s", text)
 	}
 }
+
+func TestBlockRendererRendersTokenUsageInLiveFrame(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+
+	// Start a run so the live frame is active.
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeUserMessage, Message: "hello"})
+
+	// Main agent token usage events.
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:            runtimeevent.TypeTokenUsage,
+		PromptTokens:    100,
+		CompletionTokens: 20,
+		CumulativeTotal: 120,
+	})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:            runtimeevent.TypeTokenUsage,
+		PromptTokens:    200,
+		CompletionTokens: 40,
+		CumulativeTotal: 360,
+	})
+
+	// Subagent token usage event.
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:            runtimeevent.TypeTokenUsage,
+		Source:          "subagent",
+		SubagentIndex:   1,
+		ParentTool:      "Research: architecture",
+		PromptTokens:    50,
+		CompletionTokens: 10,
+		CumulativeTotal: 60,
+	})
+
+	text := out.String()
+	for _, want := range []string{
+		"Tokens:",
+		"360",                  // main cumulative
+		"Research: architectu", // truncated task name (20 chars)
+		"60",                   // subagent cumulative
+		"total",                // total line
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("output missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestBlockRendererTracksMainAndSubagentTokensSeparately(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
+
+	// Main agent tokens.
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:            runtimeevent.TypeTokenUsage,
+		CumulativeTotal: 500,
+	})
+
+	// Subagent tokens.
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:            runtimeevent.TypeTokenUsage,
+		Source:          "subagent",
+		SubagentIndex:   1,
+		ParentTool:      "subtask-1",
+		CumulativeTotal: 200,
+	})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:            runtimeevent.TypeTokenUsage,
+		Source:          "subagent",
+		SubagentIndex:   2,
+		ParentTool:      "subtask-2",
+		CumulativeTotal: 300,
+	})
+
+	text := out.String()
+	// Verify the final frame shows all three components.
+	for _, want := range []string{"500 main", "subtask-1", "200", "subtask-2", "300", "total 1.0k"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("output missing %q:\n%s", want, text)
+		}
+	}
+
+	// Verify internal state tracks them separately.
+	if renderer.mainTokenTotal != 500 {
+		t.Errorf("mainTokenTotal = %d, want 500", renderer.mainTokenTotal)
+	}
+	if len(renderer.subagentTokens) != 2 {
+		t.Errorf("subagentTokens count = %d, want 2", len(renderer.subagentTokens))
+	}
+	if renderer.subagentTokens[1] != 200 {
+		t.Errorf("subagentTokens[1] = %d, want 200", renderer.subagentTokens[1])
+	}
+	if renderer.subagentTokens[2] != 300 {
+		t.Errorf("subagentTokens[2] = %d, want 300", renderer.subagentTokens[2])
+	}
+}
+
+func TestFormatTokenCount(t *testing.T) {
+	tests := []struct {
+		input int
+		want  string
+	}{
+		{0, "0"},
+		{999, "999"},
+		{1000, "1.0k"},
+		{1234, "1.2k"},
+		{12345, "12.3k"},
+		{100000, "100.0k"},
+	}
+	for _, tt := range tests {
+		got := formatTokenCount(tt.input)
+		if got != tt.want {
+			t.Errorf("formatTokenCount(%d) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestBlockRendererPrintsTokenSummaryAfterFinalAnswer(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+
+	// Simulate a run with token usage.
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeUserMessage, Message: "test"})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:            runtimeevent.TypeTokenUsage,
+		CumulativeTotal: 12500,
+	})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:            runtimeevent.TypeTokenUsage,
+		Source:          "subagent",
+		SubagentIndex:   1,
+		ParentTool:      "Research: architecture",
+		CumulativeTotal: 3200,
+	})
+
+	// Final answer is printed after RunEnd.
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunEnd})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:    runtimeevent.TypeFinal,
+		Message: "Here is the answer.",
+	})
+
+	text := stripANSI(out.String())
+	// The final token summary should appear AFTER the final answer text.
+	// Use LastIndex because "Tokens:" also appears in the live frame before the
+	// final answer; we want to verify the stable post-answer summary position.
+	finalIdx := strings.Index(text, "Here is the answer.")
+	tokenIdx := strings.LastIndex(text, "Tokens:")
+	if finalIdx < 0 {
+		t.Fatalf("final answer not found in output:\n%s", text)
+	}
+	if tokenIdx < 0 {
+		t.Fatalf("token summary not found in output:\n%s", text)
+	}
+	if tokenIdx < finalIdx {
+		t.Fatalf("token summary should appear after final answer, but tokenIdx=%d < finalIdx=%d:\n%s", tokenIdx, finalIdx, text)
+	}
+	// Verify the summary contains expected values.
+	for _, want := range []string{"12.5k main", "15.7k"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("token summary missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestBlockRendererShowsNAWhenProviderOmitsUsage(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewBlockRenderer(&out)
+
+	// Simulate a run with no token usage events (provider omitted usage).
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeUserMessage, Message: "test"})
+	renderer.HandleEvent(runtimeevent.Event{Type: runtimeevent.TypeRunEnd})
+	renderer.HandleEvent(runtimeevent.Event{
+		Type:    runtimeevent.TypeFinal,
+		Message: "Answer without usage data.",
+	})
+
+	text := stripANSI(out.String())
+	if !strings.Contains(text, "Tokens: N/A") {
+		t.Fatalf("expected N/A token summary when provider omits usage, got:\n%s", text)
+	}
+}

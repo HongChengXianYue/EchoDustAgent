@@ -1339,3 +1339,74 @@ func messageSnapshotsContain(snapshots [][]llm.Message, text string) bool {
 	}
 	return false
 }
+
+func TestRunEmitsTokenUsageEventsWithCumulativeTotal(t *testing.T) {
+	// Three LLM rounds with distinct usage values.
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			Content:   "",
+			ToolCalls: []llm.ToolCall{testToolCall("call_1", "echo", `{"text":"a"}`)},
+			Usage:     &llm.TokenUsage{PromptTokens: 100, CompletionTokens: 20, TotalTokens: 120},
+		},
+		{
+			Content:   "",
+			ToolCalls: []llm.ToolCall{testToolCall("call_2", "echo", `{"text":"b"}`)},
+			Usage:     &llm.TokenUsage{PromptTokens: 200, CompletionTokens: 40, TotalTokens: 240},
+		},
+		{
+			Content: "finished",
+			Usage:   &llm.TokenUsage{PromptTokens: 300, CompletionTokens: 60, TotalTokens: 360},
+		},
+	}}
+	registry := tools.NewRegistry()
+	registry.Register(&echoTool{})
+	renderer := &captureRenderer{}
+	agent := NewWithWorkspace(client, registry, 5, "")
+	agent.SetRenderer(renderer)
+
+	if _, err := agent.Run(context.Background(), "hello"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	// Verify cumulative token usage snapshot on the agent.
+	usage := agent.TokenUsage()
+	if usage.PromptTokens != 600 {
+		t.Errorf("PromptTokens = %d, want 600", usage.PromptTokens)
+	}
+	if usage.CompletionTokens != 120 {
+		t.Errorf("CompletionTokens = %d, want 120", usage.CompletionTokens)
+	}
+	if usage.TotalTokens != 720 {
+		t.Errorf("TotalTokens = %d, want 720", usage.TotalTokens)
+	}
+
+	// Verify token usage events carry correct per-call and cumulative values.
+	var tokenEvents []runtimeevent.Event
+	for _, event := range renderer.events {
+		if event.Type == runtimeevent.TypeTokenUsage {
+			tokenEvents = append(tokenEvents, event)
+		}
+	}
+	if len(tokenEvents) != 3 {
+		t.Fatalf("token events = %d, want 3", len(tokenEvents))
+	}
+	wantPerCall := []struct {
+		prompt, completion, cumulative int
+	}{
+		{100, 20, 120},
+		{200, 40, 360}, // 120 + 240
+		{300, 60, 720}, // 360 + 360
+	}
+	for i, want := range wantPerCall {
+		got := tokenEvents[i]
+		if got.PromptTokens != want.prompt {
+			t.Errorf("event[%d].PromptTokens = %d, want %d", i, got.PromptTokens, want.prompt)
+		}
+		if got.CompletionTokens != want.completion {
+			t.Errorf("event[%d].CompletionTokens = %d, want %d", i, got.CompletionTokens, want.completion)
+		}
+		if got.CumulativeTotal != want.cumulative {
+			t.Errorf("event[%d].CumulativeTotal = %d, want %d", i, got.CumulativeTotal, want.cumulative)
+		}
+	}
+}

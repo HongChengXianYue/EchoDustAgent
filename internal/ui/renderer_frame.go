@@ -15,6 +15,7 @@ func (r *BlockRenderer) renderFrame() {
 	r.writeTodoBlock(&buf)
 	r.writeToolsBlock(&buf)
 	r.writeAssistantMessage(&buf)
+	r.writeTokenUsageBlock(&buf)
 	text := buf.String()
 	if strings.TrimSpace(text) == "" {
 		return
@@ -53,6 +54,69 @@ func (r *BlockRenderer) writeAssistantMessage(output *bytes.Buffer) {
 	fmt.Fprintln(output, separatorLine(r.options.SeparatorWidth))
 	fmt.Fprintln(output, "• Assistant (streaming)")
 	printIndented(output, "  └ ", truncate(message, r.options.ToolPreviewOutputChars))
+}
+
+// writeTokenUsageBlock renders a compact token consumption summary.
+// Shows main agent total and per-subagent breakdown when subagents have run.
+func (r *BlockRenderer) writeTokenUsageBlock(output *bytes.Buffer) {
+	if r.mainTokenTotal == 0 && len(r.subagentTokens) == 0 {
+		return
+	}
+	fmt.Fprintln(output, separatorLine(r.options.SeparatorWidth))
+	total := r.mainTokenTotal
+	hasSubagents := len(r.subagentTokens) > 0
+	if hasSubagents {
+		fmt.Fprintf(output, "• Tokens: %s main", formatTokenCount(r.mainTokenTotal))
+		for idx, count := range r.subagentTokens {
+			label := fmt.Sprintf("sub#%d", idx)
+			if task, ok := r.subagentTaskMap[idx]; ok && task != "" {
+				label = truncate(task, 20)
+			}
+			fmt.Fprintf(output, " | %s %s", label, formatTokenCount(count))
+			total += count
+		}
+		fmt.Fprintf(output, " | total %s\n", formatTokenCount(total))
+	} else {
+		fmt.Fprintf(output, "• Tokens: %s\n", formatTokenCount(r.mainTokenTotal))
+	}
+}
+
+// formatTokenCount renders a token count with K-suffix for readability.
+func formatTokenCount(count int) string {
+	if count >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(count)/1000)
+	}
+	return fmt.Sprintf("%d", count)
+}
+
+// writeFinalTokenSummary prints a stable token usage summary after the final
+// answer. Unlike the live-frame token block, this persists in the terminal
+// scrollback so the user can actually see the consumption.
+func (r *BlockRenderer) writeFinalTokenSummary() {
+	fmt.Fprintln(r.output, separatorLine(r.options.SeparatorWidth))
+	if r.mainTokenTotal == 0 && len(r.subagentTokens) == 0 {
+		// Provider did not return usage data. Common reasons:
+		// - Streaming mode: many providers (including Bailian qwen) omit usage
+		//   in SSE chunks. Non-streaming requests usually include it.
+		// - The provider simply doesn't support usage reporting.
+		fmt.Fprintln(r.output, "• Tokens: N/A (streaming mode or provider omitted usage)")
+		return
+	}
+	total := r.mainTokenTotal
+	if len(r.subagentTokens) == 0 {
+		fmt.Fprintf(r.output, "• Tokens: %s\n", formatTokenCount(r.mainTokenTotal))
+		return
+	}
+	fmt.Fprintf(r.output, "• Tokens: %s main", formatTokenCount(r.mainTokenTotal))
+	for idx, count := range r.subagentTokens {
+		label := fmt.Sprintf("sub#%d", idx)
+		if task, ok := r.subagentTaskMap[idx]; ok && task != "" {
+			label = truncate(task, 20)
+		}
+		fmt.Fprintf(r.output, " | %s %s", label, formatTokenCount(count))
+		total += count
+	}
+	fmt.Fprintf(r.output, " | total %s\n", formatTokenCount(total))
 }
 
 func (r *BlockRenderer) frameOutputText(text string) string {

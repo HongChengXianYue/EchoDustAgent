@@ -26,6 +26,7 @@ const (
 	TypeCompactionStart  Type = "compaction_started"
 	TypeCompactionDone   Type = "compaction_done"
 	TypeCompactionSkip   Type = "compaction_skipped"
+	TypeTokenUsage       Type = "token_usage"
 )
 
 type TodoStatus = tools.TodoStatus
@@ -65,4 +66,9 @@ type Event struct {
 	// SubagentIndex is assigned by the parent agent for grouping forwarded
 	// subagent events in the UI. It is scoped to one parent Run.
 	SubagentIndex int `json:"subagent_index,omitempty"`
+
+	// Token usage fields (TypeTokenUsage events).
+	PromptTokens     int `json:"prompt_tokens,omitempty"`
+	CompletionTokens int `json:"completion_tokens,omitempty"`
+	CumulativeTotal  int `json:"cumulative_total,omitempty"`
 }

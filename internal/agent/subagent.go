@@ -181,7 +181,8 @@ func (f subagentEventForwarder) HandleEvent(event runtimeevent.Event) {
 		runtimeevent.TypeToolResult,
 		runtimeevent.TypeError,
 		runtimeevent.TypeApprovalRequest,
-		runtimeevent.TypeApprovalDecision:
+		runtimeevent.TypeApprovalDecision,
+		runtimeevent.TypeTokenUsage:
 	default:
 		return
 	}

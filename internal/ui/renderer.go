@@ -30,6 +30,12 @@ type BlockRenderer struct {
 	todos              []runtimeevent.TodoItem
 	toolEvents         []runtimeevent.Event
 	keyWatcher         *toggleKeyWatcher
+
+	// Token consumption tracking. mainTokenTotal accumulates the main agent's
+	// cumulative total; subagentTokens maps SubagentIndex -> cumulative total.
+	mainTokenTotal  int
+	subagentTokens  map[int]int
+	subagentTaskMap map[int]string // SubagentIndex -> task label for display
 }
 
 func NewBlockRenderer(output io.Writer) *BlockRenderer {
@@ -178,6 +184,25 @@ func (r *BlockRenderer) HandleEvent(event runtimeevent.Event) {
 			return
 		}
 		r.block(toolEventTitle(event, r.options.ApprovalArgsPreviewChars), cleanTerminalText(event.Message))
+	case runtimeevent.TypeTokenUsage:
+		if r.inRun {
+			if event.Source == "subagent" {
+				if r.subagentTokens == nil {
+					r.subagentTokens = make(map[int]int)
+				}
+				r.subagentTokens[event.SubagentIndex] = event.CumulativeTotal
+				if event.ParentTool != "" {
+					if r.subagentTaskMap == nil {
+						r.subagentTaskMap = make(map[int]string)
+					}
+					r.subagentTaskMap[event.SubagentIndex] = event.ParentTool
+				}
+			} else {
+				r.mainTokenTotal = event.CumulativeTotal
+			}
+			r.renderFrame()
+			return
+		}
 	}
 }
 
@@ -193,6 +218,9 @@ func (r *BlockRenderer) beginRun() {
 	r.assistantMessage = ""
 	r.todos = nil
 	r.toolEvents = nil
+	r.mainTokenTotal = 0
+	r.subagentTokens = nil
+	r.subagentTaskMap = nil
 	r.startKeyWatcher()
 }
 

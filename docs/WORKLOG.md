@@ -321,3 +321,38 @@
 - 主要模块：`internal/mcp`、`cmd/agent`、`internal/config`、`internal/memory`、`README.md`、`config.yaml`、`docs/WORKLOG.md`。
 - 验证：`gofmt -w ...` 完成；`go test ./...` 通过；`go vet ./...` 通过。
 - 备注：当前 MCP 实现覆盖 stdio transport 和 tools 能力，暂不支持 MCP resources/prompts、SSE transport、server 动态 tool list 变更通知，失败的 MCP server 会写入运行日志并跳过，不阻塞其他工具启动。
+
+## 2026-06-27 - Token 消耗计数系统
+
+- 摘要：新增 LLM token 消耗追踪，每次 `chatWithTools` 调用后累加 provider 返回的 `prompt_tokens`/`completion_tokens`/`total_tokens`，并通过新的 `TypeTokenUsage` 运行时事件把 per-call 值和累计总量推给 UI；主 agent 和子代理分别追踪，UI live frame 中用 `Tokens:` 块显示主 agent、各子代理（按任务名截断）和 total。Run 结束时在 `.local-agent/logs/agent.log` 写一条汇总日志。完全使用 provider 返回的 usage，不引入本地 tokenizer。
+- 主要模块：`internal/runtimeevent`、`internal/agent`、`internal/ui`、`docs/WORKLOG.md`。
+- 验证：`go build ./...` 通过；`go test ./internal/agent ./internal/ui` 通过；`go test ./...` 通过（`internal/tools` 中 `TestGoCodeNavigationTools` 的 gopls builtin `append` 报错是已有问题，与本次改动无关）；`go vet ./...` 通过。
+- 备注：`Agent.tokenMu` 保护流式回调的并发累加；`BlockRenderer.subagentTokens` 按 `SubagentIndex` 分组，`subagentTaskMap` 记录任务名用于显示。后续如需成本估算，可在配置中加入模型单价并在 UI 增加费用列，不需要改动事件和累加链路。
+
+## 2026-06-27 - Qwen 模型 Responses API 兼容
+
+- 摘要：百炼平台的 Qwen 模型不支持 `/responses` 端点（返回 404），与 DeepSeek 一样需要强制走 `/chat/completions`。扩展 `usesChatCompletionsOnly()` 匹配规则，当模型名包含 `qwen` 时自动回退到 chat completions。
+- 主要模块：`internal/llm`、`docs/WORKLOG.md`。
+- 验证：`go build ./...` 通过；`go test ./internal/llm` 通过（新增 `TestOpenAICompatibleClientUsesChatCompletionsForQwenModels`）；`go vet ./...` 通过。
+- 备注：当前回退规则按模型名前缀匹配，后续若百炼平台支持 `/responses`，可移除 `qwen` 匹配或改为配置化。
+
+## 2026-06-27 - Token 汇总改为最终回答后稳定输出
+
+- 摘要：修复 token 消耗信息在 live frame 中被立即清除、用户无法看到的问题。在 `renderFinal` 最终回答 Markdown 渲染完成后，追加一个稳定的 `Tokens:` 汇总行，直接写入终端 scrollback 不再被擦除。live frame 中的实时 token 块保持不变，运行中仍可看到累计变化。
+- 主要模块：`internal/ui/renderer_final.go`、`internal/ui/renderer_frame.go`、`internal/ui/renderer_test.go`、`docs/WORKLOG.md`。
+- 验证：`go build ./...` 通过；`go test ./internal/ui` 通过（新增 `TestBlockRendererPrintsTokenSummaryAfterFinalAnswer`）；`go vet ./...` 通过。
+- 备注：修复原因——之前 token block 只在 live frame 中存在，`renderFinal` 会先 `clearLiveFrame` 再打印最终回答，导致 token 信息被清掉；现在最终回答后直接追加一行汇总，确保用户能看到。
+
+## 2026-06-27 - Token 汇总无数据时显示 N/A
+
+- 摘要：百炼平台的 qwen 模型在 `/chat/completions` 响应中不返回 `usage` 字段，导致 token 计数器始终为 0，最终回答后不显示 token 汇总。改为无条件输出 token 行：有数据时显示具体数值，无数据时显示 `N/A (provider did not return usage)`，让用户明确知道是 provider 未返回而非系统故障。
+- 主要模块：`internal/ui/renderer_frame.go`、`internal/ui/renderer_test.go`、`docs/WORKLOG.md`。
+- 验证：`go build ./...` 通过；`go test ./internal/ui` 通过（新增 `TestBlockRendererShowsNAWhenProviderOmitsUsage`）；`go vet ./...` 通过。
+- 备注：日志中 `token usage: prompt=0 completion=0 total=0` 也印证了这一点；后续若百炼平台补上 usage 字段，会自动显示真实数值。
+
+## 2026-06-28 - 百炼流式响应 usage 字段缺失处理
+
+- 摘要：百炼平台的 qwen 模型在流式响应（SSE）中所有 chunk 的 `usage` 字段均为 `null`，导致 agent 无法获取 token 消耗数据。这是百炼平台的限制，非流式请求会正常返回 usage。已更新 N/A 提示信息，说明可能是流式模式或 provider 未返回 usage。
+- 主要模块：`internal/ui/renderer_frame.go`、`docs/WORKLOG.md`。
+- 验证：`go build ./...` 通过；`go test ./internal/ui` 通过；手动测试确认百炼流式响应所有 chunk 的 `usage` 均为 `null`。
+- 备注：若需要准确 token 统计，可临时禁用流式（设置 `llm.parallel_tool_calls: false` 或类似配置强制非流式），但会失去实时显示优势。百炼未来可能补上流式 usage，届时会自动显示真实数值。
