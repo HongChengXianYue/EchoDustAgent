@@ -283,12 +283,13 @@ func TestGoCodeNavigationTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
+	line, column := sourcePosition(t, filepath.Join(workdir, "internal/agent/agent.go"), "chatWithTools(ctx context.Context")
 
 	references := &FindReferencesTool{Workdir: workdir}
 	result, execErr := references.Execute(ctx, mustJSON(t, map[string]any{
 		"path":                "internal/agent/agent.go",
-		"line":                174,
-		"column":              17,
+		"line":                line,
+		"column":              column,
 		"include_declaration": true,
 	}))
 	if execErr != nil || result.Status != "success" || !strings.Contains(result.Output, "internal/agent/agent.go") {
@@ -298,8 +299,8 @@ func TestGoCodeNavigationTools(t *testing.T) {
 	callers := &FindCallersTool{Workdir: workdir}
 	result, execErr = callers.Execute(ctx, mustJSON(t, map[string]any{
 		"path":   "internal/agent/agent.go",
-		"line":   174,
-		"column": 17,
+		"line":   line,
+		"column": column,
 	}))
 	if execErr != nil || result.Status != "success" || !strings.Contains(result.Output, "caller[") || !strings.Contains(result.Output, "function Run") {
 		t.Fatalf("find callers result = %#v err = %v", result, execErr)
@@ -308,10 +309,25 @@ func TestGoCodeNavigationTools(t *testing.T) {
 	callees := &FindCalleesTool{Workdir: workdir}
 	result, execErr = callees.Execute(ctx, mustJSON(t, map[string]any{
 		"path":   "internal/agent/agent.go",
-		"line":   174,
-		"column": 17,
+		"line":   line,
+		"column": column,
 	}))
 	if execErr != nil || result.Status != "success" || !strings.Contains(result.Output, "callee[") || !strings.Contains(result.Output, "ChatWithToolsStream") {
 		t.Fatalf("find callees result = %#v err = %v", result, execErr)
 	}
+}
+
+func sourcePosition(t *testing.T, path string, needle string) (int, int) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read source: %v", err)
+	}
+	for i, line := range strings.Split(string(data), "\n") {
+		if column := strings.Index(line, needle); column >= 0 {
+			return i + 1, column + 1
+		}
+	}
+	t.Fatalf("source %s does not contain %q", path, needle)
+	return 0, 0
 }

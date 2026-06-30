@@ -363,3 +363,10 @@
 - 主要模块：`internal/agent/agent.go`、`internal/agent/agent_test.go`、`docs/WORKLOG.md`。
 - 验证：`go build ./...` 通过；`go test ./internal/agent` 通过（新增 `TestRunFallsBackToNonStreamingWhenUsageOmitted`）；`go vet ./...` 通过。
 - 备注：降级是 per-session 的——一旦检测到流式无 usage，当前 agent 实例剩余调用全部走非流式。代价是失去实时流式显示，换来准确的 token 统计。非流式模式下用户看不到逐字输出，但最终回答仍正常渲染。
+
+## 2026-06-30 - 自适应 ReAct 步数预算
+
+- 摘要：将固定 `max_steps` 升级为“初始预算 + 自适应扩展 + 绝对上限”。主 Agent 和子代理在工具仍成功、TODO 仍有未完成项且未检测到重复工具循环时，可以按批次自动扩展步数；若扩展次数耗尽、上下文接近强制压缩阈值、连续失败或重复调用，则发出预算耗尽事件并停止。
+- 主要模块：`internal/agent`、`internal/config`、`internal/runtimeevent`、`internal/ui`、`cmd/agent`、`config.yaml`、`README.md`、`internal/tools/tools_test.go`。
+- 验证：`gofmt -w ...` 完成；`go test ./internal/agent` 通过；`go test ./internal/config` 通过；`go test ./internal/ui` 通过；`go test ./internal/tools` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：`agent.max_steps` 和 `subagents.max_steps` 现在表示初始预算；新增 `adaptive_max_steps_enabled`、`max_step_extensions`、`step_extension_size`、`absolute_max_steps` 控制自动续跑。`AGENT_MAX_STEPS` 仍覆盖主 Agent 初始预算，若超过默认绝对上限会同步抬高上限以保持兼容。另将代码导航测试从固定行号改为按源码定位目标函数，避免后续编辑导致误报。

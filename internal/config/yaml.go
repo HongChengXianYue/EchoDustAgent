@@ -93,12 +93,28 @@ func applyConfigValue(cfg *Config, key string, value string) error {
 		return setPositiveInt(key, value, &cfg.Agent.MaxSteps)
 	case "agent.max_parallel_tool_calls":
 		return setPositiveInt(key, value, &cfg.Agent.MaxParallelToolCalls)
+	case "agent.adaptive_max_steps_enabled":
+		return setBool(key, value, &cfg.Agent.AdaptiveMaxStepsEnabled)
+	case "agent.max_step_extensions":
+		return setNonNegativeInt(key, value, &cfg.Agent.MaxStepExtensions)
+	case "agent.step_extension_size":
+		return setPositiveInt(key, value, &cfg.Agent.StepExtensionSize)
+	case "agent.absolute_max_steps":
+		return setPositiveInt(key, value, &cfg.Agent.AbsoluteMaxSteps)
 	case "subagents.enabled":
 		return setBool(key, value, &cfg.Subagents.Enabled)
 	case "subagents.max_concurrent":
 		return setPositiveInt(key, value, &cfg.Subagents.MaxConcurrent)
 	case "subagents.max_steps":
 		return setPositiveInt(key, value, &cfg.Subagents.MaxSteps)
+	case "subagents.adaptive_max_steps_enabled":
+		return setBool(key, value, &cfg.Subagents.AdaptiveMaxStepsEnabled)
+	case "subagents.max_step_extensions":
+		return setNonNegativeInt(key, value, &cfg.Subagents.MaxStepExtensions)
+	case "subagents.step_extension_size":
+		return setPositiveInt(key, value, &cfg.Subagents.StepExtensionSize)
+	case "subagents.absolute_max_steps":
+		return setPositiveInt(key, value, &cfg.Subagents.AbsoluteMaxSteps)
 	case "subagents.result_max_bytes":
 		return setPositiveInt(key, value, &cfg.Subagents.ResultMaxBytes)
 	case "memory.enabled":
@@ -195,6 +211,15 @@ func setPositiveInt(key string, value string, target *int) error {
 	n, err := strconv.Atoi(value)
 	if err != nil || n <= 0 {
 		return fmt.Errorf("%s must be a positive integer", key)
+	}
+	*target = n
+	return nil
+}
+
+func setNonNegativeInt(key string, value string, target *int) error {
+	n, err := strconv.Atoi(value)
+	if err != nil || n < 0 {
+		return fmt.Errorf("%s must be a non-negative integer", key)
 	}
 	*target = n
 	return nil

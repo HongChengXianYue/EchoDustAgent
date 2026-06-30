@@ -18,10 +18,18 @@ llm:
 agent:
   max_steps: 9
   max_parallel_tool_calls: 6
+  adaptive_max_steps_enabled: false
+  max_step_extensions: 4
+  step_extension_size: 3
+  absolute_max_steps: 21
 subagents:
   enabled: false
   max_concurrent: 4
   max_steps: 5
+  adaptive_max_steps_enabled: true
+  max_step_extensions: 1
+  step_extension_size: 2
+  absolute_max_steps: 11
   result_max_bytes: 6789
 memory:
   enabled: false
@@ -76,6 +84,12 @@ ui:
 	if cfg.Agent.MaxParallelToolCalls != 6 {
 		t.Fatalf("max parallel tool calls = %d", cfg.Agent.MaxParallelToolCalls)
 	}
+	if cfg.Agent.AdaptiveMaxStepsEnabled {
+		t.Fatalf("agent adaptive max steps enabled = true, want false")
+	}
+	if cfg.Agent.MaxStepExtensions != 4 || cfg.Agent.StepExtensionSize != 3 || cfg.Agent.AbsoluteMaxSteps != 21 {
+		t.Fatalf("agent step budget = %#v", cfg.Agent)
+	}
 	if cfg.Subagents.Enabled {
 		t.Fatalf("subagents enabled = true, want false")
 	}
@@ -84,6 +98,12 @@ ui:
 	}
 	if cfg.Subagents.MaxSteps != 5 {
 		t.Fatalf("subagents max steps = %d", cfg.Subagents.MaxSteps)
+	}
+	if !cfg.Subagents.AdaptiveMaxStepsEnabled {
+		t.Fatalf("subagents adaptive max steps enabled = false, want true")
+	}
+	if cfg.Subagents.MaxStepExtensions != 1 || cfg.Subagents.StepExtensionSize != 2 || cfg.Subagents.AbsoluteMaxSteps != 11 {
+		t.Fatalf("subagent step budget = %#v", cfg.Subagents)
 	}
 	if cfg.Subagents.ResultMaxBytes != 6789 {
 		t.Fatalf("subagents result max bytes = %d", cfg.Subagents.ResultMaxBytes)
@@ -138,6 +158,32 @@ ui:
 	}
 	if cfg.UI.ApprovalArgsPreviewChars != 123 {
 		t.Fatalf("approval args preview chars = %d", cfg.UI.ApprovalArgsPreviewChars)
+	}
+}
+
+func TestLoadFileAllowsZeroStepExtensions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("agent:\n  max_step_extensions: 0\n"), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile() error = %v", err)
+	}
+	if cfg.Agent.MaxStepExtensions != 0 {
+		t.Fatalf("max step extensions = %d, want 0", cfg.Agent.MaxStepExtensions)
+	}
+}
+
+func TestLoadFileRejectsAbsoluteMaxStepsBelowInitialBudget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("agent:\n  max_steps: 12\n  absolute_max_steps: 11\n"), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if _, err := LoadFile(path); err == nil {
+		t.Fatalf("LoadFile() error = nil, want absolute max validation error")
 	}
 }
 

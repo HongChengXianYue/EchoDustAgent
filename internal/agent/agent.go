@@ -149,7 +149,11 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeUserMessage, Message: input})
 	a.messages = append(a.messages, llm.Message{Role: "user", Content: input})
 
-	for step := 0; step < a.maxSteps; step++ {
+	budget := newStepBudget(a.maxSteps, a.options.StepBudget)
+	progressHistory := stepProgressHistory{}
+	lastStep := 0
+	for step := 0; step < budget.limit; step++ {
+		lastStep = step
 		resp, err := a.chatWithTools(ctx, step)
 		if err != nil {
 			logs.Errorf("agent chat failed: step=%d err=%v", step, err)
@@ -175,16 +179,23 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 		if strings.TrimSpace(resp.Content) != "" {
 			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeAssistantMessage, Message: strings.TrimSpace(resp.Content)})
 		}
-		for _, executed := range a.executeToolCalls(ctx, step, resp.ToolCalls) {
+		todosBefore := a.todoTool.Items()
+		executedCalls := a.executeToolCalls(ctx, step, resp.ToolCalls)
+		for _, executed := range executedCalls {
 			a.messages = append(a.messages, llm.Message{
 				Role:       "tool",
 				ToolCallID: executed.call.ID,
 				Content:    executed.result.JSON(),
 			})
 		}
+		progressHistory.record(stepProgressFromExecuted(resp.ToolCalls, executedCalls, todosBefore, a.todoTool.Items()))
+		if !a.maybeExtendStepBudget(ctx, step, &budget, progressHistory) {
+			lastStep = step
+			break
+		}
 	}
-	err := fmt.Errorf("agent stopped after %d steps without a final response", a.maxSteps)
-	logs.Errorf("agent stopped without final response: max_steps=%d", a.maxSteps)
+	err := fmt.Errorf("agent stopped after %d steps without a final response", budget.limit)
+	logs.Errorf("agent stopped without final response: max_steps=%d used_steps=%d", budget.limit, lastStep+1)
 	a.logTokenUsage()
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeError, Error: err.Error()})
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeRunEnd})

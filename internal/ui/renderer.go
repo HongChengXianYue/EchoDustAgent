@@ -177,7 +177,7 @@ func (r *BlockRenderer) HandleEvent(event runtimeevent.Event) {
 			return
 		}
 		r.block("Approval "+event.Decision, event.Reason)
-	case runtimeevent.TypeContextPruned, runtimeevent.TypeCompactionStart, runtimeevent.TypeCompactionDone, runtimeevent.TypeCompactionSkip:
+	case runtimeevent.TypeContextPruned, runtimeevent.TypeCompactionStart, runtimeevent.TypeCompactionDone, runtimeevent.TypeCompactionSkip, runtimeevent.TypeStepBudgetExtend, runtimeevent.TypeStepBudgetStop:
 		if r.inRun {
 			r.toolEvents = append(r.toolEvents, event)
 			r.renderFrame()

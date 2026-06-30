@@ -27,8 +27,8 @@ Runtime tuning lives in `config.yaml`. The file keeps operational limits out of 
 Configured areas:
 
 - `llm`: base URL, model, wire API, request timeout, and `parallel_tool_calls`.
-- `agent`: maximum ReAct steps per user request and maximum parallel tool calls per assistant turn.
-- `subagents`: delegate-task availability, concurrency, max steps, and result size.
+- `agent`: initial/adaptive ReAct step budget per user request and maximum parallel tool calls per assistant turn.
+- `subagents`: delegate-task availability, concurrency, adaptive step budget, and result size.
 - `memory`: persistent memory loading and user memory directory.
 - `mcp`: MCP server enablement, install/config directory, and request timeouts.
 - `context`: stale tool-result pruning and conservative conversation compaction thresholds.
@@ -36,6 +36,8 @@ Configured areas:
 - `ui`: separator width, live frame bounds, full-log viewer sizes, polling intervals, Markdown wrap width, and preview truncation lengths.
 
 `AGENT_API_KEY` is intentionally loaded from the environment and is not stored in `config.yaml`. `AGENT_BASE_URL`, `AGENT_MODEL`, `AGENT_WIRE_API`, and `AGENT_MAX_STEPS` override the YAML values when set.
+
+`agent.max_steps` is the initial ReAct budget, not an unlimited runtime grant. When `agent.adaptive_max_steps_enabled` is true, the agent can extend that budget in `agent.step_extension_size` batches while tools are still succeeding and open work remains, up to `agent.max_step_extensions` and `agent.absolute_max_steps`. The same pattern exists under `subagents.*`; subagent defaults are intentionally more conservative.
 
 `llm.wire_api` controls the OpenAI-compatible HTTP shape. Use `chat_completions` for `/chat/completions`, or `responses` for `/responses` providers such as AnyRouter model routes that expose GPT-5 class models through the Responses API.
 

@@ -186,7 +186,13 @@ func agentOptions(agentCfg config.AgentConfig, subagentsCfg config.SubagentsConf
 	}
 	return agent.Options{
 		MaxParallelToolCalls: agentCfg.MaxParallelToolCalls,
-		SystemPromptSuffix:   memoryBlock,
+		StepBudget: agent.StepBudgetOptions{
+			AdaptiveEnabled:  agentCfg.AdaptiveMaxStepsEnabled,
+			MaxExtensions:    agentCfg.MaxStepExtensions,
+			ExtensionSize:    agentCfg.StepExtensionSize,
+			AbsoluteMaxSteps: agentCfg.AbsoluteMaxSteps,
+		},
+		SystemPromptSuffix: memoryBlock,
 		Context: agent.ContextOptions{
 			WindowTokens:             contextCfg.WindowTokens,
 			PruneToolResultMaxBytes:  contextCfg.PruneToolResultMaxBytes,
@@ -199,9 +205,15 @@ func agentOptions(agentCfg config.AgentConfig, subagentsCfg config.SubagentsConf
 			CompactMinMessages:       contextCfg.CompactMinMessages,
 		},
 		Subagents: agent.SubagentOptions{
-			Enabled:        subagentsCfg.Enabled,
-			MaxConcurrent:  subagentsCfg.MaxConcurrent,
-			MaxSteps:       subagentsCfg.MaxSteps,
+			Enabled:       subagentsCfg.Enabled,
+			MaxConcurrent: subagentsCfg.MaxConcurrent,
+			MaxSteps:      subagentsCfg.MaxSteps,
+			StepBudget: agent.StepBudgetOptions{
+				AdaptiveEnabled:  subagentsCfg.AdaptiveMaxStepsEnabled,
+				MaxExtensions:    subagentsCfg.MaxStepExtensions,
+				ExtensionSize:    subagentsCfg.StepExtensionSize,
+				AbsoluteMaxSteps: subagentsCfg.AbsoluteMaxSteps,
+			},
 			ResultMaxBytes: subagentsCfg.ResultMaxBytes,
 		},
 	}

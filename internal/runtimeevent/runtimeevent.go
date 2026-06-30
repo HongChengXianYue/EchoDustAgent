@@ -27,6 +27,8 @@ const (
 	TypeCompactionDone   Type = "compaction_done"
 	TypeCompactionSkip   Type = "compaction_skipped"
 	TypeTokenUsage       Type = "token_usage"
+	TypeStepBudgetExtend Type = "step_budget_extended"
+	TypeStepBudgetStop   Type = "step_budget_exhausted"
 )
 
 type TodoStatus = tools.TodoStatus

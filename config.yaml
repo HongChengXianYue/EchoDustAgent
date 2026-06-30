@@ -13,10 +13,18 @@ llm:
 
 # Agent 循环限制。
 agent:
-  # 单次用户请求最多执行多少轮 ReAct 循环，超过后报错停止。
+  # 单次用户请求的初始 ReAct 轮次预算；自适应开启时，仍有进展可自动扩展。
   max_steps: 30
   # 单轮 assistant 回复中最多允许多少个非 update_todos 工具并行调用。
   max_parallel_tool_calls: 10
+  # 到达初始预算时，是否根据工具成功、TODO 状态和循环检测自动续跑。
+  adaptive_max_steps_enabled: true
+  # 单次请求最多自动扩展多少次；设为 0 等价于不扩展。
+  max_step_extensions: 5
+  # 每次扩展增加多少轮 ReAct 预算。
+  step_extension_size: 10
+  # 单次请求绝对最多执行多少轮 ReAct 循环，防止无限循环和成本失控。
+  absolute_max_steps: 80
 
 # 子代理配置。子代理用于隔离的只读研究任务，只回传最终结论。
 subagents:
@@ -24,8 +32,16 @@ subagents:
   enabled: true
   # 同一时间最多运行多少个子代理。
   max_concurrent: 5
-  # 单个子代理最多执行多少轮 ReAct 循环。
+  # 单个子代理的初始 ReAct 轮次预算。
   max_steps: 30
+  # 子代理是否启用自适应步数扩展。
+  adaptive_max_steps_enabled: true
+  # 单个子代理最多自动扩展多少次。
+  max_step_extensions: 2
+  # 子代理每次扩展增加多少轮 ReAct 预算。
+  step_extension_size: 5
+  # 单个子代理绝对最多执行多少轮 ReAct 循环。
+  absolute_max_steps: 45
   # 子代理最终结论最多回传多少字节，超过后截断。
   result_max_bytes: 16888
 

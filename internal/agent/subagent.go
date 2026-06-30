@@ -96,6 +96,7 @@ func parseDelegateTaskArgs(args json.RawMessage) (delegateTaskArgs, error) {
 func (a *Agent) newSubagent(task string, index int) *Agent {
 	options := a.options
 	options.Subagents.Enabled = false
+	options.StepBudget = a.options.Subagents.StepBudget
 	registry := a.subagentRegistry()
 	prompt := subagentSystemPrompt(a.workspace, options.MaxParallelToolCalls)
 	if suffix := strings.TrimSpace(options.SystemPromptSuffix); suffix != "" {
@@ -182,7 +183,9 @@ func (f subagentEventForwarder) HandleEvent(event runtimeevent.Event) {
 		runtimeevent.TypeError,
 		runtimeevent.TypeApprovalRequest,
 		runtimeevent.TypeApprovalDecision,
-		runtimeevent.TypeTokenUsage:
+		runtimeevent.TypeTokenUsage,
+		runtimeevent.TypeStepBudgetExtend,
+		runtimeevent.TypeStepBudgetStop:
 	default:
 		return
 	}

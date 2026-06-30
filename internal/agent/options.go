@@ -2,15 +2,24 @@ package agent
 
 type Options struct {
 	MaxParallelToolCalls int
+	StepBudget           StepBudgetOptions
 	Subagents            SubagentOptions
 	SystemPromptSuffix   string
 	Context              ContextOptions
+}
+
+type StepBudgetOptions struct {
+	AdaptiveEnabled  bool
+	MaxExtensions    int
+	ExtensionSize    int
+	AbsoluteMaxSteps int
 }
 
 type SubagentOptions struct {
 	Enabled        bool
 	MaxConcurrent  int
 	MaxSteps       int
+	StepBudget     StepBudgetOptions
 	ResultMaxBytes int
 }
 
@@ -29,11 +38,23 @@ type ContextOptions struct {
 func DefaultOptions() Options {
 	return Options{
 		MaxParallelToolCalls: 10,
+		StepBudget: StepBudgetOptions{
+			AdaptiveEnabled:  true,
+			MaxExtensions:    3,
+			ExtensionSize:    10,
+			AbsoluteMaxSteps: 80,
+		},
 		Subagents: SubagentOptions{
 			Enabled:        true,
 			MaxConcurrent:  2,
 			MaxSteps:       8,
 			ResultMaxBytes: 12 * 1024,
+			StepBudget: StepBudgetOptions{
+				AdaptiveEnabled:  true,
+				MaxExtensions:    2,
+				ExtensionSize:    5,
+				AbsoluteMaxSteps: 45,
+			},
 		},
 		Context: ContextOptions{
 			WindowTokens:             128000,
@@ -54,12 +75,14 @@ func normalizeOptions(options Options) Options {
 	if options.MaxParallelToolCalls <= 0 {
 		options.MaxParallelToolCalls = defaults.MaxParallelToolCalls
 	}
+	options.StepBudget = normalizeStepBudgetOptions(options.StepBudget, defaults.StepBudget)
 	if options.Subagents.MaxConcurrent <= 0 {
 		options.Subagents.MaxConcurrent = defaults.Subagents.MaxConcurrent
 	}
 	if options.Subagents.MaxSteps <= 0 {
 		options.Subagents.MaxSteps = defaults.Subagents.MaxSteps
 	}
+	options.Subagents.StepBudget = normalizeStepBudgetOptions(options.Subagents.StepBudget, defaults.Subagents.StepBudget)
 	if options.Subagents.ResultMaxBytes <= 0 {
 		options.Subagents.ResultMaxBytes = defaults.Subagents.ResultMaxBytes
 	}
@@ -86,6 +109,19 @@ func normalizeOptions(options Options) Options {
 	}
 	if options.Context.CompactMinMessages <= 0 {
 		options.Context.CompactMinMessages = defaults.Context.CompactMinMessages
+	}
+	return options
+}
+
+func normalizeStepBudgetOptions(options StepBudgetOptions, defaults StepBudgetOptions) StepBudgetOptions {
+	if options.MaxExtensions < 0 {
+		options.MaxExtensions = defaults.MaxExtensions
+	}
+	if options.ExtensionSize <= 0 {
+		options.ExtensionSize = defaults.ExtensionSize
+	}
+	if options.AbsoluteMaxSteps <= 0 {
+		options.AbsoluteMaxSteps = defaults.AbsoluteMaxSteps
 	}
 	return options
 }

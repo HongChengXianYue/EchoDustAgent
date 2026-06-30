@@ -116,6 +116,10 @@ func toolEventTitle(event runtimeevent.Event, argsLimit int) string {
 		return prefix + "Compacted context"
 	case runtimeevent.TypeCompactionSkip:
 		return prefix + "Skipped compaction"
+	case runtimeevent.TypeStepBudgetExtend:
+		return prefix + "Extended step budget"
+	case runtimeevent.TypeStepBudgetStop:
+		return prefix + "Step budget exhausted"
 	case runtimeevent.TypeError:
 		return prefix + "Error"
 	default:
@@ -166,11 +170,29 @@ func (r *BlockRenderer) toolEventDetail(event runtimeevent.Event) string {
 		return withEventSourceDetail(event, event.Reason)
 	case runtimeevent.TypeContextPruned, runtimeevent.TypeCompactionStart, runtimeevent.TypeCompactionDone, runtimeevent.TypeCompactionSkip:
 		return withEventSourceDetail(event, cleanTerminalText(event.Message))
+	case runtimeevent.TypeStepBudgetExtend, runtimeevent.TypeStepBudgetStop:
+		return withEventSourceDetail(event, stepBudgetDetail(event))
 	case runtimeevent.TypeError:
 		return withEventSourceDetail(event, event.Error)
 	default:
 		return ""
 	}
+}
+
+func stepBudgetDetail(event runtimeevent.Event) string {
+	var parts []string
+	if event.Before > 0 && event.After > 0 {
+		parts = append(parts, fmt.Sprintf("%d -> %d", event.Before, event.After))
+	} else if event.Before > 0 {
+		parts = append(parts, fmt.Sprintf("limit %d", event.Before))
+	}
+	if strings.TrimSpace(event.Reason) != "" {
+		parts = append(parts, event.Reason)
+	}
+	if strings.TrimSpace(event.Message) != "" && len(parts) == 0 {
+		parts = append(parts, event.Message)
+	}
+	return strings.Join(parts, "\n")
 }
 
 func (r *BlockRenderer) fullToolLogText() string {

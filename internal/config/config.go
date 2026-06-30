@@ -32,15 +32,23 @@ type LLMConfig struct {
 }
 
 type AgentConfig struct {
-	MaxSteps             int
-	MaxParallelToolCalls int
+	MaxSteps                int
+	MaxParallelToolCalls    int
+	AdaptiveMaxStepsEnabled bool
+	MaxStepExtensions       int
+	StepExtensionSize       int
+	AbsoluteMaxSteps        int
 }
 
 type SubagentsConfig struct {
-	Enabled        bool
-	MaxConcurrent  int
-	MaxSteps       int
-	ResultMaxBytes int
+	Enabled                 bool
+	MaxConcurrent           int
+	MaxSteps                int
+	AdaptiveMaxStepsEnabled bool
+	MaxStepExtensions       int
+	StepExtensionSize       int
+	AbsoluteMaxSteps        int
+	ResultMaxBytes          int
 }
 
 type MemoryConfig struct {
@@ -121,6 +129,9 @@ func LoadFromEnv() (Config, error) {
 			return Config{}, fmt.Errorf("AGENT_MAX_STEPS must be a positive integer")
 		}
 		cfg.Agent.MaxSteps = n
+		if cfg.Agent.AbsoluteMaxSteps < n {
+			cfg.Agent.AbsoluteMaxSteps = n
+		}
 	}
 	if err := validate(cfg); err != nil {
 		return Config{}, err
@@ -141,14 +152,22 @@ func Default() Config {
 			ParallelToolCalls:     true,
 		},
 		Agent: AgentConfig{
-			MaxSteps:             20,
-			MaxParallelToolCalls: 10,
+			MaxSteps:                20,
+			MaxParallelToolCalls:    10,
+			AdaptiveMaxStepsEnabled: true,
+			MaxStepExtensions:       3,
+			StepExtensionSize:       10,
+			AbsoluteMaxSteps:        80,
 		},
 		Subagents: SubagentsConfig{
-			Enabled:        true,
-			MaxConcurrent:  2,
-			MaxSteps:       8,
-			ResultMaxBytes: 12 * 1024,
+			Enabled:                 true,
+			MaxConcurrent:           2,
+			MaxSteps:                8,
+			AdaptiveMaxStepsEnabled: true,
+			MaxStepExtensions:       2,
+			StepExtensionSize:       5,
+			AbsoluteMaxSteps:        45,
+			ResultMaxBytes:          12 * 1024,
 		},
 		Memory: MemoryConfig{
 			Enabled: true,
@@ -231,8 +250,12 @@ func validate(cfg Config) error {
 		"llm.request_timeout_seconds":           cfg.LLM.RequestTimeoutSeconds,
 		"agent.max_steps":                       cfg.Agent.MaxSteps,
 		"agent.max_parallel_tool_calls":         cfg.Agent.MaxParallelToolCalls,
+		"agent.step_extension_size":             cfg.Agent.StepExtensionSize,
+		"agent.absolute_max_steps":              cfg.Agent.AbsoluteMaxSteps,
 		"subagents.max_concurrent":              cfg.Subagents.MaxConcurrent,
 		"subagents.max_steps":                   cfg.Subagents.MaxSteps,
+		"subagents.step_extension_size":         cfg.Subagents.StepExtensionSize,
+		"subagents.absolute_max_steps":          cfg.Subagents.AbsoluteMaxSteps,
 		"subagents.result_max_bytes":            cfg.Subagents.ResultMaxBytes,
 		"mcp.start_timeout_seconds":             cfg.MCP.StartTimeoutSeconds,
 		"mcp.request_timeout_seconds":           cfg.MCP.RequestTimeoutSeconds,
@@ -276,6 +299,20 @@ func validate(cfg Config) error {
 		if value <= 0 {
 			return fmt.Errorf("%s must be positive", key)
 		}
+	}
+	for key, value := range map[string]int{
+		"agent.max_step_extensions":     cfg.Agent.MaxStepExtensions,
+		"subagents.max_step_extensions": cfg.Subagents.MaxStepExtensions,
+	} {
+		if value < 0 {
+			return fmt.Errorf("%s must be >= 0", key)
+		}
+	}
+	if cfg.Agent.AbsoluteMaxSteps < cfg.Agent.MaxSteps {
+		return fmt.Errorf("agent.absolute_max_steps must be >= agent.max_steps")
+	}
+	if cfg.Subagents.AbsoluteMaxSteps < cfg.Subagents.MaxSteps {
+		return fmt.Errorf("subagents.absolute_max_steps must be >= subagents.max_steps")
 	}
 	if strings.TrimSpace(cfg.LLM.BaseURL) == "" {
 		return fmt.Errorf("llm.base_url is required")

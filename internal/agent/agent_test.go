@@ -957,6 +957,160 @@ func TestRunRejectsToolCallsBeyondParallelLimit(t *testing.T) {
 	}
 }
 
+func TestRunExtendsStepBudgetWhenToolsStillProgress(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_1", "Echo values"),
+				testToolCall("call_1", "echo", `{"text":"a"}`),
+			},
+		},
+		{
+			ToolCalls: []llm.ToolCall{
+				testToolCall("call_2", "echo", `{"text":"b"}`),
+			},
+		},
+		{Content: "finished"},
+	}}
+	registry := tools.NewRegistry()
+	echo := &echoTool{}
+	registry.Register(echo)
+	renderer := &captureRenderer{}
+	options := DefaultOptions()
+	options.StepBudget.AdaptiveEnabled = true
+	options.StepBudget.MaxExtensions = 1
+	options.StepBudget.ExtensionSize = 2
+	options.StepBudget.AbsoluteMaxSteps = 4
+
+	agent := NewWithWorkspaceAndOptions(client, registry, 1, "/tmp/workspace", options)
+	agent.SetRenderer(renderer)
+	answer, err := agent.Run(context.Background(), "echo twice")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if answer != "finished" {
+		t.Fatalf("answer = %q, want finished", answer)
+	}
+	if len(echo.calls) != 2 {
+		t.Fatalf("echo calls = %d, want 2", len(echo.calls))
+	}
+
+	foundExtension := false
+	for _, event := range renderer.events {
+		if event.Type == runtimeevent.TypeStepBudgetExtend {
+			foundExtension = true
+			if event.Before != 1 || event.After != 3 || event.Count != 1 {
+				t.Fatalf("step budget event = %#v", event)
+			}
+		}
+	}
+	if !foundExtension {
+		t.Fatalf("missing step budget extension event: %#v", renderer.events)
+	}
+}
+
+func TestRunExtendsStepBudgetWhenTodoPlanProgresses(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_1", "Plan workspace work"),
+			},
+		},
+		{Content: "finished"},
+	}}
+	renderer := &captureRenderer{}
+	options := DefaultOptions()
+	options.StepBudget.AdaptiveEnabled = true
+	options.StepBudget.MaxExtensions = 1
+	options.StepBudget.ExtensionSize = 1
+	options.StepBudget.AbsoluteMaxSteps = 2
+
+	agent := NewWithWorkspaceAndOptions(client, tools.NewRegistry(), 1, "/tmp/workspace", options)
+	agent.SetRenderer(renderer)
+	answer, err := agent.Run(context.Background(), "plan then answer")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if answer != "finished" {
+		t.Fatalf("answer = %q, want finished", answer)
+	}
+
+	foundExtension := false
+	for _, event := range renderer.events {
+		if event.Type == runtimeevent.TypeStepBudgetExtend && strings.Contains(event.Reason, "todo plan changed") {
+			foundExtension = true
+		}
+	}
+	if !foundExtension {
+		t.Fatalf("missing todo step budget extension event: %#v", renderer.events)
+	}
+}
+
+func TestRunStopsAtStepBudgetForRepeatedToolLoop(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_1", "Echo repeated value"),
+				testToolCall("call_1", "echo", `{"text":"same"}`),
+			},
+		},
+		{
+			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_2", "Echo repeated value"),
+				testToolCall("call_2", "echo", `{"text":"same"}`),
+			},
+		},
+		{
+			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_3", "Echo repeated value"),
+				testToolCall("call_3", "echo", `{"text":"same"}`),
+			},
+		},
+		{Content: "should not be reached"},
+	}}
+	registry := tools.NewRegistry()
+	registry.Register(&echoTool{})
+	renderer := &captureRenderer{}
+	options := DefaultOptions()
+	options.StepBudget.AdaptiveEnabled = true
+	options.StepBudget.MaxExtensions = 3
+	options.StepBudget.ExtensionSize = 1
+	options.StepBudget.AbsoluteMaxSteps = 6
+
+	agent := NewWithWorkspaceAndOptions(client, registry, 1, "/tmp/workspace", options)
+	agent.SetRenderer(renderer)
+	_, err := agent.Run(context.Background(), "loop")
+	if err == nil {
+		t.Fatalf("Run() error = nil, want step budget error")
+	}
+	if !strings.Contains(err.Error(), "without a final response") {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if client.calls != 3 {
+		t.Fatalf("client calls = %d, want 3", client.calls)
+	}
+
+	extensions := 0
+	foundStop := false
+	for _, event := range renderer.events {
+		switch event.Type {
+		case runtimeevent.TypeStepBudgetExtend:
+			extensions++
+		case runtimeevent.TypeStepBudgetStop:
+			foundStop = true
+			if !strings.Contains(event.Reason, "repeated identical tool calls") {
+				t.Fatalf("stop event = %#v", event)
+			}
+		}
+	}
+	if extensions != 2 {
+		t.Fatalf("extensions = %d, want 2", extensions)
+	}
+	if !foundStop {
+		t.Fatalf("missing step budget stop event: %#v", renderer.events)
+	}
+}
+
 func TestRunExecutesWorkspaceWritesToDifferentFilesConcurrentlyAfterSessionApproval(t *testing.T) {
 	client := &fakeClient{responses: []*llm.ChatResponse{
 		{
