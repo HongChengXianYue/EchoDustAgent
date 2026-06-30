@@ -1,5 +1,7 @@
 package agent
 
+import contextmgr "local-agent/internal/context"
+
 type Options struct {
 	MaxParallelToolCalls int
 	StepBudget           StepBudgetOptions
@@ -23,17 +25,7 @@ type SubagentOptions struct {
 	ResultMaxBytes int
 }
 
-type ContextOptions struct {
-	WindowTokens             int
-	PruneToolResultMaxBytes  int
-	PruneKeepRecentMessages  int
-	CompactEnabled           bool
-	CompactRatioPercent      int
-	CompactForceRatioPercent int
-	CompactTargetPercent     int
-	CompactKeepTailTokens    int
-	CompactMinMessages       int
-}
+type ContextOptions = contextmgr.Options
 
 func DefaultOptions() Options {
 	return Options{

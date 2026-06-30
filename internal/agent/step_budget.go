@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	contextmgr "local-agent/internal/context"
 	"local-agent/internal/llm"
 	"local-agent/internal/logs"
 	"local-agent/internal/runtimeevent"
@@ -246,13 +247,13 @@ func (a *Agent) contextExtensionBlockReason(ctx context.Context) string {
 	if !options.CompactEnabled || options.WindowTokens <= 0 || options.CompactForceRatioPercent <= 0 {
 		return ""
 	}
-	before := estimateMessagesTokens(a.messages)
+	before := contextmgr.EstimateMessagesTokens(a.messages)
 	forceThreshold := options.WindowTokens * options.CompactForceRatioPercent / 100
 	if before < forceThreshold {
 		return ""
 	}
 	a.maybeCompact(ctx)
-	after := estimateMessagesTokens(a.messages)
+	after := contextmgr.EstimateMessagesTokens(a.messages)
 	if after >= forceThreshold {
 		return fmt.Sprintf("context remains near the force compaction threshold (~%d tokens)", after)
 	}

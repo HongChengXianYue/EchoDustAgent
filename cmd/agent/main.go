@@ -73,15 +73,14 @@ func main() {
 	codingAgent.SetRenderer(renderer)
 	codingAgent.SetApprover(approval.NewMemoryApprover(approval.NewTerminalApprover(os.Stdin, os.Stdout)))
 
-	fmt.Println("local-agent started")
-	fmt.Println("workdir:", workdir)
-	fmt.Println("model:", cfg.LLM.Model)
-	fmt.Println("wire api:", cfg.LLM.WireAPI)
-	if mcpManager != nil {
-		fmt.Println("mcp tools:", len(mcpManager.Tools()))
-	}
-	fmt.Println("log file:", logger.Path())
-	fmt.Println("type exit or quit to stop")
+	ui.RenderStartupBanner(os.Stdout, ui.StartupInfo{
+		Workdir:    workdir,
+		Model:      cfg.LLM.Model,
+		WireAPI:    cfg.LLM.WireAPI,
+		MCPEnabled: mcpManager != nil,
+		MCPTools:   mcpToolCount(mcpManager),
+		LogFile:    logger.Path(),
+	})
 
 	var runMu sync.Mutex
 	var running bool
@@ -156,6 +155,13 @@ func toolOptions(cfg config.ToolsConfig) tools.Options {
 		ApplyPatchOutputMaxBytes:     cfg.ApplyPatchOutputMaxBytes,
 		FileChangePreviewLines:       cfg.FileChangePreviewLines,
 	}
+}
+
+func mcpToolCount(manager *mcp.Manager) int {
+	if manager == nil {
+		return 0
+	}
+	return len(manager.Tools())
 }
 
 func uiOptions(cfg config.UIConfig) ui.Options {

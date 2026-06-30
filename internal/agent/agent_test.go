@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"local-agent/internal/approval"
+	contextmgr "local-agent/internal/context"
 	"local-agent/internal/llm"
 	"local-agent/internal/runtimeevent"
 	"local-agent/internal/tools"
@@ -367,6 +368,11 @@ func TestRunUsesPromptGuidanceInsteadOfHidingToolsForGreeting(t *testing.T) {
 	}
 	systemPrompt := client.messages[0][0].Content
 	for _, want := range []string{
+		"# Role",
+		"# Tool Use",
+		"# Delegation",
+		"# Workspace Navigation",
+		"# Final Answers",
 		"Do not inspect the workspace for greetings",
 		"Only call tools when the user asks for a concrete workspace action",
 		"call update_todos before any workspace tool",
@@ -1257,6 +1263,12 @@ func TestDelegateTaskUsesIsolatedSubagentAndReturnsOnlyFinalText(t *testing.T) {
 	if childSnapshot == nil {
 		t.Fatalf("missing isolated child message snapshot: %#v", client.messages)
 	}
+	childPrompt := childSnapshot[0].Content
+	for _, want := range []string{"# Role", "# Scope", "# Tool Use", "# Final Answer", "Do not spawn another subagent"} {
+		if !strings.Contains(childPrompt, want) {
+			t.Fatalf("child system prompt missing %q:\n%s", want, childPrompt)
+		}
+	}
 	if !toolListContains(client.tools[1], tools.UpdateTodosToolName) || !toolListContains(client.tools[1], "read_file") {
 		t.Fatalf("child tools missing todo/read tools: %#v", client.tools[1])
 	}
@@ -1615,4 +1627,76 @@ func TestRunFallsBackToNonStreamingWhenUsageOmitted(t *testing.T) {
 	if tokenEvents[0].CumulativeTotal != 120 {
 		t.Errorf("cumulative total = %d, want 120", tokenEvents[0].CumulativeTotal)
 	}
+}
+
+func TestAgentContextMaintenanceEmitsPruneEvent(t *testing.T) {
+	agent := New(&fakeClient{}, tools.NewRegistry(), 3)
+	agent.options.Context.PruneToolResultMaxBytes = 8
+	agent.options.Context.PruneKeepRecentMessages = 1
+	agent.messages = []llm.Message{
+		{Role: "system", Content: "system"},
+		{Role: "assistant", ToolCalls: []llm.ToolCall{testToolCall("call_read", "read_file", `{"path":"big.txt"}`)}},
+		{Role: "tool", ToolCallID: "call_read", Content: tools.Success("read", strings.Repeat("x", 40)).JSON()},
+		{Role: "user", Content: "newer"},
+	}
+	renderer := &captureRenderer{}
+	agent.SetRenderer(renderer)
+
+	stats := agent.pruneStaleToolResults()
+	if stats.Results != 1 {
+		t.Fatalf("pruned results = %d, want 1", stats.Results)
+	}
+	if !strings.Contains(agent.messages[2].Content, contextmgr.PrunedToolOutputPrefix) {
+		t.Fatalf("tool result was not pruned: %s", agent.messages[2].Content)
+	}
+	if !containsEvent(renderer.events, runtimeevent.TypeContextPruned) {
+		t.Fatalf("missing context pruned event: %#v", renderer.events)
+	}
+}
+
+func TestAgentCompactUsesSummarizerAndReplacesMessages(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{{Content: "Earlier work was summarized."}}}
+	agent := NewWithWorkspaceAndOptions(client, tools.NewRegistry(), 3, "/tmp/work", compactTestOptions())
+	agent.messages = []llm.Message{
+		{Role: "system", Content: "system"},
+		{Role: "user", Content: strings.Repeat("old user ", 80)},
+		{Role: "assistant", Content: strings.Repeat("old assistant ", 80)},
+		{Role: "user", Content: strings.Repeat("old decision ", 80)},
+		{Role: "assistant", Content: strings.Repeat("old result ", 80)},
+		{Role: "user", Content: strings.Repeat("recent prelude ", 200)},
+		{Role: "assistant", ToolCalls: []llm.ToolCall{testToolCall("call_recent", "read_file", `{"path":"fresh.txt"}`)}},
+		{Role: "tool", ToolCallID: "call_recent", Content: tools.Success("read", "fresh output").JSON()},
+	}
+
+	stats, err := agent.compact(context.Background(), true)
+	if err != nil {
+		t.Fatalf("compact() error = %v", err)
+	}
+	if stats.Messages == 0 {
+		t.Fatalf("compacted message count = 0")
+	}
+	if len(agent.messages) != 4 {
+		t.Fatalf("message count after compact = %d, want 4: %#v", len(agent.messages), agent.messages)
+	}
+	if !strings.Contains(agent.messages[1].Content, contextmgr.CompactionSummaryOpen) || !strings.Contains(agent.messages[1].Content, "Earlier work was summarized.") {
+		t.Fatalf("missing summary message:\n%s", agent.messages[1].Content)
+	}
+}
+
+func compactTestOptions() Options {
+	options := DefaultOptions()
+	options.Context.CompactKeepTailTokens = 80
+	options.Context.CompactTargetPercent = 50
+	options.Context.WindowTokens = 1000
+	options.Context.CompactMinMessages = 1
+	return options
+}
+
+func containsEvent(events []runtimeevent.Event, eventType runtimeevent.Type) bool {
+	for _, event := range events {
+		if event.Type == eventType {
+			return true
+		}
+	}
+	return false
 }

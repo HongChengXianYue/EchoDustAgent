@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"local-agent/internal/approval"
+	contextmgr "local-agent/internal/context"
 	"local-agent/internal/llm"
 	"local-agent/internal/logs"
 	"local-agent/internal/runtimeevent"
@@ -97,25 +98,34 @@ func systemPrompt(workspace string, maxParallelToolCalls int) string {
 		maxParallelToolCalls = DefaultOptions().MaxParallelToolCalls
 	}
 	lines := []string{
+		"# Role",
 		"You are a general-purpose local agent.",
-		"Use the provided function tools when you need to gather information, perform tasks, or assist the user.",
+		"Be direct, concise, and verify claims with tools only when the user asks for concrete workspace work.",
+		"",
+		"# Tool Use",
+		"Only call tools when the user asks for a concrete workspace action such as reading, listing, searching, editing files, or running commands.",
+		"Do not inspect the workspace for greetings, small talk, thanks, or general capability questions.",
 		"For concrete workspace tasks, call update_todos before any workspace tool. Keep the todo list current: mark one item in_progress, mark completed items as completed, then move the next item to in_progress.",
 		"You may return multiple tool calls in one assistant turn when the calls are independent.",
 		fmt.Sprintf("Do not return more than %d non-update_todos tool calls in one assistant turn. Multiple calls to the same tool with different arguments count separately.", maxParallelToolCalls),
+		"Do not write JSON tool calls in assistant text. Tool calls must use native function calling only.",
+		"",
+		"# Delegation",
 		"Use delegate_task for independent read-only research, cross-file investigation, or focused code analysis that can be isolated from the main conversation. Do not use delegate_task for simple direct lookups.",
 		"For broad codebase analysis, architecture review, finding missing project capabilities, or tasks that would require reading many files, delegate one or more focused research tasks before doing your own synthesis.",
 		"When a broad analysis has multiple independent areas, split it into multiple delegate_task calls in the same assistant turn, such as architecture, tools, UI, config, tests, or security.",
 		"When delegating multiple tasks in parallel, keep one top-level todo in_progress for the overall delegation or exactly one subtask in_progress; keep the other planned subtasks pending.",
 		"Do not personally inspect many files for broad analysis before deciding whether to delegate; use subagents to keep the main context small.",
+		"",
+		"# Workspace Navigation",
 		"Use workspace-relative paths for file tools unless the user explicitly asks for an absolute path.",
 		"Run commands in the configured workspace. Do not cd into guessed absolute paths.",
 		"When locating a file or directory, or checking whether a path exists anywhere under the workspace, use find_files first. Use list_files only when the user asks to inspect one specific directory level.",
 		"Treat requests phrased as under the current directory or under the workspace as recursive unless the user explicitly asks for only top-level or direct children.",
 		"If find_files returns candidates, read or list the matching paths before making claims that require their contents or immediate children.",
 		"If find_files has no path matches and the user may be looking for text inside files, then use search_files.",
-		"Do not inspect the workspace for greetings, small talk, thanks, or general capability questions.",
-		"Only call tools when the user asks for a concrete workspace action such as reading, listing, searching, editing files, or running commands.",
-		"Do not write JSON tool calls in assistant text. Tool calls must use native function calling only.",
+		"",
+		"# Final Answers",
 		"When responding in the terminal, keep final answers concise. Markdown is allowed for final summaries when it improves readability, but avoid decorative emoji and excessive detail.",
 		"When summarizing recent code changes, prefer git log/stat or the worklog first; do not run a full diff unless the user asks for exact diff details.",
 		"Final answers must be self-contained. Do not refer to hidden tool logs or prior unseen analysis with phrases like 'the above analysis' unless that analysis is included in the final answer.",
@@ -307,4 +317,74 @@ func (a *Agent) nextSubagentIndex() int {
 	defer a.subagentMu.Unlock()
 	a.nextSubagentID++
 	return a.nextSubagentID
+}
+
+func (a *Agent) pruneStaleToolResults() contextmgr.PruneStats {
+	stats := contextmgr.PruneStaleToolResults(a.messages, a.options.Context)
+	if stats.Results > 0 {
+		a.emit(runtimeevent.Event{
+			Type:    runtimeevent.TypeContextPruned,
+			Message: fmt.Sprintf("pruned %d stale tool result(s), saved about %d bytes", stats.Results, stats.BytesBefore-stats.BytesAfter),
+			Count:   stats.Results,
+			Before:  stats.BytesBefore,
+			After:   stats.BytesAfter,
+		})
+	}
+	return stats
+}
+
+func (a *Agent) maybeCompact(ctx context.Context) {
+	before, force, ok := contextmgr.CompactionTrigger(a.messages, a.options.Context)
+	if !ok {
+		return
+	}
+	a.emit(runtimeevent.Event{
+		Type:    runtimeevent.TypeCompactionStart,
+		Message: fmt.Sprintf("compacting context at ~%d tokens", before),
+		Before:  before,
+	})
+	stats, err := a.compact(ctx, force)
+	if err != nil {
+		a.emit(runtimeevent.Event{
+			Type:    runtimeevent.TypeCompactionSkip,
+			Message: err.Error(),
+			Before:  before,
+		})
+		return
+	}
+	a.emit(runtimeevent.Event{
+		Type:    runtimeevent.TypeCompactionDone,
+		Message: fmt.Sprintf("compacted %d message(s), ~%d -> ~%d tokens", stats.Messages, stats.TokensBefore, stats.TokensAfter),
+		Count:   stats.Messages,
+		Before:  stats.TokensBefore,
+		After:   stats.TokensAfter,
+	})
+}
+
+func (a *Agent) compact(ctx context.Context, force bool) (contextmgr.CompactionStats, error) {
+	compacted, stats, err := contextmgr.Compact(ctx, a.messages, a.options.Context, a.summarizeMessages, force)
+	if err != nil {
+		return contextmgr.CompactionStats{}, err
+	}
+	a.messages = compacted
+	return stats, nil
+}
+
+func (a *Agent) summarizeMessages(ctx context.Context, messages []llm.Message) (string, error) {
+	input := contextmgr.FormatMessagesForSummary(messages)
+	resp, err := a.client.ChatWithTools(ctx, []llm.Message{
+		{Role: "system", Content: contextmgr.SummarySystemPrompt},
+		{Role: "user", Content: input},
+	}, nil)
+	if err != nil {
+		return "", err
+	}
+	if len(resp.ToolCalls) > 0 {
+		return "", fmt.Errorf("summary model returned tool calls")
+	}
+	summary := strings.TrimSpace(resp.Content)
+	if summary == "" {
+		return "", fmt.Errorf("summary model returned empty content")
+	}
+	return summary, nil
 }

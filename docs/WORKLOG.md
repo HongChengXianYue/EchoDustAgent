@@ -370,3 +370,24 @@
 - 主要模块：`internal/agent`、`internal/config`、`internal/runtimeevent`、`internal/ui`、`cmd/agent`、`config.yaml`、`README.md`、`internal/tools/tools_test.go`。
 - 验证：`gofmt -w ...` 完成；`go test ./internal/agent` 通过；`go test ./internal/config` 通过；`go test ./internal/ui` 通过；`go test ./internal/tools` 通过；`go test ./...` 通过；`go vet ./...` 通过。
 - 备注：`agent.max_steps` 和 `subagents.max_steps` 现在表示初始预算；新增 `adaptive_max_steps_enabled`、`max_step_extensions`、`step_extension_size`、`absolute_max_steps` 控制自动续跑。`AGENT_MAX_STEPS` 仍覆盖主 Agent 初始预算，若超过默认绝对上限会同步抬高上限以保持兼容。另将代码导航测试从固定行号改为按源码定位目标函数，避免后续编辑导致误报。
+
+## 2026-06-30 - 蓝白启动 Banner
+
+- 摘要：新增 Claude Code 风格的 `ECHO DUST CODE` 启动界面。TTY 且终端宽度足够时显示蓝白大字 Banner；非 TTY 或窄屏环境自动降级为简洁蓝白文本，避免日志和小窗口输出错乱。
+- 主要模块：`internal/ui/startup.go`、`internal/ui/startup_test.go`、`cmd/agent/main.go`、`docs/WORKLOG.md`。
+- 验证：`gofmt -w cmd/agent/main.go internal/ui/startup.go internal/ui/startup_test.go` 完成；`go test ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：本次只调整启动显示，不改 prompt 输入框、运行事件渲染和工具日志 UI。
+
+## 2026-06-30 - 系统提示词分区整理
+
+- 摘要：将主 Agent 和子代理系统提示词从单一长列表整理为按职责划分的短分区，分别覆盖角色、工具使用、委派、工作区导航和最终回答要求。保留原有 native function calling、TODO、delegate_task、路径查找和最终回答自包含等关键约束。
+- 主要模块：`internal/agent/agent.go`、`internal/agent/subagent.go`、`internal/agent/agent_test.go`、`docs/WORKLOG.md`。
+- 验证：`gofmt -w internal/agent/agent.go internal/agent/subagent.go internal/agent/agent_test.go` 完成；`go test ./internal/agent` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：本次只重组提示词结构，不改变工具协议、工具暴露规则、子代理隔离机制或运行时调度逻辑。
+
+## 2026-06-30 - Context 维护逻辑独立成包
+
+- 摘要：将上下文维护核心逻辑从 `internal/agent` 拆到 `internal/context`，集中放置 tool result 剪枝、compaction 触发判断、消息压缩、token 估算和摘要输入格式化。Agent 侧只保留调用摘要模型、替换消息和发出 runtime event 的适配方法，并合并进 `agent.go`，删除 `internal/agent/context_maintenance.go` 和对应测试文件。
+- 主要模块：`internal/context/maintenance.go`、`internal/context/maintenance_test.go`、`internal/agent/agent.go`、`internal/agent/agent_test.go`、`internal/agent/options.go`、`docs/WORKLOG.md`。
+- 验证：`gofmt -w internal/context/maintenance.go internal/context/maintenance_test.go internal/agent/agent.go internal/agent/agent_test.go internal/agent/options.go internal/agent/step_budget.go` 完成；`go test ./internal/context ./internal/agent` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：本次是结构拆分，不改变剪枝阈值、压缩摘要格式、recent tail 保留策略、runtime event 类型或外部配置字段。
