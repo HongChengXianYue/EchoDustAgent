@@ -170,11 +170,11 @@ func applyConfigValue(cfg *Config, key string, value string) error {
 	case "tools.file_change_preview_lines":
 		return setPositiveInt(key, value, &cfg.Tools.FileChangePreviewLines)
 	case "ui.separator_width":
-		return setPositiveInt(key, value, &cfg.UI.SeparatorWidth)
+		return setNonNegativeInt(key, value, &cfg.UI.SeparatorWidth)
 	case "ui.live_frame_max_lines":
 		return setPositiveInt(key, value, &cfg.UI.LiveFrameMaxLines)
 	case "ui.live_frame_max_width":
-		return setPositiveInt(key, value, &cfg.UI.LiveFrameMaxWidth)
+		return setNonNegativeInt(key, value, &cfg.UI.LiveFrameMaxWidth)
 	case "ui.live_frame_height_margin":
 		return setPositiveInt(key, value, &cfg.UI.LiveFrameHeightMargin)
 	case "ui.max_expanded_live_tool_events":
@@ -192,7 +192,7 @@ func applyConfigValue(cfg *Config, key string, value string) error {
 	case "ui.toggle_poll_milliseconds":
 		return setPositiveInt(key, value, &cfg.UI.TogglePollMilliseconds)
 	case "ui.markdown_word_wrap":
-		return setPositiveInt(key, value, &cfg.UI.MarkdownWordWrap)
+		return setNonNegativeInt(key, value, &cfg.UI.MarkdownWordWrap)
 	case "ui.tool_preview_output_chars":
 		return setPositiveInt(key, value, &cfg.UI.ToolPreviewOutputChars)
 	case "ui.tool_preview_long_output_chars":

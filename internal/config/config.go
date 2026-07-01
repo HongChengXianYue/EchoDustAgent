@@ -204,9 +204,9 @@ func Default() Config {
 			FileChangePreviewLines:       20,
 		},
 		UI: UIConfig{
-			SeparatorWidth:             80,
+			SeparatorWidth:             0, // 0 = 使用终端宽度
 			LiveFrameMaxLines:          24,
-			LiveFrameMaxWidth:          100,
+			LiveFrameMaxWidth:          0, // 0 = 使用终端宽度
 			LiveFrameHeightMargin:      6,
 			MaxExpandedLiveToolEvents:  6,
 			FullLogDefaultWidth:        100,
@@ -215,7 +215,7 @@ func Default() Config {
 			FullLogMinHeight:           6,
 			FullLogPollMilliseconds:    30,
 			TogglePollMilliseconds:     40,
-			MarkdownWordWrap:           100,
+			MarkdownWordWrap:           0, // 0 = 使用终端宽度
 			ToolPreviewOutputChars:     2000,
 			ToolPreviewLongOutputChars: 4000,
 			FileChangePreviewChars:     800,
@@ -278,9 +278,7 @@ func validate(cfg Config) error {
 		"tools.apply_patch_timeout_seconds":     cfg.Tools.ApplyPatchTimeoutSeconds,
 		"tools.apply_patch_output_max_bytes":    cfg.Tools.ApplyPatchOutputMaxBytes,
 		"tools.file_change_preview_lines":       cfg.Tools.FileChangePreviewLines,
-		"ui.separator_width":                    cfg.UI.SeparatorWidth,
 		"ui.live_frame_max_lines":               cfg.UI.LiveFrameMaxLines,
-		"ui.live_frame_max_width":               cfg.UI.LiveFrameMaxWidth,
 		"ui.live_frame_height_margin":           cfg.UI.LiveFrameHeightMargin,
 		"ui.max_expanded_live_tool_events":      cfg.UI.MaxExpandedLiveToolEvents,
 		"ui.full_log_default_width":             cfg.UI.FullLogDefaultWidth,
@@ -289,11 +287,20 @@ func validate(cfg Config) error {
 		"ui.full_log_min_height":                cfg.UI.FullLogMinHeight,
 		"ui.full_log_poll_milliseconds":         cfg.UI.FullLogPollMilliseconds,
 		"ui.toggle_poll_milliseconds":           cfg.UI.TogglePollMilliseconds,
-		"ui.markdown_word_wrap":                 cfg.UI.MarkdownWordWrap,
 		"ui.tool_preview_output_chars":          cfg.UI.ToolPreviewOutputChars,
 		"ui.tool_preview_long_output_chars":     cfg.UI.ToolPreviewLongOutputChars,
 		"ui.file_change_preview_chars":          cfg.UI.FileChangePreviewChars,
 		"ui.approval_args_preview_chars":        cfg.UI.ApprovalArgsPreviewChars,
+	}
+	// SeparatorWidth/LiveFrameMaxWidth/MarkdownWordWrap 允许 0（表示使用终端宽度）。
+	for key, value := range map[string]int{
+		"ui.separator_width":      cfg.UI.SeparatorWidth,
+		"ui.live_frame_max_width": cfg.UI.LiveFrameMaxWidth,
+		"ui.markdown_word_wrap":   cfg.UI.MarkdownWordWrap,
+	} {
+		if value < 0 {
+			return fmt.Errorf("%s must be >= 0", key)
+		}
 	}
 	for key, value := range checkPositive {
 		if value <= 0 {
