@@ -523,7 +523,8 @@ func (p *Prompt) renderCommandSuggestions(input string) {
 		if namePad < 1 {
 			namePad = 1
 		}
-		fmt.Fprintf(p.output, "  %s%s%s%s%s%s\n",
+		// 每行末尾用 \r\n 而非 \n，确保下一行从行首开始。
+		fmt.Fprintf(p.output, "  %s%s%s%s%s%s\r\n",
 			suggestNameFG, name, suggestReset,
 			strings.Repeat(" ", namePad),
 			suggestDescFG, cmd.Desc+suggestReset)
