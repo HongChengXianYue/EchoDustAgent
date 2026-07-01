@@ -73,14 +73,15 @@ func main() {
 	codingAgent.SetRenderer(renderer)
 	codingAgent.SetApprover(approval.NewMemoryApprover(approval.NewTerminalApprover(os.Stdin, os.Stdout)))
 
-	ui.RenderStartupBanner(os.Stdout, ui.StartupInfo{
+	startupInfo = ui.StartupInfo{
 		Workdir:    workdir,
 		Model:      cfg.LLM.Model,
 		WireAPI:    cfg.LLM.WireAPI,
 		MCPEnabled: mcpManager != nil,
 		MCPTools:   mcpToolCount(mcpManager),
 		LogFile:    logger.Path(),
-	})
+	}
+	ui.RenderStartupBanner(os.Stdout, startupInfo)
 
 	var runMu sync.Mutex
 	var running bool
@@ -121,6 +122,9 @@ func main() {
 		}
 		if input == "exit" || input == "quit" {
 			return
+		}
+		if dispatchSlash(input) {
+			continue
 		}
 
 		runCtx, cancel := context.WithCancel(context.Background())

@@ -17,7 +17,8 @@ const (
 	startupReset      = "\x1b[0m"
 	startupWideWidth  = 80
 	startupTitle      = "ECHO DUST CODE"
-	startupQuitNotice = "type exit or quit to stop"
+	// startupHint 提示用户可用命令，替代原来堆在启动详情里的退出说明。
+	startupHint = "type /info for details, exit or quit to stop"
 )
 
 var startupBannerLines = []string{
@@ -84,12 +85,26 @@ func renderWideStartup(output io.Writer, info StartupInfo) {
 		fmt.Fprintln(output, strings.Repeat(" ", padding)+color+line+startupReset)
 	}
 	fmt.Fprintln(output)
-	renderStartupDetails(output, info, "  ")
+	// 启动时不再堆砌详情，只给一行命令提示；详情通过 /info 按需查看。
+	renderStartupHint(output, padding)
 	fmt.Fprintln(output)
 }
 
 func renderCompactStartup(output io.Writer, info StartupInfo) {
 	fmt.Fprintln(output, startupBlue+startupTitle+startupReset)
+	renderStartupHint(output, 0)
+	fmt.Fprintln(output)
+}
+
+// renderStartupHint 在 banner 下方打印一行命令提示，居中偏移与大字对齐。
+func renderStartupHint(output io.Writer, padding int) {
+	hint := startupMuted + startupHint + startupReset
+	fmt.Fprintln(output, strings.Repeat(" ", padding)+hint)
+}
+
+// RenderStartupDetails 按需打印启动详情（workdir / model / mcp tools / log file
+// 等）。供 main 循环在用户输入 /info 时调用，启动时不自动输出。
+func RenderStartupDetails(output io.Writer, info StartupInfo) {
 	renderStartupDetails(output, info, "")
 }
 
@@ -113,9 +128,6 @@ func startupDetailLines(info StartupInfo) []string {
 	if info.MCPEnabled {
 		lines = append(lines, fmt.Sprintf("mcp tools: %d", info.MCPTools))
 	}
-	lines = append(lines,
-		"log file: "+info.LogFile,
-		startupQuitNotice,
-	)
+	lines = append(lines, "log file: "+info.LogFile)
 	return lines
 }

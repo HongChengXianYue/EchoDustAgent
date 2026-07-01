@@ -417,3 +417,15 @@
   - 光标边界行为：wrap 边界让光标落到下一行行首；逻辑行末尾光标落到最后一个 wrap 行末尾。
 - 验证：`go test ./internal/ui/...` 通过（8 个测试，含 3 个新加的 wrap 行为测试：长输入折行、`\n` + 长行、光标在不同 wrap 行的 cursorUp 计算）。`go vet ./...` 通过。
 - 备注：当 prompt 总占用行数超过终端可视高度时，暂未做"跟随光标滚动视图"的处理，多数场景下输入不会这么长，后续如有需要再扩展。
+
+## 2026-07-01 - 启动详情默认隐藏，改为 /info 命令按需显示；抽取 slash.go 命令分发
+
+- 摘要：启动时不再输出 workdir / model / wire api / mcp tools / log file 等详情，只保留大字 banner + 一行命令提示 `type /info for details, exit or quit to stop`。用户输入 `/info` 时按需打印详情。新增 `cmd/agent/slash.go` 集中管理 `/` 命令的注册与分发，当前注册 `/info` 和预留 `/model`。
+- 主要模块：`cmd/agent/main.go`、`cmd/agent/slash.go`（新建）、`internal/ui/startup.go`、`internal/ui/startup_test.go`。
+- 改动要点：
+  - `startup.go`：`renderWideStartup` / `renderCompactStartup` 不再调 `renderStartupDetails`，改为打印 `startupHint`（居中偏移与大字对齐）。新增导出函数 `RenderStartupDetails` 供外部按需调用。`startupDetailLines` 移除 `startupQuitNotice`。
+  - `main.go`：`startupInfo` 提升为包级变量供 `slash.go` 读取；输入循环里 `/info` 分支替换为 `dispatchSlash(input)`。
+  - `slash.go`：`slashCommands` map 注册表 + `dispatchSlash` / `parseSlash` / `printSlashHelp`；`/model` 预留占位，无参打印当前模型，有参提示未实现。
+  - `startup_test.go`：重写 3 个旧测试（验证启动时不再包含详情），新增 2 个测试 `RenderStartupDetails` 全字段输出和 MCP 禁用时隐藏 `mcp tools:`。
+- 验证：`go test ./...` 全部通过（50 个 UI 测试 + 其他包）；`go vet ./...` 通过；`go build ./cmd/agent/` 通过。
+- 备注：`exit` / `quit` 保留在 `main.go` 输入循环里（终止控制流，语义上不是命令）。后续新增 `/` 命令只需在 `slash.go` 的 `slashCommands` map 里加一行。
