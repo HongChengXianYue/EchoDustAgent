@@ -441,3 +441,13 @@
   - `prompt_test.go`：新增 5 个测试：全量匹配、前缀过滤、含空格隐藏、非 `/` 输入隐藏、清除建议行。
 - 验证：`go test ./...` 全部通过（55 个 UI 测试）；`go vet ./...` 通过。
 - 备注：建议列表渲染在输入行下方，用 ANSI 颜色区分命令名（light blue）和描述（muted gray）。命令名固定宽度 14 列左对齐，描述紧随其后。
+
+## 2026-07-01 - /exit 和 /quit 命令替代裸 exit/quit 退出方式
+
+- 摘要：新增 `/exit` 和 `/quit` 命令作为退出方式，废弃原来的裸 `exit`/`quit` 输入。通过 sentinel error `errExit` 让 handler 通知 `dispatchSlash` 返回 `shouldExit=true`，main 循环检测到后 return。
+- 主要模块：`cmd/agent/slash.go`、`cmd/agent/main.go`。
+- 改动要点：
+  - `slash.go`：新增 `errExit` sentinel error、`slashExit` handler、注册 `exit`/`quit` 到 `slashCommands`。`dispatchSlash` 返回值从 `(handled bool)` 改为 `(handled bool, shouldExit bool)`，检测到 `errExit` 时 `shouldExit=true`。
+  - `main.go`：去掉 `if input == "exit" || input == "quit"` 检查，改用 `dispatchSlash` 的 `shouldExit` 返回值。
+- 验证：`go test ./...` 全部通过；`go vet ./...` 通过。
+- 备注：现在退出只能通过 `/exit` 或 `/quit`，裸 `exit`/`quit` 会交给 agent 当普通输入处理（agent 会尝试理解并回复）。

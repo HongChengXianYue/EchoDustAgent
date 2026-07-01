@@ -121,10 +121,10 @@ func main() {
 		if input == "" {
 			continue
 		}
-		if input == "exit" || input == "quit" {
-			return
-		}
-		if dispatchSlash(input) {
+		if handled, shouldExit := dispatchSlash(input); handled {
+			if shouldExit {
+				return
+			}
 			continue
 		}
 
