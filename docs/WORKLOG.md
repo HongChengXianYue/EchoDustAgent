@@ -429,3 +429,15 @@
   - `startup_test.go`：重写 3 个旧测试（验证启动时不再包含详情），新增 2 个测试 `RenderStartupDetails` 全字段输出和 MCP 禁用时隐藏 `mcp tools:`。
 - 验证：`go test ./...` 全部通过（50 个 UI 测试 + 其他包）；`go vet ./...` 通过；`go build ./cmd/agent/` 通过。
 - 备注：`exit` / `quit` 保留在 `main.go` 输入循环里（终止控制流，语义上不是命令）。后续新增 `/` 命令只需在 `slash.go` 的 `slashCommands` map 里加一行。
+
+## 2026-07-01 - 输入框 / 命令建议列表
+
+- 摘要：输入框新增 /命令 建议列表功能。用户输入 `/` 时，输入框下方自动渲染匹配的命令列表 block（命令名 + 描述），输入继续过滤（如 `/mo` 只匹配 `/model`），输入含空格时隐藏（用户在输参数）。选择命令后回车执行。
+- 主要模块：`internal/ui/prompt.go`、`cmd/agent/slash.go`、`cmd/agent/main.go`、`internal/ui/prompt_test.go`。
+- 改动要点：
+  - `prompt.go`：新增 `CommandSuggestion` 类型、`Prompt.commands`/`suggestRows` 字段、`SetCommands()` 方法。`ReadLine` 渲染循环改用 `renderFrame()`（清旧帧 → 渲染输入行 → 渲染建议列表）。新增 `renderCommandSuggestions()` 按前缀过滤并渲染 block。`clearPrompt()` 新增清除建议列表行逻辑。
+  - `slash.go`：新增导出函数 `SlashCommandList()` 返回按名称排序的 `[]ui.CommandSuggestion`，供 main 传递给 Prompt。
+  - `main.go`：创建 Prompt 后调用 `prompt.SetCommands(SlashCommandList())`。
+  - `prompt_test.go`：新增 5 个测试：全量匹配、前缀过滤、含空格隐藏、非 `/` 输入隐藏、清除建议行。
+- 验证：`go test ./...` 全部通过（55 个 UI 测试）；`go vet ./...` 通过。
+- 备注：建议列表渲染在输入行下方，用 ANSI 颜色区分命令名（light blue）和描述（muted gray）。命令名固定宽度 14 列左对齐，描述紧随其后。

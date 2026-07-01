@@ -20,7 +20,19 @@ const (
 	promptBoxRightPad   = 2
 	promptPlaceholder   = `Try "create a util logging.py that..."`
 	promptPromptSpacing = 1
+
+	// 命令建议列表的颜色和布局。
+	suggestNameFG   = "\x1b[38;5;117m"
+	suggestDescFG   = "\x1b[38;5;248m"
+	suggestReset    = "\x1b[0m"
+	suggestNameWidth = 14 // 命令名列固定宽度（含 / 和前导空格）
 )
+
+// CommandSuggestion 是一个 /命令 的名称和描述，用于输入框下方的建议列表。
+type CommandSuggestion struct {
+	Name string // 不含 /，如 "model"
+	Desc string // 简短描述
+}
 
 type Prompt struct {
 	input          io.Reader
@@ -29,6 +41,8 @@ type Prompt struct {
 	history        []string
 	promptRows     int
 	promptCursorUp int
+	commands       []CommandSuggestion // /命令列表，为空时不显示建议
+	suggestRows    int                 // 上次渲染的建议列表行数（用于清除）
 }
 
 func NewPrompt(input io.Reader, output io.Writer) *Prompt {
@@ -37,6 +51,12 @@ func NewPrompt(input io.Reader, output io.Writer) *Prompt {
 		output: output,
 		reader: bufio.NewReader(input),
 	}
+}
+
+// SetCommands 设置 /命令 列表，供输入框在用户输入 / 时显示建议。
+// 传 nil 或空切片会禁用建议列表。
+func (p *Prompt) SetCommands(cmds []CommandSuggestion) {
+	p.commands = cmds
 }
 
 func (p *Prompt) ReadLine(prompt string) (string, bool) {
@@ -55,7 +75,7 @@ func (p *Prompt) ReadLine(prompt string) (string, bool) {
 	}
 
 	state := newLineState(p.history)
-	p.renderPromptLine(prompt, state.runes, state.cursor)
+	p.renderFrame(prompt, state.runes, state.cursor)
 
 	for {
 		key, err := readKey(p.reader)
@@ -75,7 +95,7 @@ func (p *Prompt) ReadLine(prompt string) (string, bool) {
 			}
 			return line, ok
 		}
-		p.renderPromptLine(prompt, state.runes, state.cursor)
+		p.renderFrame(prompt, state.runes, state.cursor)
 	}
 }
 
@@ -175,6 +195,14 @@ func (s *lineState) historyDown() {
 	s.cursor = len(s.runes)
 }
 
+func (p *Prompt) renderFrame(promptStr string, runes []rune, cursor int) {
+	p.clearPrompt()
+	rows, cursorUp := renderPromptLine(p.output, promptStr, runes, cursor)
+	p.promptRows = rows
+	p.promptCursorUp = cursorUp
+	p.renderCommandSuggestions(string(runes))
+}
+
 func (p *Prompt) renderPromptLine(prompt string, runes []rune, cursor int) {
 	p.clearPrompt()
 	rows, cursorUp := renderPromptLine(p.output, prompt, runes, cursor)
@@ -183,6 +211,23 @@ func (p *Prompt) renderPromptLine(prompt string, runes []rune, cursor int) {
 }
 
 func (p *Prompt) clearPrompt() {
+	// 先清除命令建议列表（渲染在输入行下方）。
+	if p.suggestRows > 0 {
+		// 光标当前在建议列表最后一行之后，上移到列表顶部。
+		fmt.Fprintf(p.output, "\x1b[%dA", p.suggestRows)
+		for i := 0; i < p.suggestRows; i++ {
+			fmt.Fprint(p.output, "\r\x1b[2K")
+			if i < p.suggestRows-1 {
+				fmt.Fprint(p.output, "\n")
+			}
+		}
+		// 清完后光标在列表最后一行，上移回列表顶部（输入行下方）。
+		if p.suggestRows > 1 {
+			fmt.Fprintf(p.output, "\x1b[%dA", p.suggestRows-1)
+		}
+		p.suggestRows = 0
+	}
+	// 再清除输入行。
 	if p.promptRows <= 0 {
 		fmt.Fprint(p.output, "\r\x1b[2K")
 		return
@@ -441,4 +486,46 @@ func runeCellWidth(r rune) int {
 	default:
 		return 1
 	}
+}
+
+// renderCommandSuggestions 在输入行下方渲染 /命令 建议列表。
+// 触发条件：输入以 / 开头、commands 非空、前缀不含空格（用户在输命令名而非参数）。
+// 渲染格式：每行 "  /命令名<padding>描述"，命令名固定宽度左对齐。
+func (p *Prompt) renderCommandSuggestions(input string) {
+	p.suggestRows = 0
+	if !strings.HasPrefix(input, "/") || len(p.commands) == 0 {
+		return
+	}
+	prefix := strings.TrimPrefix(input, "/")
+	// 前缀含空格说明用户在输入参数（如 "/model qwen"），不再显示建议。
+	if strings.Contains(prefix, " ") {
+		return
+	}
+
+	var matched []CommandSuggestion
+	for _, cmd := range p.commands {
+		if strings.HasPrefix(cmd.Name, prefix) {
+			matched = append(matched, cmd)
+		}
+	}
+	if len(matched) == 0 {
+		return
+	}
+
+	// 空行分隔输入行和建议列表。
+	fmt.Fprintln(p.output)
+	for _, cmd := range matched {
+		name := "/" + cmd.Name
+		nameWidth := displayWidth([]rune(name))
+		// 命令名 + 前导 2 空格，总宽 suggestNameWidth；不足补空格。
+		namePad := suggestNameWidth - 2 - nameWidth
+		if namePad < 1 {
+			namePad = 1
+		}
+		fmt.Fprintf(p.output, "  %s%s%s%s%s%s\n",
+			suggestNameFG, name, suggestReset,
+			strings.Repeat(" ", namePad),
+			suggestDescFG, cmd.Desc+suggestReset)
+	}
+	p.suggestRows = len(matched) + 1 // +1 为前面的空行分隔
 }

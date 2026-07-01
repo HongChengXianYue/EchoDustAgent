@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"local-agent/internal/ui"
@@ -80,4 +81,16 @@ func slashModel(args []string) error {
 		return nil
 	}
 	return fmt.Errorf("/model switch not yet implemented (requested: %s)", strings.Join(args, " "))
+}
+
+// SlashCommandList 返回按名称排序的 /命令 列表，供 UI 输入框做建议补全。
+func SlashCommandList() []ui.CommandSuggestion {
+	cmds := make([]ui.CommandSuggestion, 0, len(slashCommands))
+	for name, cmd := range slashCommands {
+		cmds = append(cmds, ui.CommandSuggestion{Name: name, Desc: cmd.desc})
+	}
+	sort.Slice(cmds, func(i, j int) bool {
+		return cmds[i].Name < cmds[j].Name
+	})
+	return cmds
 }

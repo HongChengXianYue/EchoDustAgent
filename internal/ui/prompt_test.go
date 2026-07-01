@@ -152,3 +152,92 @@ func TestLineStatePasteDoesNotSubmit(t *testing.T) {
 		t.Fatalf("enter should submit pasted text: line=%q done=%v ok=%v", line, done, ok)
 	}
 }
+
+func TestRenderCommandSuggestionsShowsMatchedCommands(t *testing.T) {
+	var out bytes.Buffer
+	p := &Prompt{output: &out, commands: []CommandSuggestion{
+		{Name: "info", Desc: "show startup details"},
+		{Name: "model", Desc: "show or switch model"},
+	}}
+
+	// 输入 "/" → 匹配所有命令。
+	p.renderCommandSuggestions("/")
+	text := out.String()
+	if !strings.Contains(text, "/info") || !strings.Contains(text, "/model") {
+		t.Fatalf("expected all commands for prefix '/': %q", text)
+	}
+	if p.suggestRows != 3 { // 1 空行 + 2 命令
+		t.Fatalf("suggestRows = %d, want 3", p.suggestRows)
+	}
+}
+
+func TestRenderCommandSuggestionsFiltersByPrefix(t *testing.T) {
+	var out bytes.Buffer
+	p := &Prompt{output: &out, commands: []CommandSuggestion{
+		{Name: "info", Desc: "show details"},
+		{Name: "model", Desc: "switch model"},
+	}}
+
+	// 输入 "/mo" → 只匹配 model。
+	out.Reset()
+	p.renderCommandSuggestions("/mo")
+	text := out.String()
+	if !strings.Contains(text, "/model") {
+		t.Fatalf("expected /model for prefix '/mo': %q", text)
+	}
+	if strings.Contains(text, "/info") {
+		t.Fatalf("should not contain /info for prefix '/mo': %q", text)
+	}
+}
+
+func TestRenderCommandSuggestionsHidesWhenPrefixHasSpace(t *testing.T) {
+	var out bytes.Buffer
+	p := &Prompt{output: &out, commands: []CommandSuggestion{
+		{Name: "model", Desc: "switch model"},
+	}}
+
+	// 输入 "/model qwen" → 前缀含空格，不显示建议。
+	p.renderCommandSuggestions("/model qwen")
+	if out.Len() != 0 {
+		t.Fatalf("should not render suggestions when prefix has space: %q", out.String())
+	}
+	if p.suggestRows != 0 {
+		t.Fatalf("suggestRows = %d, want 0", p.suggestRows)
+	}
+}
+
+func TestRenderCommandSuggestionsHidesForNonSlashInput(t *testing.T) {
+	var out bytes.Buffer
+	p := &Prompt{output: &out, commands: []CommandSuggestion{
+		{Name: "info", Desc: "show details"},
+	}}
+
+	p.renderCommandSuggestions("hello")
+	if out.Len() != 0 {
+		t.Fatalf("should not render suggestions for non-slash input: %q", out.String())
+	}
+}
+
+func TestClearPromptClearsSuggestionRows(t *testing.T) {
+	var out bytes.Buffer
+	p := &Prompt{
+		output:   &out,
+		commands: []CommandSuggestion{{Name: "info", Desc: "show details"}},
+	}
+
+	// 先渲染一个输入行 + 建议列表。
+	p.promptRows = 1
+	p.suggestRows = 2
+	// 模拟光标位置：在建议列表最后一行之后。
+	out.Reset()
+	p.clearPrompt()
+
+	text := out.String()
+	// 应该包含上移序列（清除建议列表）和清除序列。
+	if !strings.Contains(text, "\x1b[2A") {
+		t.Fatalf("expected cursor up for suggestRows=2: %q", text)
+	}
+	if p.suggestRows != 0 {
+		t.Fatalf("suggestRows should be reset to 0 after clear: %d", p.suggestRows)
+	}
+}
