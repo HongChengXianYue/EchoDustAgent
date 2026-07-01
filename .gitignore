@@ -4,6 +4,14 @@ agent
 # Local agent runtime state (logs, MCP server config)
 .local-agent/
 
+# IDE / tool config (Cursor, CodeGraph)
+.cursor/
+.codegraph/
+
+# Claude Code / agent instruction files (not for public distribution)
+AGENTS.md
+CLAUDE.md
+
 # OS files
 .DS_Store
 
