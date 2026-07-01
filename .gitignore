@@ -1,0 +1,13 @@
+# Built binary
+agent
+
+# Local agent runtime state (logs, MCP server config)
+.local-agent/
+
+# OS files
+.DS_Store
+
+# Go build artifacts (keep it clean)
+*.exe
+*.test
+*.out

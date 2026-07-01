@@ -55,8 +55,24 @@ func shouldRenderWideStartup(output io.Writer) bool {
 }
 
 func renderWideStartup(output io.Writer, info StartupInfo) {
-	// 统一左边距 4 字符，与对话历史、输入框视觉对齐。
-	const leftMargin = 4
+	// 取终端宽度，用于将大字 banner 居中。
+	termWidth := 0
+	if file, ok := output.(*os.File); ok && isTerminal(file) {
+		w, _, err := term.GetSize(int(file.Fd()))
+		if err == nil {
+			termWidth = w
+		}
+	}
+	bannerWidth := 0
+	for _, line := range startupBannerLines {
+		if w := len([]rune(line)); w > bannerWidth {
+			bannerWidth = w
+		}
+	}
+	padding := 0
+	if termWidth > bannerWidth {
+		padding = (termWidth - bannerWidth) / 2
+	}
 
 	fmt.Fprintln(output)
 	for i, line := range startupBannerLines {
@@ -64,7 +80,7 @@ func renderWideStartup(output io.Writer, info StartupInfo) {
 		if i%2 == 1 {
 			color = startupLightBlue
 		}
-		fmt.Fprintln(output, strings.Repeat(" ", leftMargin)+color+line+startupReset)
+		fmt.Fprintln(output, strings.Repeat(" ", padding)+color+line+startupReset)
 	}
 	fmt.Fprintln(output)
 }

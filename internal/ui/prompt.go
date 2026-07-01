@@ -18,13 +18,13 @@ const (
 	promptBoxReset      = "\x1b[0m"
 	promptBoxLeftPad    = 1
 	promptBoxRightPad   = 2
-	promptPlaceholder   = `Try "create a util logging.py that..."`
+	promptPlaceholder   = ``
 	promptPromptSpacing = 1
 
 	// 命令建议列表的颜色和布局。
-	suggestNameFG   = "\x1b[38;5;117m"
-	suggestDescFG   = "\x1b[38;5;248m"
-	suggestReset    = "\x1b[0m"
+	suggestNameFG    = "\x1b[38;5;117m"
+	suggestDescFG    = "\x1b[38;5;248m"
+	suggestReset     = "\x1b[0m"
 	suggestNameWidth = 14 // 命令名列固定宽度（含 / 和前导空格）
 )
 
@@ -41,10 +41,10 @@ type Prompt struct {
 	history         []string
 	promptRows      int
 	promptCursorUp  int
-	commands        []CommandSuggestion  // /命令列表，为空时不显示建议
-	suggestRows     int                  // 上次渲染的建议列表行数（用于清除）
-	suggestMatched  []CommandSuggestion  // 当前匹配的列表（上下键选择用）
-	suggestSelected int                  // 当前选中的命令索引
+	commands        []CommandSuggestion // /命令列表，为空时不显示建议
+	suggestRows     int                 // 上次渲染的建议列表行数（用于清除）
+	suggestMatched  []CommandSuggestion // 当前匹配的列表（上下键选择用）
+	suggestSelected int                 // 当前选中的命令索引
 }
 
 func NewPrompt(input io.Reader, output io.Writer) *Prompt {

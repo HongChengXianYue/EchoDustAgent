@@ -122,19 +122,11 @@ func (r *BlockRenderer) frameOutputText(text string) string {
 	if !r.rewriteFrame {
 		return text
 	}
-	// 统一左边距 4 字符，与 banner、输入框视觉对齐。
-	const leftMargin = "    "
-	lines := strings.Split(text, "\n")
-	for i, line := range lines {
-		if strings.TrimSpace(line) != "" {
-			lines[i] = leftMargin + line
-		}
-	}
 	// The Ctrl+E watcher keeps the terminal in raw mode while a live frame is
 	// visible. Raw mode disables the terminal's usual LF -> CRLF translation,
 	// so write CRLF explicitly or each new frame line starts at the previous
 	// line's ending column.
-	return strings.Join(lines, "\r\n")
+	return strings.ReplaceAll(text, "\n", "\r\n")
 }
 
 func approvalPromptLineCount(event runtimeevent.Event) int {

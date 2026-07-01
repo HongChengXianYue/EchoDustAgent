@@ -113,7 +113,7 @@ func main() {
 	prompt := ui.NewPrompt(os.Stdin, os.Stdout)
 	prompt.SetCommands(SlashCommandList())
 	for {
-		line, ok := prompt.ReadLine("    › ")
+		line, ok := prompt.ReadLine("› ")
 		if !ok {
 			break
 		}
