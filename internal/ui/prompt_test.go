@@ -241,3 +241,64 @@ func TestClearPromptClearsSuggestionRows(t *testing.T) {
 		t.Fatalf("suggestRows should be reset to 0 after clear: %d", p.suggestRows)
 	}
 }
+
+func TestApplyTabCompletionCompletesFirstMatch(t *testing.T) {
+	p := &Prompt{commands: []CommandSuggestion{
+		{Name: "info", Desc: "show details"},
+		{Name: "model", Desc: "switch model"},
+	}}
+
+	// 输入 "/mo" → 补全成 "/model"。
+	state := newLineState(nil)
+	state.runes = []rune("/mo")
+	state.cursor = len(state.runes)
+	p.applyTabCompletion(state)
+	if got := string(state.runes); got != "/model" {
+		t.Fatalf("runes = %q, want /model", got)
+	}
+	if state.cursor != len(state.runes) {
+		t.Fatalf("cursor = %d, want %d", state.cursor, len(state.runes))
+	}
+}
+
+func TestApplyTabCompletionNoMatch(t *testing.T) {
+	p := &Prompt{commands: []CommandSuggestion{
+		{Name: "info", Desc: "show details"},
+	}}
+
+	state := newLineState(nil)
+	state.runes = []rune("/xyz")
+	state.cursor = len(state.runes)
+	p.applyTabCompletion(state)
+	if got := string(state.runes); got != "/xyz" {
+		t.Fatalf("runes should be unchanged when no match: %q", got)
+	}
+}
+
+func TestApplyTabCompletionIgnoresNonSlashInput(t *testing.T) {
+	p := &Prompt{commands: []CommandSuggestion{
+		{Name: "info", Desc: "show details"},
+	}}
+
+	state := newLineState(nil)
+	state.runes = []rune("hello")
+	state.cursor = len(state.runes)
+	p.applyTabCompletion(state)
+	if got := string(state.runes); got != "hello" {
+		t.Fatalf("non-slash input should not be completed: %q", got)
+	}
+}
+
+func TestApplyTabCompletionIgnoresPrefixWithSpace(t *testing.T) {
+	p := &Prompt{commands: []CommandSuggestion{
+		{Name: "model", Desc: "switch model"},
+	}}
+
+	state := newLineState(nil)
+	state.runes = []rune("/model qwen")
+	state.cursor = len(state.runes)
+	p.applyTabCompletion(state)
+	if got := string(state.runes); got != "/model qwen" {
+		t.Fatalf("prefix with space should not be completed: %q", got)
+	}
+}

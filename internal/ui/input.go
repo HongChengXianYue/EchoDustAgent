@@ -19,6 +19,8 @@ func readKey(reader *bufio.Reader) (string, error) {
 	switch b {
 	case '\r', '\n':
 		return "enter", nil
+	case '\t':
+		return "tab", nil
 	case 3:
 		return "ctrl_c", nil
 	case 5:

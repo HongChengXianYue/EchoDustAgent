@@ -59,6 +59,27 @@ func (p *Prompt) SetCommands(cmds []CommandSuggestion) {
 	p.commands = cmds
 }
 
+// applyTabCompletion 在输入以 / 开头时，补全第一个前缀匹配的命令名。
+// 如果前缀含空格（用户在输参数）或无匹配，不做任何事。
+func (p *Prompt) applyTabCompletion(state *lineState) {
+	input := string(state.runes)
+	if !strings.HasPrefix(input, "/") {
+		return
+	}
+	prefix := strings.TrimPrefix(input, "/")
+	// 前缀含空格说明用户在输入参数（如 "/model qwen"），不补全命令名。
+	if strings.Contains(prefix, " ") {
+		return
+	}
+	for _, cmd := range p.commands {
+		if strings.HasPrefix(cmd.Name, prefix) {
+			state.runes = []rune("/" + cmd.Name)
+			state.cursor = len(state.runes)
+			return
+		}
+	}
+}
+
 func (p *Prompt) ReadLine(prompt string) (string, bool) {
 	raw := enterRawMode(p.input)
 	defer raw.restore()
@@ -83,6 +104,12 @@ func (p *Prompt) ReadLine(prompt string) (string, bool) {
 			raw.restore()
 			fmt.Fprintln(p.output)
 			return "", false
+		}
+		// Tab 补全：输入以 / 开头时，补全第一个前缀匹配的命令。
+		if key == "tab" {
+			p.applyTabCompletion(state)
+			p.renderFrame(prompt, state.runes, state.cursor)
+			continue
 		}
 		if line, done, ok := state.applyKey(key); done {
 			raw.restore()
