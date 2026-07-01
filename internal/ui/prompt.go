@@ -35,14 +35,16 @@ type CommandSuggestion struct {
 }
 
 type Prompt struct {
-	input          io.Reader
-	output         io.Writer
-	reader         *bufio.Reader
-	history        []string
-	promptRows     int
-	promptCursorUp int
-	commands       []CommandSuggestion // /命令列表，为空时不显示建议
-	suggestRows    int                 // 上次渲染的建议列表行数（用于清除）
+	input           io.Reader
+	output          io.Writer
+	reader          *bufio.Reader
+	history         []string
+	promptRows      int
+	promptCursorUp  int
+	commands        []CommandSuggestion  // /命令列表，为空时不显示建议
+	suggestRows     int                  // 上次渲染的建议列表行数（用于清除）
+	suggestMatched  []CommandSuggestion  // 当前匹配的列表（上下键选择用）
+	suggestSelected int                  // 当前选中的命令索引
 }
 
 func NewPrompt(input io.Reader, output io.Writer) *Prompt {
@@ -104,6 +106,30 @@ func (p *Prompt) ReadLine(prompt string) (string, bool) {
 			raw.restore()
 			fmt.Fprintln(p.output)
 			return "", false
+		}
+		// 建议列表可见时，上下键移动选择，回车执行选中命令。
+		if p.suggestRows > 0 {
+			switch key {
+			case "up":
+				if p.suggestSelected > 0 {
+					p.suggestSelected--
+					p.renderFrame(prompt, state.runes, state.cursor)
+				}
+				continue
+			case "down":
+				if p.suggestSelected < len(p.suggestMatched)-1 {
+					p.suggestSelected++
+					p.renderFrame(prompt, state.runes, state.cursor)
+				}
+				continue
+			case "enter":
+				// 执行选中的命令，直接返回。
+				selected := "/" + p.suggestMatched[p.suggestSelected].Name
+				p.clearPrompt()
+				raw.restore()
+				p.addHistory(selected)
+				return selected, true
+			}
 		}
 		// Tab 补全：输入以 / 开头时，补全第一个前缀匹配的命令。
 		if key == "tab" {
@@ -522,11 +548,13 @@ func runeCellWidth(r rune) int {
 func (p *Prompt) renderCommandSuggestions(input string) {
 	p.suggestRows = 0
 	if !strings.HasPrefix(input, "/") || len(p.commands) == 0 {
+		p.suggestMatched = nil
 		return
 	}
 	prefix := strings.TrimPrefix(input, "/")
 	// 前缀含空格说明用户在输入参数（如 "/model qwen"），不再显示建议。
 	if strings.Contains(prefix, " ") {
+		p.suggestMatched = nil
 		return
 	}
 
@@ -537,21 +565,37 @@ func (p *Prompt) renderCommandSuggestions(input string) {
 		}
 	}
 	if len(matched) == 0 {
+		p.suggestMatched = nil
 		return
+	}
+
+	// 保存匹配列表，clamp 选中索引到合法范围。
+	p.suggestMatched = matched
+	if p.suggestSelected >= len(matched) {
+		p.suggestSelected = len(matched) - 1
+	}
+	if p.suggestSelected < 0 {
+		p.suggestSelected = 0
 	}
 
 	// 先回到行首，再换行到输入行下方，避免从光标列开始新行导致错位。
 	fmt.Fprint(p.output, "\r\n")
-	for _, cmd := range matched {
+	for i, cmd := range matched {
+		// 选中行用 "> " 标记，其他行用 "  "。
+		marker := "  "
+		if i == p.suggestSelected {
+			marker = "\x1b[38;5;117m>\x1b[0m "
+		}
 		name := "/" + cmd.Name
 		nameWidth := displayWidth([]rune(name))
-		// 命令名 + 前导 2 空格，总宽 suggestNameWidth；不足补空格。
+		// 命令名 + 前导 2 空格（或 marker），总宽 suggestNameWidth；不足补空格。
 		namePad := suggestNameWidth - 2 - nameWidth
 		if namePad < 1 {
 			namePad = 1
 		}
 		// 每行末尾用 \r\n 而非 \n，确保下一行从行首开始。
-		fmt.Fprintf(p.output, "  %s%s%s%s%s%s\r\n",
+		fmt.Fprintf(p.output, "%s%s%s%s%s%s%s\r\n",
+			marker,
 			suggestNameFG, name, suggestReset,
 			strings.Repeat(" ", namePad),
 			suggestDescFG, cmd.Desc+suggestReset)

@@ -451,3 +451,14 @@
   - `main.go`：去掉 `if input == "exit" || input == "quit"` 检查，改用 `dispatchSlash` 的 `shouldExit` 返回值。
 - 验证：`go test ./...` 全部通过；`go vet ./...` 通过。
 - 备注：现在退出只能通过 `/exit` 或 `/quit`，裸 `exit`/`quit` 会交给 agent 当普通输入处理（agent 会尝试理解并回复）。
+
+## 2026-07-01 - 命令建议列表支持上下键选择
+
+- 摘要：命令建议列表新增上下键导航和 `>` 选中标记。用户输入 `/` 后，建议列表第一行默认选中（显示 `>`），按 ↑↓ 移动选择，按回车直接执行选中命令。Tab 补全行为不变（仍补全第一个匹配）。
+- 主要模块：`internal/ui/prompt.go`。
+- 改动要点：
+  - `Prompt` 新增 `suggestMatched []CommandSuggestion`（当前匹配列表）和 `suggestSelected int`（选中索引）字段。
+  - `ReadLine` 循环在 `suggestRows > 0` 时拦截 `up`/`down`/`enter`：上下键移动 `suggestSelected` 并重绘，回车直接返回选中命令。
+  - `renderCommandSuggestions` 保存匹配列表到 `p.suggestMatched`，clamp `suggestSelected` 到合法范围，选中行用 `> ` 标记（light blue），其他行用 `  `。
+- 验证：`go test ./...` 全部通过（59 个 UI 测试）；`go vet ./...` 通过。
+- 备注：选中索引在匹配列表变化时自动 clamp，不会越界。回车执行选中命令后直接返回，跳过 `applyKey` 处理。
