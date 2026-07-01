@@ -475,3 +475,14 @@
   - `prompt_test.go`：`promptPlaceholder` 为空字符串时跳过相关检查（`strings.Contains(text, "")` 总是 true）。
 - 验证：`go test ./...` 全部通过；`go vet ./...` 通过。
 - 备注：对话历史现在占满终端宽度，视觉更统一。banner 仍居中，对话历史和输入框左对齐从终端左边界开始。
+
+## 2026-07-01 - UI 视觉统一：左对齐 + 4 字符统一边距
+
+- 摘要：Banner、对话历史、输入框三者统一为左对齐 + 4 字符左边距，视觉重心一致。
+- 主要模块：`internal/ui/startup.go`、`internal/ui/renderer_frame.go`、`cmd/agent/main.go`。
+- 改动要点：
+  - `startup.go`：`renderWideStartup` 去掉居中计算，改为固定 4 字符左边距。
+  - `renderer_frame.go`：`frameOutputText` 给每行非空行加 4 字符左边距。
+  - `main.go`：`ReadLine` 的 prompt 从 `› ` 改为 `    › `（4 空格 + ›）。
+- 验证：`go test ./...` 全部通过；`go vet ./...` 通过。
+- 备注：三者现在都从终端左边界 + 4 字符位置开始，视觉统一。
