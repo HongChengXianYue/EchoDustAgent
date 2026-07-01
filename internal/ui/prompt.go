@@ -255,7 +255,8 @@ func renderPromptLine(output io.Writer, prompt string, runes []rune, cursor int)
 		}
 		renderPromptRow(output, prompt, line, i == 0, len(runes) == 0)
 		if i < len(lines)-1 {
-			fmt.Fprint(output, "\n")
+			// 用 \r\n 而非 \n，确保续行从行首开始，避免从光标列换行导致错位。
+			fmt.Fprint(output, "\r\n")
 		}
 	}
 	cursorUp := len(lines) - 1 - cursorRow
@@ -512,8 +513,8 @@ func (p *Prompt) renderCommandSuggestions(input string) {
 		return
 	}
 
-	// 空行分隔输入行和建议列表。
-	fmt.Fprintln(p.output)
+	// 先回到行首，再换行到输入行下方，避免从光标列开始新行导致错位。
+	fmt.Fprint(p.output, "\r\n")
 	for _, cmd := range matched {
 		name := "/" + cmd.Name
 		nameWidth := displayWidth([]rune(name))
