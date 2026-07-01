@@ -391,3 +391,29 @@
 - 主要模块：`internal/context/maintenance.go`、`internal/context/maintenance_test.go`、`internal/agent/agent.go`、`internal/agent/agent_test.go`、`internal/agent/options.go`、`docs/WORKLOG.md`。
 - 验证：`gofmt -w internal/context/maintenance.go internal/context/maintenance_test.go internal/agent/agent.go internal/agent/agent_test.go internal/agent/options.go internal/agent/step_budget.go` 完成；`go test ./internal/context ./internal/agent` 通过；`go test ./...` 通过；`go vet ./...` 通过。
 - 备注：本次是结构拆分，不改变剪枝阈值、压缩摘要格式、recent tail 保留策略、runtime event 类型或外部配置字段。
+
+## 2026-06-30 - 输入框长文本粘贴单行裁剪
+
+- 摘要：修复 Linux 终端中使用 `Ctrl+Shift+V` 粘贴长文本后输入框不断产生残留换行的问题。输入状态仍保存完整文本，渲染时按终端宽度只显示光标附近的可见窗口，避免终端自动软换行导致旧物理行无法清理。
+- 主要模块：`internal/ui/prompt.go`、`internal/ui/prompt_test.go`、`docs/WORKLOG.md`。
+- 验证：`gofmt -w internal/ui/prompt.go internal/ui/prompt_test.go` 完成；`go test ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：本次保持输入框为单行 UI，不改变提交内容、历史记录、左右移动和回车行为。后续如需要多行编辑，应改成显式多行布局并记录/清理占用行数。
+
+## 2026-06-30 - 输入框粘贴换行不再自动提交
+
+- 摘要：启用终端 bracketed paste 模式，识别 `Ctrl+Shift+V` 粘贴块并作为普通文本批量插入。粘贴内容中的换行会保存在输入状态中，并在输入框内按多行显示，不再被当成回车提交给 Agent，用户可以继续编辑后再手动按 Enter 提交。
+- 主要模块：`internal/ui/input.go`、`internal/ui/prompt.go`、`internal/ui/prompt_test.go`、`docs/WORKLOG.md`。
+- 验证：`gofmt -w internal/ui/input.go internal/ui/prompt.go internal/ui/prompt_test.go` 完成；`go test ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：输入框现在会记录上次渲染的行数并在重绘前清理旧多行区域；左右移动和退格仍按字符移动，上下键仍保留为历史导航，暂不做多行内垂直光标移动。
+
+## 2026-07-01 - 输入框长文本自动换行
+
+- 摘要：把输入框的渲染模型从"水平滚动 + 裁剪可视窗口"改成"按终端可用宽度自动折行"。超过终端宽度的字符现在会折到下一行显示，而不是被截掉看不见。
+- 主要模块：`internal/ui/prompt.go`、`internal/ui/prompt_test.go`。
+- 改动要点：
+  - `promptDisplayLines()` 重构为两层：先按 `\n` 拆逻辑行，再对每个逻辑行调新加的 `wrapLogicalLine()` 按 cell width 折屏幕行。
+  - `renderPromptRow()` 简化，不再调用 `visiblePromptRunes` 裁剪，`line.Runes` 已是折行后的片段。
+  - 删除不再使用的 `visiblePromptRunes` 函数。
+  - 光标边界行为：wrap 边界让光标落到下一行行首；逻辑行末尾光标落到最后一个 wrap 行末尾。
+- 验证：`go test ./internal/ui/...` 通过（8 个测试，含 3 个新加的 wrap 行为测试：长输入折行、`\n` + 长行、光标在不同 wrap 行的 cursorUp 计算）。`go vet ./...` 通过。
+- 备注：当 prompt 总占用行数超过终端可视高度时，暂未做"跟随光标滚动视图"的处理，多数场景下输入不会这么长，后续如有需要再扩展。

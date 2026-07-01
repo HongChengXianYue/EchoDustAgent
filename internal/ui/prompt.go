@@ -23,10 +23,12 @@ const (
 )
 
 type Prompt struct {
-	input   io.Reader
-	output  io.Writer
-	reader  *bufio.Reader
-	history []string
+	input          io.Reader
+	output         io.Writer
+	reader         *bufio.Reader
+	history        []string
+	promptRows     int
+	promptCursorUp int
 }
 
 func NewPrompt(input io.Reader, output io.Writer) *Prompt {
@@ -53,7 +55,7 @@ func (p *Prompt) ReadLine(prompt string) (string, bool) {
 	}
 
 	state := newLineState(p.history)
-	renderPromptLine(p.output, prompt, state.runes, state.cursor)
+	p.renderPromptLine(prompt, state.runes, state.cursor)
 
 	for {
 		key, err := readKey(p.reader)
@@ -67,13 +69,13 @@ func (p *Prompt) ReadLine(prompt string) (string, bool) {
 			// The renderer echoes submitted prompts as part of the run transcript.
 			// Clear the editable input row so live-frame redraws do not depend on
 			// terminal line-editor leftovers.
-			fmt.Fprint(p.output, "\r\x1b[2K")
+			p.clearPrompt()
 			if ok {
 				p.addHistory(line)
 			}
 			return line, ok
 		}
-		renderPromptLine(p.output, prompt, state.runes, state.cursor)
+		p.renderPromptLine(prompt, state.runes, state.cursor)
 	}
 }
 
@@ -127,12 +129,25 @@ func (s *lineState) applyKey(key string) (string, bool, bool) {
 	case "":
 		return "", false, true
 	default:
-		for _, r := range key {
-			s.runes = append(s.runes[:s.cursor], append([]rune{r}, s.runes[s.cursor:]...)...)
-			s.cursor++
+		if strings.HasPrefix(key, "paste:") {
+			s.insertRunes([]rune(strings.TrimPrefix(key, "paste:")))
+		} else {
+			s.insertRunes([]rune(key))
 		}
 	}
 	return "", false, true
+}
+
+func (s *lineState) insertRunes(input []rune) {
+	if len(input) == 0 {
+		return
+	}
+	next := make([]rune, 0, len(s.runes)+len(input))
+	next = append(next, s.runes[:s.cursor]...)
+	next = append(next, input...)
+	next = append(next, s.runes[s.cursor:]...)
+	s.runes = next
+	s.cursor += len(input)
 }
 
 func (s *lineState) historyUp() {
@@ -160,27 +175,226 @@ func (s *lineState) historyDown() {
 	s.cursor = len(s.runes)
 }
 
-func renderPromptLine(output io.Writer, prompt string, runes []rune, cursor int) {
-	line := string(runes)
-	display := line
-	style := promptBoxFG
-	cursorBack := 0
+func (p *Prompt) renderPromptLine(prompt string, runes []rune, cursor int) {
+	p.clearPrompt()
+	rows, cursorUp := renderPromptLine(p.output, prompt, runes, cursor)
+	p.promptRows = rows
+	p.promptCursorUp = cursorUp
+}
+
+func (p *Prompt) clearPrompt() {
+	if p.promptRows <= 0 {
+		fmt.Fprint(p.output, "\r\x1b[2K")
+		return
+	}
+	if p.promptCursorUp > 0 {
+		fmt.Fprintf(p.output, "\x1b[%dA", p.promptCursorUp)
+	}
+	for i := 0; i < p.promptRows; i++ {
+		fmt.Fprint(p.output, "\r\x1b[2K")
+		if i < p.promptRows-1 {
+			fmt.Fprint(p.output, "\x1b[1B")
+		}
+	}
+	if p.promptRows > 1 {
+		fmt.Fprintf(p.output, "\x1b[%dA", p.promptRows-1)
+	}
+}
+
+func renderPromptLine(output io.Writer, prompt string, runes []rune, cursor int) (int, int) {
+	lines := promptDisplayLines(output, prompt, runes, cursor)
+	cursorRow := 0
+	for i, line := range lines {
+		if line.HasCursor {
+			cursorRow = i
+		}
+		renderPromptRow(output, prompt, line, i == 0, len(runes) == 0)
+		if i < len(lines)-1 {
+			fmt.Fprint(output, "\n")
+		}
+	}
+	cursorUp := len(lines) - 1 - cursorRow
+	if cursorUp > 0 {
+		fmt.Fprintf(output, "\x1b[%dA", cursorUp)
+	}
+	return len(lines), cursorUp
+}
+
+type promptDisplayLine struct {
+	Runes     []rune
+	Cursor    int
+	HasCursor bool
+}
+
+// promptDisplayLines 分两层把用户输入拆成屏幕行：
+//  1. 按 '\n' 拆逻辑行（用户显式换行 / 粘贴的多行文本）。
+//  2. 对每个逻辑行按终端可用宽度（maxWidth）折行成多个显示行，
+//     光标只落在包含它的那一个显示行上。
+//
+// 这样当用户输入超过终端宽度时，剩余字符会自动折到下一行显示，
+// 而不是被裁剪掉。
+func promptDisplayLines(output io.Writer, prompt string, runes []rune, cursor int) []promptDisplayLine {
 	if len(runes) == 0 {
+		return []promptDisplayLine{{HasCursor: true}}
+	}
+	cursor = clamp(cursor, 0, len(runes))
+	maxWidth := promptLineInputWidth(output, prompt)
+	if maxWidth <= 0 {
+		maxWidth = 1
+	}
+
+	type logicalLine struct {
+		runes     []rune
+		cursor    int
+		hasCursor bool
+	}
+	var logical []logicalLine
+	start := 0
+	for i, r := range runes {
+		if r != '\n' {
+			continue
+		}
+		logical = append(logical, logicalLine{
+			runes:     runes[start:i],
+			cursor:    clamp(cursor-start, 0, i-start),
+			hasCursor: cursor >= start && cursor <= i,
+		})
+		start = i + 1
+	}
+	logical = append(logical, logicalLine{
+		runes:     runes[start:],
+		cursor:    clamp(cursor-start, 0, len(runes)-start),
+		hasCursor: cursor >= start,
+	})
+
+	var result []promptDisplayLine
+	for _, ll := range logical {
+		result = append(result, wrapLogicalLine(ll.runes, ll.cursor, ll.hasCursor, maxWidth)...)
+	}
+	return result
+}
+
+// wrapLogicalLine 把一个逻辑行按 maxWidth（cell width）折成多个显示行。
+// cursor 是该行内相对于 runes 的光标位置（0..len(runes)），hasCursor 表示
+// 该行是否包含全局光标。当光标刚好落在 wrap 边界时，让它出现在下一行的
+// 行首，与 readline 类 UI 的直觉一致。
+func wrapLogicalLine(runes []rune, cursor int, hasCursor bool, maxWidth int) []promptDisplayLine {
+	if len(runes) == 0 {
+		return []promptDisplayLine{{Cursor: cursor, HasCursor: hasCursor}}
+	}
+	var result []promptDisplayLine
+	pos := 0
+	for pos < len(runes) {
+		end := pos
+		used := 0
+		for end < len(runes) {
+			w := runeCellWidth(runes[end])
+			if used+w > maxWidth {
+				break
+			}
+			end++
+			used += w
+		}
+		if end == pos {
+			// 单个 rune 就超宽的极端情况（理论上 runeCellWidth 不会返回
+			// 大于 maxWidth 的值，但保险起见至少前进一格避免死循环）。
+			end = pos + 1
+		}
+		// 光标刚好落在 [pos, end) 内才属于当前显示行。若光标正好 == end
+		// 且后面还有内容，则让它落到下一个 wrap 行的行首。
+		lineHasCursor := hasCursor && cursor >= pos && cursor < end
+		lineCursor := 0
+		if lineHasCursor {
+			lineCursor = cursor - pos
+		}
+		result = append(result, promptDisplayLine{
+			Runes:     runes[pos:end],
+			Cursor:    lineCursor,
+			HasCursor: lineHasCursor,
+		})
+		pos = end
+	}
+	// 光标在该逻辑行末尾（== len(runes)）时，落在最后一个 wrap 行的末尾。
+	if hasCursor && cursor == len(runes) {
+		if len(result) == 0 {
+			result = append(result, promptDisplayLine{HasCursor: true})
+		} else {
+			last := &result[len(result)-1]
+			last.HasCursor = true
+			last.Cursor = len(last.Runes)
+		}
+	}
+	// 兜底：如果因为边界判断没有任何行拿到光标，放到首行行首，避免
+	// 光标丢失。
+	if hasCursor {
+		any := false
+		for _, r := range result {
+			if r.HasCursor {
+				any = true
+				break
+			}
+		}
+		if !any && len(result) > 0 {
+			result[0].HasCursor = true
+			result[0].Cursor = 0
+		}
+	}
+	return result
+}
+
+func renderPromptRow(output io.Writer, prompt string, line promptDisplayLine, showPrompt bool, placeholder bool) {
+	promptText := prompt
+	if !showPrompt {
+		// 续行用等宽空格对齐 prompt，使每行可用宽度一致。
+		promptText = strings.Repeat(" ", displayWidth([]rune(prompt)))
+	}
+	display := string(line.Runes)
+	style := promptBoxFG
+	var cursorBack int
+	if placeholder {
+		// 空输入时显示 placeholder，光标回到 placeholder 末尾。
 		display = promptPlaceholder
 		style = promptBoxMutedFG
 		cursorBack = displayWidth([]rune(display))
-	} else {
-		cursorBack = displayWidth(runes[cursor:])
+	} else if line.HasCursor {
+		// 光标回退量 = 光标后内容的 cell 宽度（line.Runes 已是折行后的片段）。
+		cursorBack = displayWidth(line.Runes[line.Cursor:])
 	}
-	fill := promptLineFillWidth(output, prompt, display)
+	fill := promptLineFillWidth(output, promptText, display)
 	leftPad := strings.Repeat(" ", promptBoxLeftPad)
 	rightPad := strings.Repeat(" ", promptBoxRightPad)
 	gap := strings.Repeat(" ", promptPromptSpacing)
-	fmt.Fprintf(output, "\r\x1b[2K%s%s%s%s%s%s%s%s%s", promptBoxBG, leftPad, promptBoxAccentFG, prompt, gap, style, display, strings.Repeat(" ", fill)+rightPad, promptBoxReset)
+	fmt.Fprintf(output, "\r\x1b[2K%s%s%s%s%s%s%s%s%s", promptBoxBG, leftPad, promptBoxAccentFG, promptText, gap, style, display, strings.Repeat(" ", fill)+rightPad, promptBoxReset)
 	fmt.Fprint(output, promptBoxReset)
-	if cursorBack+fill+promptBoxRightPad > 0 {
+	if line.HasCursor && cursorBack+fill+promptBoxRightPad > 0 {
 		fmt.Fprintf(output, "\x1b[%dD", cursorBack+fill+promptBoxRightPad)
 	}
+}
+
+func clamp(value int, min int, max int) int {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
+}
+
+func promptLineInputWidth(output io.Writer, prompt string) int {
+	file, ok := output.(*os.File)
+	if !ok || !isTerminal(file) {
+		return 80
+	}
+	width, _, err := term.GetSize(int(file.Fd()))
+	if err != nil || width <= 0 {
+		return 80
+	}
+	available := width - promptBoxLeftPad - displayWidth([]rune(prompt)) - promptPromptSpacing - promptBoxRightPad - 1
+	if available < 1 {
+		return 1
+	}
+	return available
 }
 
 func promptLineFillWidth(output io.Writer, prompt string, display string) int {

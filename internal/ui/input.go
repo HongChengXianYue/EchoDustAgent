@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -27,29 +28,80 @@ func readKey(reader *bufio.Reader) (string, error) {
 	case 8, 127:
 		return "backspace", nil
 	case 27:
-		next, err := reader.ReadByte()
+		seq, err := readEscapeSequence(reader)
 		if err != nil {
 			return "", err
 		}
-		if next != '[' {
-			return "", nil
-		}
-		arrow, err := reader.ReadByte()
-		if err != nil {
-			return "", err
-		}
-		switch arrow {
-		case 'A':
+		switch seq {
+		case "[A":
 			return "up", nil
-		case 'B':
+		case "[B":
 			return "down", nil
-		case 'C':
+		case "[C":
 			return "right", nil
-		case 'D':
+		case "[D":
 			return "left", nil
+		case "[200~":
+			text, err := readBracketedPaste(reader)
+			if err != nil {
+				return "", err
+			}
+			return "paste:" + text, nil
 		}
 	}
 
+	return decodeInputByte(reader, b)
+}
+
+func readEscapeSequence(reader *bufio.Reader) (string, error) {
+	next, err := reader.ReadByte()
+	if err != nil {
+		return "", err
+	}
+	if next != '[' {
+		return "", nil
+	}
+	var b strings.Builder
+	b.WriteByte(next)
+	for b.Len() < 16 {
+		part, err := reader.ReadByte()
+		if err != nil {
+			return "", err
+		}
+		b.WriteByte(part)
+		switch part {
+		case 'A':
+			fallthrough
+		case 'B':
+			fallthrough
+		case 'C':
+			fallthrough
+		case 'D':
+			fallthrough
+		case '~':
+			return b.String(), nil
+		}
+	}
+	return b.String(), nil
+}
+
+func readBracketedPaste(reader *bufio.Reader) (string, error) {
+	const end = "\x1b[201~"
+	var b strings.Builder
+	for {
+		part, err := reader.ReadByte()
+		if err != nil {
+			return "", err
+		}
+		b.WriteByte(part)
+		text := b.String()
+		if strings.HasSuffix(text, end) {
+			return strings.TrimSuffix(text, end), nil
+		}
+	}
+}
+
+func decodeInputByte(reader *bufio.Reader, b byte) (string, error) {
 	if b < utf8.RuneSelf {
 		return string(rune(b)), nil
 	}
@@ -132,9 +184,11 @@ func enableRawMode(file *os.File) (func(), error) {
 	if err := rawCmd.Run(); err != nil {
 		return nil, err
 	}
+	fmt.Fprint(file, "\x1b[?2004h")
 
 	state := strings.TrimSpace(string(stateBytes))
 	return func() {
+		fmt.Fprint(file, "\x1b[?2004l")
 		restoreCmd := exec.Command("stty", state)
 		restoreCmd.Stdin = file
 		_ = restoreCmd.Run()
