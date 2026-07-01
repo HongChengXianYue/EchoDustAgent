@@ -20,7 +20,6 @@ func (r *BlockRenderer) renderFinal(message string) {
 		printIndented(r.output, "› ", userMessage)
 		r.userMessage = ""
 	}
-	fmt.Fprintln(r.output, separatorLine(r.separatorWidth()))
 	rendered, err := renderMarkdown(r.markdownRenderer, message)
 	if err != nil {
 		fmt.Fprintln(r.output, message)
@@ -66,7 +65,6 @@ func newMarkdownRenderer(wordWrap int) (*glamour.TermRenderer, error) {
 	opts := []glamour.TermRendererOption{
 		glamour.WithStyles(style),
 	}
-	// wordWrap <= 0 时不传 WithWordWrap，glamour 不限制宽度。
 	if wordWrap > 0 {
 		opts = append(opts, glamour.WithWordWrap(wordWrap))
 	}
