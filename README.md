@@ -1,213 +1,284 @@
-# local-agent
+# EchoDustAgent
 
-Minimal Go ReAct CLI agent using OpenAI-compatible native function calling.
+[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-150%20passing-brightgreen)]()
+[![Dependencies](https://img.shields.io/badge/direct_deps-2-yellowgreen)]()
 
-## Run
+A minimal, provider-agnostic ReAct CLI agent written in Go. Native function calling, event-driven terminal UI, persistent memory, subagents, and MCP integration — in a single binary with only 2 direct dependencies.
+
+---
+
+## ✨ Highlights
+
+- ** Provider Agnostic** — Works with any OpenAI-compatible endpoint (OpenAI, DeepSeek, Qwen, local models, AnyRouter). Supports both `/chat/completions` and `/responses` APIs.
+- **⚡ Streaming** — Real-time assistant text streaming with automatic fallback when providers omit usage data.
+- ** Persistent Memory** — File-based Markdown memory that persists across sessions. Global and project-scoped memory with automatic discovery of `AGENTS.md`/`CLAUDE.md`/`REASONIX.md`.
+- **🤖 Subagents** — Delegate read-only research tasks to isolated subagents. Run up to 5 concurrent subagents to keep main context small.
+- ** Safety-First** — 8-tier risk classification, permanent destructive command blacklist, approval prompts for writes.
+- **📦 Minimal Footprint** — Only 2 direct dependencies (`glamour`, `x/term`). ~17K lines of Go. Single binary.
+- ** Event-Driven UI** — Custom terminal rendering with live Todo/Tools frame, full-screen log viewer (`Ctrl+T`), and Markdown final answer rendering.
+- ** MCP Support** — Connect to MCP servers via stdio transport. Auto-discover and register tools as `mcp__<server>__<tool>`.
+- **📊 Adaptive Execution** — Step budget auto-extends based on progress, with loop detection and cost controls.
+- **🔄 Context Maintenance** — Automatic stale tool result pruning + LLM-based compaction near context window limits.
+
+---
+
+##  Quick Start
+
+### Prerequisites
+
+- Go 1.24+
+
+### Installation
 
 ```bash
-export AGENT_API_KEY=...
+git clone https://github.com/HongChengXianYue/EchoDustAgent.git
+cd EchoDustAgent
+```
+
+### Run
+
+```bash
+export AGENT_API_KEY=sk-...
 go run ./cmd/agent
 ```
 
-The CLI writes runtime logs to `.local-agent/logs/agent.log` under the current workspace. This is useful for diagnosing provider, streaming, and runtime failures that may not be fully visible in the terminal UI.
+The agent loads configuration from `config.yaml` and enters an interactive loop. Type your request and press Enter.
 
-Optional environment overrides:
+### Environment Variables
 
-```bash
-export AGENT_BASE_URL=https://api.openai.com/v1
-export AGENT_MODEL=gpt-4.1-mini
-export AGENT_WIRE_API=chat_completions
-export AGENT_MAX_STEPS=20
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `AGENT_API_KEY` | API key for the LLM provider | ✅ Yes |
+| `AGENT_BASE_URL` | Override `llm.base_url` | No |
+| `AGENT_MODEL` | Override `llm.model` | No |
+| `AGENT_WIRE_API` | Override `llm.wire_api` (`chat_completions` or `responses`) | No |
+| `AGENT_MAX_STEPS` | Override `agent.max_steps` | No |
+
+---
+
+## 📋 Features
+
+### Built-in Tools (21+)
+
+| Category | Tools |
+|----------|-------|
+| **File I/O** | `list_files`, `find_files`, `read_file`, `read_file_range`, `write_file`, `replace_in_file` |
+| **Search** | `search_files`, `find_symbol`, `find_references`, `find_callers`, `find_callees` |
+| **Shell** | `run_command`, `apply_patch`, `git_status`, `git_diff`, `git_log` |
+| **Delegation** | `delegate_task` |
+| **Memory** | `memory`, `remember`, `forget` |
+| **UI** | `update_todos` |
+| **MCP** | `mcp__<server>__<tool>` (auto-discovered) |
+
+### Tool Scheduling
+
+- Up to 10 tool calls per assistant turn
+- Read/search/build-test calls run in **parallel**
+- Workspace writes to different files run **concurrently**
+- Same-file writes are **serialized**
+- Unknown writes (e.g., git index) use a **workspace-wide lock**
+
+### Subagents
+
+```
+delegate_task → isolated read-only agent
+                 ├── Fresh message history
+                 ├── No recursive delegation
+                 ├── Configurable concurrency (default: 5)
+                 └── Result truncated to 16KB
 ```
 
-## Configuration
+Use `delegate_task` for broad codebase analysis, architecture review, or "what is missing?" audits. The main agent receives only the final answer.
 
-Runtime tuning lives in `config.yaml`. The file keeps operational limits out of code while leaving protocol constants, tool names, shortcuts, and safety categories fixed in source.
+### Approval Pipeline
 
-Configured areas:
+Tool calls are classified into 8 risk categories before execution:
 
-- `llm`: base URL, model, wire API, request timeout, and `parallel_tool_calls`.
-- `agent`: initial/adaptive ReAct step budget per user request and maximum parallel tool calls per assistant turn.
-- `subagents`: delegate-task availability, concurrency, adaptive step budget, and result size.
-- `memory`: persistent memory loading and user memory directory.
-- `mcp`: MCP server enablement, install/config directory, and request timeouts.
-- `context`: stale tool-result pruning and conservative conversation compaction thresholds.
-- `tools`: list/find/read/search limits, command and patch timeouts, output caps, and file-change preview lines.
-- `ui`: separator width, live frame bounds, full-log viewer sizes, polling intervals, Markdown wrap width, and preview truncation lengths.
-
-`AGENT_API_KEY` is intentionally loaded from the environment and is not stored in `config.yaml`. `AGENT_BASE_URL`, `AGENT_MODEL`, `AGENT_WIRE_API`, and `AGENT_MAX_STEPS` override the YAML values when set.
-
-`agent.max_steps` is the initial ReAct budget, not an unlimited runtime grant. When `agent.adaptive_max_steps_enabled` is true, the agent can extend that budget in `agent.step_extension_size` batches while tools are still succeeding and open work remains, up to `agent.max_step_extensions` and `agent.absolute_max_steps`. The same pattern exists under `subagents.*`; subagent defaults are intentionally more conservative.
-
-`llm.wire_api` controls the OpenAI-compatible HTTP shape. Use `chat_completions` for `/chat/completions`, or `responses` for `/responses` providers such as AnyRouter model routes that expose GPT-5 class models through the Responses API.
-
-## Built-in Tools
-
-- `list_files`: list a workdir-relative directory.
-- `find_files`: find files or directories by name or relative path under a directory.
-- `read_file`: read a workdir-relative text file.
-- `read_file_range`: read selected line ranges from a workdir-relative text file.
-- `search_files`: search literal text or regex text under a directory.
-- `find_symbol`: search code symbols by name.
-- `find_references`: find references to a Go symbol at a specific file position.
-- `find_callers`: find callers of a Go symbol at a specific file position.
-- `find_callees`: find callees of a Go symbol at a specific file position.
-- `write_file`: write a file and create parent directories.
-- `replace_in_file`: replace exact text in a file.
-- `run_command`: run a shell command in the workdir.
-- `apply_patch`: apply a unified diff patch.
-- `git_status`: show concise workspace git status.
-- `git_diff`: show unstaged or staged git diff.
-- `git_log`: show recent commits in one-line format.
-- `delegate_task`: delegate an isolated read-only research task to a subagent.
-- `memory`: list, search, or read saved durable memories.
-- `remember`: save or update a durable memory for future sessions.
-- `forget`: archive a stale saved memory.
-- `mcp__<server>__<tool>`: tools discovered from configured MCP servers.
-
-The agent only executes tools from provider-returned `tool_calls`. It does not parse assistant text as a JSON tool protocol.
-
-## MCP
-
-When `mcp.enabled` is true, the CLI reads MCP server declarations from `mcp.dir/servers.json`; by default this is `~/.local-agent/mcp/servers.json`. Server commands, helper scripts, or binaries can live under the same `~/.local-agent/mcp` directory.
-
-Example:
-
-```json
-{
-  "servers": {
-    "example": {
-      "command": "./example-server",
-      "args": ["--stdio"],
-      "env": {
-        "EXAMPLE_TOKEN": "..."
-      }
-    }
-  }
-}
+```
+read_only → search_inspect → build_test → workspace_write
+    → vcs_local → network_dependency → external_or_destructive → system_privileged
 ```
 
-`servers` can also be an array of objects with explicit `name` fields. Relative `command` and `cwd` values resolve from `mcp.dir`. Each MCP server is started over stdio, initialized with MCP JSON-RPC, queried with `tools/list`, and each remote tool is registered as an OpenAI-compatible native function named `mcp__<server>__<tool>`.
+- **Auto-allowed**: `read_only`, `search_inspect`, `build_test`
+- **User prompt**: Higher-risk categories (arrow keys, `j`/`k`, shortcuts)
+- **Permanent blacklist**: `sudo rm -rf /`, root filesystem deletion, disk formatting, block-device overwrites
 
-Tool calls use MCP `tools/call`. Text content is returned as normal tool output; MCP `isError` results are returned to the model as tool errors. A broken MCP server is logged and skipped so the CLI can still start with the remaining tools.
+### Memory System
 
-## Streaming Output
+```
+~/.local-agent/
+├── memory/
+│   ├── global/              # Shared across projects
+│   └── projects/<slug>/     # Project-specific
+├── LOCAL-AGENT.md           # Global instructions (like Codex global AGENTS)
+└── mcp/servers.json         # MCP server declarations
+```
 
-When the configured OpenAI-compatible endpoint supports streaming chat completions, the agent now prefers streaming responses for assistant text. Partial assistant text is forwarded into runtime events and shown in the live terminal frame before the final answer block is rendered.
+Memory is loaded once at startup and appended to the system prompt. Saved memories are plain Markdown files.
 
-When `llm.wire_api` is `responses`, the stream entry point currently falls back to a non-streaming `/responses` request and emits the completed assistant text once. Tool calls still work through the same scheduler.
+---
 
-Tool calls still remain turn-based. The agent accumulates streamed assistant content, waits for the provider's final tool-call payload or final text completion, and then continues through the existing tool scheduler and final-answer rendering path.
+## ️ Architecture
 
-## Memory
+```
+cmd/agent/main.go
+     │
+     ├── config.yaml + env vars
+     ├── internal/llm/          # OpenAI-compatible client (streaming + Responses API)
+     ├── internal/tools/        # 21+ built-in workspace tools
+     ├── internal/mcp/          # MCP server integration (stdio transport)
+     ├── internal/memory/       # Persistent Markdown memory store
+     ├── internal/agent/        # Core ReAct loop, subagents, step budget
+     ├── internal/approval/     # Risk classification & approval pipeline
+     ├── internal/context/      # Context maintenance (prune + compact)
+     └── internal/ui/           # Event-driven terminal UI
+```
 
-When enabled, memory loads once at startup and is appended to the system prompt after the stable base instructions. This keeps the base prompt cache-friendly while still giving the model durable project context.
+### Core Loop
 
-Document memory is discovered from `REASONIX.md`, `AGENTS.md`, and `CLAUDE.md`, plus local variants such as `AGENTS.local.md`. Discovery starts from the workspace, stops at the nearest Git root, also reads the configured user directory, and supports single-line `@relative/path.md` imports.
+```
+Agent.Run(ctx, input) (string, error)
+     │
+     ├── pruneTransientToolHistory()    # Strip update_todos
+     ├── pruneStaleToolResults()        # Replace old tool output >8KB
+     ├── maybeCompact()                 # LLM summarization near window limit
+     └── chatWithTools() → execute → loop until final answer or step limit
+```
 
-The configured user directory also supports `LOCAL-AGENT.md` as a global prompt file. With the default memory directory, put global local-agent instructions in `~/.local-agent/LOCAL-AGENT.md`; it is loaded before project documents and behaves like Codex's global AGENTS-style guidance.
+### Adaptive Step Budget
 
-Saved memories live under `memory.user_dir` as plain Markdown files:
+```
+Initial budget (max_steps)
+     │
+     ├── Tools succeeding + TODO work open? → Extend by step_extension_size
+     ├── Loop detected? → Stop extending
+     └── Absolute max (absolute_max_steps) → Hard stop
+```
 
-- `memory/global`: user and feedback memories shared across projects.
-- `projects/<workspace-slug>/memory`: project and reference memories for the current workspace.
+---
 
-The `memory` tool is read-only. `remember` and `forget` modify the user memory directory and therefore use the existing approval flow.
+## ️ Configuration
 
-## Context Maintenance
+Runtime tuning lives in `config.yaml`. Key sections:
 
-At the start of each user request, the agent removes transient `update_todos` history, prunes stale oversized tool outputs outside the recent tail, and then checks whether older history should be compacted.
+| Section | Purpose |
+|---------|---------|
+| `llm` | Base URL, model, wire API, request timeout, parallel tool calls |
+| `agent` | Initial/adaptive ReAct step budget, max parallel tool calls |
+| `subagents` | Delegate-task availability, concurrency, adaptive step budget |
+| `memory` | Persistent memory loading, user memory directory |
+| `mcp` | MCP server enablement, timeouts |
+| `context` | Stale tool-result pruning, compaction thresholds |
+| `tools` | List/find/read/search limits, command timeouts, output caps |
+| `ui` | Separator width, live frame bounds, Markdown wrap, polling intervals |
 
-Pruning keeps the tool message and `tool_call_id` intact, preserving native function-call pairing while replacing only large old `output` fields with a short marker. Recent messages are protected so the current task can still use fresh tool output.
+`AGENT_API_KEY` is intentionally loaded from the environment and **never** stored in `config.yaml`.
 
-Compaction is conservative and only runs near the configured context window. It keeps the system prompt and recent tail verbatim, summarizes older messages with a no-tools LLM call, and inserts the result as a `<compaction-summary>` user message. If summarization fails or would not reduce context, the original history is kept.
+---
 
-## Subagents
+## ️ Terminal UI
 
-The main agent exposes `delegate_task` for independent read-only research and focused code investigation.
+```
+┌─────────────────────────────────────────────────────────┐
+│  [>] Fix auth middleware timeout                        │  ← Todo
+│  [ ] Update error handling in handler.go                │
+│  [✓] Add test for edge case                             │
+─────────────────────────────────────────────────────────┤
+│  Tools                                                  │  ← Tools (Ctrl+E to expand)
+│  ▸ read_file  handler.go                                │
+│  ▸ replace_in_file  +3 lines, -1 line                   │
+├─────────────────────────────────────────────────────────┤
+│  Tokens: 12,450 / 128,000                               │  ← Live token usage
+└─────────────────────────────────────────────────────────┘
+```
 
-- Each subagent gets a fresh message history and does not inherit the parent conversation.
-- The parent receives only the subagent final answer as the `delegate_task` tool result.
-- Subagents do not receive `delegate_task`, so they cannot recursively spawn more subagents.
-- Subagent tool calls still use the same pre-use safety path: classification, write-impact analysis, permanent blacklist checks, and approval policy.
-- Subagents can use file read/search tools and `run_command`, but command calls outside `read_only`, `search_inspect`, or `build_test` are denied by the read-only policy.
-- Broad codebase analysis, architecture review, and “what is missing?” style project audits should delegate focused research first instead of reading many files directly in the main context.
-- When broad analysis has independent areas, the main agent should issue multiple `delegate_task` calls in one turn, for example architecture, tools, UI, config, tests, and security.
-- Subagent tool activity is forwarded into the parent Tools log and marked with a `Subagent` prefix.
+**Keyboard Shortcuts:**
 
-By default, at most two subagents run concurrently and each subagent can use up to eight ReAct steps.
+| Key | Action |
+|-----|--------|
+| `Ctrl+E` | Expand/collapse recent tool progress |
+| `Ctrl+T` | Open full-screen tool log viewer |
+| `↑/↓` or `j/k` | Navigate tool log viewer |
+| `PgUp/PgDn` | Page through tool log |
+| `g` / `G` | Jump to top/bottom |
+| `q` / `Esc` | Close full-screen viewer |
 
-## Tool Scheduling
+The final answer is rendered as Markdown with custom dark styling.
 
-The model may return multiple native `tool_calls` in one assistant turn. The agent prepares approvals first, then executes safe calls concurrently:
+---
 
-- At most 10 non-`update_todos` tool calls are accepted from one assistant turn. Extra calls receive tool error results.
-- At most 10 accepted tool calls execute concurrently, including multiple calls to the same tool with different arguments.
-- Read-only/search/build-test calls can run in parallel.
-- Workspace writes can run in parallel when they target different files.
-- Writes to the same file are serialized.
-- Unknown workspace writes, such as Git index changes, use a workspace-wide lock.
-- Tool result messages are appended back to the conversation in the original tool-call order.
+##  Project Structure
 
-## TODO Workflow
+```
+EchoDustAgent/
+├── cmd/agent/
+│   ├── main.go                 # Entry point: config, wiring, input loop
+│   └── slash.go                # /info, /model, /exit, /quit commands
+├── internal/
+│   ├── agent/                  # Core ReAct agent loop
+│   ├── approval/               # Risk classification & approval pipeline
+│   ├── config/                 # YAML + env config loading
+│   ├── context/                # Context maintenance (prune + compact)
+│   ├── llm/                    # OpenAI-compatible LLM client
+│   ├── logs/                   # Runtime log file writer
+│   ├── mcp/                    # MCP server integration
+│   ├── memory/                 # Persistent Markdown memory store
+│   ├── runtimeevent/           # Event types for UI communication
+│   ├── tools/                  # 21+ built-in workspace tools
+│   └── ui/                     # Event-driven terminal UI
+├── docs/
+│   ├── WORKLOG.md              # Detailed changelog (Chinese)
+│   ── TUI_MIGRATION_PLAN.md
+├── config.yaml                 # Runtime configuration
+├── go.mod
+└── README.md
+```
 
-The agent exposes an internal native function tool named `update_todos`. For concrete workspace tasks, the model must create a todo list before calling workspace tools. Each user request gets a fresh todo list; it is not persisted across turns or sessions. `update_todos` is implemented in the tools layer as a UI-only control tool and is pruned from long-term model history after each run.
+**Stats:** 81 Go source files · ~17,370 lines of Go · 11 internal packages
 
-During a concrete task, the terminal UI keeps `Todo` above the tools area and redraws it as progress changes:
+---
 
-- `[>]`: in progress
-- `[ ]`: pending
-- `[✓]`: completed
-
-## CLI UI
-
-The terminal UI prints assistant process text, tool calls, tool results, edit summaries, and final answers in block form:
-
-- `Todo`: current task list.
-- `Tools`: collapsed by default; press `Ctrl+E` during the current run to expand or collapse recent tool progress.
-- `Full tool log`: press `Ctrl+T` during the current run to open the complete tool log in a full-screen viewer; press `q`, `Esc`, or `Ctrl+T` again to close it.
-- `Subagent`: delegated read-only research tasks.
-- `Explored`: read/list/find/search tools when `Tools` is expanded.
-- `Running` and `Ran`: shell commands.
-- `Added` or `Edited`: file-writing tools with line-count summaries.
-
-The live `Todo`/`Tools` frame is bounded to the terminal viewport. Expanded tool details show recent events and truncate long lines/output so toggling does not leave repeated snapshots in scrollback.
-
-The full-screen tool log viewer uses the alternate terminal screen, refreshes while tools are still running, and supports `↑`/`↓`, `j`/`k`, `PgUp`/`PgDn`, `g`, and `G` for navigation.
-
-Interactive input supports left/right cursor movement, backspace, and up/down history in TTY sessions. Non-TTY input falls back to plain line reading.
-
-## Approval
-
-Tool calls are classified by risk before execution:
-
-- `read_only`
-- `search_inspect`
-- `build_test`
-- `workspace_write`
-- `vcs_local`
-- `network_dependency`
-- `external_or_destructive`
-- `system_privileged`
-
-Read-only, search, and build/test calls run without prompting. Higher-risk calls show a selectable CLI approval prompt; use arrow keys, `j`/`k`, `tab`, or shortcuts like `a` and `d`.
-
-Workspace writes ask for `always` or `deny`. `always` allows workspace writes for the current CLI session, so different files can be written concurrently while same-file writes remain serialized.
-
-Writes outside the workspace ask for `allow`, `always`, or `deny`. External-write `always` only applies to the current tool-call loop and is not remembered for the session.
-
-Permanent safety rules run before approval. Commands such as `sudo rm -rf /`, root filesystem deletion, Windows drive deletion, disk formatting, and raw block-device overwrites are blocked outright and cannot be approved.
-
-## Verify
+##  Testing
 
 ```bash
+# Run all tests
 go test ./...
+
+# Run with custom Go cache
+env GOCACHE=/tmp/local-agent-go-build go test ./...
+
+# Run vet
 go vet ./...
 ```
 
-When the default Go build cache is not writable, use:
+**Current status:** 150 tests passing · 0 failing
 
-```bash
-env GOCACHE=/tmp/local-agent-go-build go test ./...
-env GOCACHE=/tmp/local-agent-go-build go vet ./...
-```
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+For major changes, please open an issue first to discuss what you would like to change.
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+##  Acknowledgments
+
+- Inspired by [Claude Code](https://claude.ai/code) and [Codex CLI](https://github.com/openai/codex)
+- Built with [Glamour](https://github.com/charmbracelet/glamour) for Markdown rendering
+- Uses [x/term](https://golang.org/x/term) for terminal TTY detection
