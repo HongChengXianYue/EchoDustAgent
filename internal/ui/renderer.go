@@ -98,6 +98,20 @@ func (r *BlockRenderer) refreshLiveFrameBounds() {
 	r.liveFrameMaxLines, r.liveFrameMaxWidth = liveFrameBounds(outputFile, r.options)
 }
 
+// separatorWidth 返回分隔线宽度：options 指定时用 options，否则用终端宽度。
+func (r *BlockRenderer) separatorWidth() int {
+	if r.options.SeparatorWidth > 0 {
+		return r.options.SeparatorWidth
+	}
+	if outputFile, ok := r.output.(*os.File); ok && isTerminal(outputFile) {
+		width, _, err := term.GetSize(int(outputFile.Fd()))
+		if err == nil && width > 0 {
+			return width
+		}
+	}
+	return 80 // 回退值
+}
+
 func (r *BlockRenderer) HandleEvent(event runtimeevent.Event) {
 	switch event.Type {
 	case runtimeevent.TypeRunEnd:

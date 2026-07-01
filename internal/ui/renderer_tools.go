@@ -11,7 +11,7 @@ import (
 )
 
 func (r *BlockRenderer) writeToolsBlock(output io.Writer) {
-	fmt.Fprintln(output, separatorLine(r.options.SeparatorWidth))
+	fmt.Fprintln(output, separatorLine(r.separatorWidth()))
 	if r.expandedTools {
 		fmt.Fprintln(output, "• Tools (expanded, Ctrl+E to collapse)")
 		if len(r.toolEvents) == 0 {

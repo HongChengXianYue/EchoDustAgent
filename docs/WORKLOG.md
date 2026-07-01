@@ -462,3 +462,16 @@
   - `renderCommandSuggestions` 保存匹配列表到 `p.suggestMatched`，clamp `suggestSelected` 到合法范围，选中行用 `> ` 标记（light blue），其他行用 `  `。
 - 验证：`go test ./...` 全部通过（59 个 UI 测试）；`go vet ./...` 通过。
 - 备注：选中索引在匹配列表变化时自动 clamp，不会越界。回车执行选中命令后直接返回，跳过 `applyKey` 处理。
+
+## 2026-07-01 - 对话历史宽度占满终端，视觉统一
+
+- 摘要：去掉 `MarkdownWordWrap`、`LiveFrameMaxWidth`、`SeparatorWidth` 的固定默认值（从 80/100 改为 0），让对话历史、分隔线、markdown 内容占满终端宽度。新增 `BlockRenderer.separatorWidth()` 方法动态获取终端宽度。修复 `promptPlaceholder` 为空字符串时的测试问题。
+- 主要模块：`internal/ui/options.go`、`internal/ui/renderer.go`、`internal/ui/renderer_final.go`、`internal/ui/renderer_frame.go`、`internal/ui/renderer_todo.go`、`internal/ui/renderer_tools.go`、`internal/ui/prompt_test.go`。
+- 改动要点：
+  - `options.go`：`SeparatorWidth`、`LiveFrameMaxWidth`、`MarkdownWordWrap` 默认值改为 0（表示使用终端宽度/不限制）。`normalizeOptions` 改为 `< 0` 时才替换为默认值，允许 0 表示"自动"。
+  - `renderer.go`：新增 `separatorWidth()` 方法，options 指定时用 options，否则获取终端宽度。
+  - `renderer_final.go`：`newMarkdownRenderer` 在 wordWrap <= 0 时不传 `WithWordWrap` 选项，glamour 不限制宽度。
+  - 所有 `separatorLine(r.options.SeparatorWidth)` 调用改为 `separatorLine(r.separatorWidth())`。
+  - `prompt_test.go`：`promptPlaceholder` 为空字符串时跳过相关检查（`strings.Contains(text, "")` 总是 true）。
+- 验证：`go test ./...` 全部通过；`go vet ./...` 通过。
+- 备注：对话历史现在占满终端宽度，视觉更统一。banner 仍居中，对话历史和输入框左对齐从终端左边界开始。

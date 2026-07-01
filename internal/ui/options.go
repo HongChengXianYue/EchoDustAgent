@@ -21,9 +21,9 @@ type Options struct {
 
 func DefaultOptions() Options {
 	return Options{
-		SeparatorWidth:             80,
+		SeparatorWidth:             0, // 0 = 使用终端宽度
 		LiveFrameMaxLines:          24,
-		LiveFrameMaxWidth:          100,
+		LiveFrameMaxWidth:          0, // 0 = 使用终端宽度
 		LiveFrameHeightMargin:      6,
 		MaxExpandedLiveToolEvents:  6,
 		FullLogDefaultWidth:        100,
@@ -32,7 +32,7 @@ func DefaultOptions() Options {
 		FullLogMinHeight:           6,
 		FullLogPollMilliseconds:    30,
 		TogglePollMilliseconds:     40,
-		MarkdownWordWrap:           100,
+		MarkdownWordWrap:           0, // 0 = 使用终端宽度
 		ToolPreviewOutputChars:     2000,
 		ToolPreviewLongOutputChars: 4000,
 		FileChangePreviewChars:     800,
@@ -42,13 +42,15 @@ func DefaultOptions() Options {
 
 func normalizeOptions(options Options) Options {
 	defaults := DefaultOptions()
-	if options.SeparatorWidth <= 0 {
+	// SeparatorWidth <= 0 时保持 0，表示使用终端宽度。
+	if options.SeparatorWidth < 0 {
 		options.SeparatorWidth = defaults.SeparatorWidth
 	}
 	if options.LiveFrameMaxLines <= 0 {
 		options.LiveFrameMaxLines = defaults.LiveFrameMaxLines
 	}
-	if options.LiveFrameMaxWidth <= 0 {
+	// LiveFrameMaxWidth <= 0 时保持 0，表示使用终端宽度。
+	if options.LiveFrameMaxWidth < 0 {
 		options.LiveFrameMaxWidth = defaults.LiveFrameMaxWidth
 	}
 	if options.LiveFrameHeightMargin <= 0 {
@@ -75,7 +77,8 @@ func normalizeOptions(options Options) Options {
 	if options.TogglePollMilliseconds <= 0 {
 		options.TogglePollMilliseconds = defaults.TogglePollMilliseconds
 	}
-	if options.MarkdownWordWrap <= 0 {
+	// MarkdownWordWrap <= 0 时保持 0，表示不限制宽度（glamour 不 wrap）。
+	if options.MarkdownWordWrap < 0 {
 		options.MarkdownWordWrap = defaults.MarkdownWordWrap
 	}
 	if options.ToolPreviewOutputChars <= 0 {

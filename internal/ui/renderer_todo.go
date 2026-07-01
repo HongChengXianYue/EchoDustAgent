@@ -8,7 +8,7 @@ import (
 )
 
 func (r *BlockRenderer) writeTodoBlock(output io.Writer) {
-	fmt.Fprintln(output, separatorLine(r.options.SeparatorWidth))
+	fmt.Fprintln(output, separatorLine(r.separatorWidth()))
 	fmt.Fprintln(output, "• Todo")
 	if len(r.todos) == 0 {
 		fmt.Fprintln(output, "  └ "+greenText("[ ] Waiting for todo list"))

@@ -19,11 +19,14 @@ func TestRenderPromptLineShowsPlaceholderBox(t *testing.T) {
 		promptBoxMutedFG,
 		promptBoxAccentFG,
 		"›",
-		promptPlaceholder,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("prompt output missing %q: %q", want, text)
 		}
+	}
+	// promptPlaceholder 为空时跳过检查（用户可能禁用了 placeholder）。
+	if promptPlaceholder != "" && !strings.Contains(text, promptPlaceholder) {
+		t.Fatalf("prompt output missing placeholder %q: %q", promptPlaceholder, text)
 	}
 	if !strings.Contains(text, "\x1b[") || !strings.Contains(text, "D") {
 		t.Fatalf("placeholder prompt should move cursor back to input start: %q", text)
@@ -46,7 +49,8 @@ func TestRenderPromptLineShowsTypedTextBox(t *testing.T) {
 	if !strings.Contains(text, "hello") {
 		t.Fatalf("prompt text missing: %q", text)
 	}
-	if strings.Contains(text, promptPlaceholder) {
+	// promptPlaceholder 为空时跳过检查（用户可能禁用了 placeholder）。
+	if promptPlaceholder != "" && strings.Contains(text, promptPlaceholder) {
 		t.Fatalf("prompt placeholder should not be shown when text exists: %q", text)
 	}
 }

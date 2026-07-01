@@ -51,7 +51,7 @@ func (r *BlockRenderer) writeAssistantMessage(output *bytes.Buffer) {
 	if message == "" {
 		return
 	}
-	fmt.Fprintln(output, separatorLine(r.options.SeparatorWidth))
+	fmt.Fprintln(output, separatorLine(r.separatorWidth()))
 	fmt.Fprintln(output, "• Assistant (streaming)")
 	printIndented(output, "  └ ", truncate(message, r.options.ToolPreviewOutputChars))
 }
@@ -62,7 +62,7 @@ func (r *BlockRenderer) writeTokenUsageBlock(output *bytes.Buffer) {
 	if r.mainTokenTotal == 0 && len(r.subagentTokens) == 0 {
 		return
 	}
-	fmt.Fprintln(output, separatorLine(r.options.SeparatorWidth))
+	fmt.Fprintln(output, separatorLine(r.separatorWidth()))
 	total := r.mainTokenTotal
 	hasSubagents := len(r.subagentTokens) > 0
 	if hasSubagents {
@@ -100,7 +100,7 @@ func (r *BlockRenderer) writeFinalTokenSummary() {
 		// calls return usage and the summary will appear.
 		return
 	}
-	fmt.Fprintln(r.output, separatorLine(r.options.SeparatorWidth))
+	fmt.Fprintln(r.output, separatorLine(r.separatorWidth()))
 	total := r.mainTokenTotal
 	if len(r.subagentTokens) == 0 {
 		fmt.Fprintf(r.output, "• Tokens: %s\n", formatTokenCount(r.mainTokenTotal))
@@ -152,7 +152,7 @@ func (r *BlockRenderer) limitLiveFrameText(text string) string {
 }
 
 func (r *BlockRenderer) block(title string, detail string) {
-	fmt.Fprintln(r.output, separatorLine(r.options.SeparatorWidth))
+	fmt.Fprintln(r.output, separatorLine(r.separatorWidth()))
 	printIndented(r.output, "• ", strings.TrimSpace(title))
 	if strings.TrimSpace(detail) != "" {
 		printIndented(r.output, "  └ ", strings.TrimSpace(detail))
