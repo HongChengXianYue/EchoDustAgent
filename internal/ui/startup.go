@@ -10,15 +10,13 @@ import (
 )
 
 const (
-	startupBlue       = "\x1b[38;5;39m"
-	startupLightBlue  = "\x1b[38;5;117m"
-	startupWhite      = "\x1b[38;5;255m"
-	startupMuted      = "\x1b[38;5;248m"
-	startupReset      = "\x1b[0m"
-	startupWideWidth  = 80
-	startupTitle      = "ECHO DUST CODE"
-	// startupHint 提示用户可用命令，替代原来堆在启动详情里的退出说明。
-	startupHint = "type /info for details, exit or quit to stop"
+	startupBlue      = "\x1b[38;5;39m"
+	startupLightBlue = "\x1b[38;5;117m"
+	startupWhite     = "\x1b[38;5;255m"
+	startupMuted     = "\x1b[38;5;248m"
+	startupReset     = "\x1b[0m"
+	startupWideWidth = 80
+	startupTitle     = "ECHO DUST CODE"
 )
 
 var startupBannerLines = []string{
@@ -85,21 +83,11 @@ func renderWideStartup(output io.Writer, info StartupInfo) {
 		fmt.Fprintln(output, strings.Repeat(" ", padding)+color+line+startupReset)
 	}
 	fmt.Fprintln(output)
-	// 启动时不再堆砌详情，只给一行命令提示；详情通过 /info 按需查看。
-	renderStartupHint(output, padding)
-	fmt.Fprintln(output)
 }
 
 func renderCompactStartup(output io.Writer, info StartupInfo) {
 	fmt.Fprintln(output, startupBlue+startupTitle+startupReset)
-	renderStartupHint(output, 0)
 	fmt.Fprintln(output)
-}
-
-// renderStartupHint 在 banner 下方打印一行命令提示，居中偏移与大字对齐。
-func renderStartupHint(output io.Writer, padding int) {
-	hint := startupMuted + startupHint + startupReset
-	fmt.Fprintln(output, strings.Repeat(" ", padding)+hint)
 }
 
 // RenderStartupDetails 按需打印启动详情（workdir / model / mcp tools / log file

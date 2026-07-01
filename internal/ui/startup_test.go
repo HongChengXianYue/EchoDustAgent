@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// 启动时（非终端）只渲染标题 + 命令提示，不再堆详情。
+// 启动时（非终端）只渲染标题，不再堆详情和命令提示。
 func TestRenderStartupBannerFallsBackToCompactForNonTerminal(t *testing.T) {
 	var out bytes.Buffer
 	RenderStartupBanner(&out, StartupInfo{
@@ -20,7 +20,6 @@ func TestRenderStartupBannerFallsBackToCompactForNonTerminal(t *testing.T) {
 	for _, want := range []string{
 		startupBlue,
 		startupTitle,
-		startupHint,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("startup output missing %q:\n%s", want, text)
@@ -29,9 +28,9 @@ func TestRenderStartupBannerFallsBackToCompactForNonTerminal(t *testing.T) {
 	if strings.Contains(text, startupBannerLines[0]) {
 		t.Fatalf("non-terminal output should not render wide banner:\n%s", text)
 	}
-	for _, unwanted := range []string{"workdir:", "model:", "log file:"} {
+	for _, unwanted := range []string{"workdir:", "model:", "log file:", "type /info"} {
 		if strings.Contains(text, unwanted) {
-			t.Fatalf("startup output should not include details (got %q):\n%s", unwanted, text)
+			t.Fatalf("startup output should not include details or hint (got %q):\n%s", unwanted, text)
 		}
 	}
 }
@@ -86,8 +85,8 @@ func TestStartupDetailsOmitsMCPToolsWhenDisabled(t *testing.T) {
 	}
 }
 
-// 宽模式启动只渲染居中 banner + 命令提示，不渲染详情。
-func TestRenderWideStartupRendersBannerAndHintOnly(t *testing.T) {
+// 宽模式启动只渲染居中 banner，不渲染详情和命令提示。
+func TestRenderWideStartupRendersBannerOnly(t *testing.T) {
 	var out bytes.Buffer
 	renderWideStartup(&out, StartupInfo{
 		Workdir: "/tmp/project",
@@ -100,14 +99,14 @@ func TestRenderWideStartupRendersBannerAndHintOnly(t *testing.T) {
 	if !strings.Contains(text, startupBannerLines[0]) {
 		t.Fatalf("wide startup banner missing:\n%s", text)
 	}
-	for _, want := range []string{startupBlue, startupLightBlue, startupMuted, startupHint} {
+	for _, want := range []string{startupBlue, startupLightBlue} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("wide startup output missing %q:\n%s", want, text)
 		}
 	}
-	for _, unwanted := range []string{"workdir:", "model:", "log file:"} {
+	for _, unwanted := range []string{"workdir:", "model:", "log file:", "type /info"} {
 		if strings.Contains(text, unwanted) {
-			t.Fatalf("wide startup should not include details (got %q):\n%s", unwanted, text)
+			t.Fatalf("wide startup should not include details or hint (got %q):\n%s", unwanted, text)
 		}
 	}
 }
