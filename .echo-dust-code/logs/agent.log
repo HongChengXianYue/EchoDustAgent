@@ -1,5 +1,0 @@
-2026/07/03 11:31:05.251711 [INFO] streaming returned no usage, falling back to non-streaming
-2026/07/03 11:31:05.251764 [INFO] token usage: prompt=0 completion=0 total=0
-2026/07/03 11:31:29.750333 [INFO] token usage: prompt=5651 completion=431 total=6082
-2026/07/03 11:32:45.168109 [INFO] token usage: prompt=11647 completion=1225 total=12872
-2026/07/03 11:33:27.286693 [INFO] token usage: prompt=18074 completion=1820 total=19894

@@ -3,6 +3,7 @@ agent
 
 # Local agent runtime state (logs, MCP server config)
 .local-agent/
+.echo-dust-code/
 
 # IDE / tool config (Cursor, CodeGraph)
 .cursor/
