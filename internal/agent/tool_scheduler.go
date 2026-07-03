@@ -173,6 +173,7 @@ func (a *Agent) executePreparedTool(ctx context.Context, step int, plan prepared
 		Tool:     plan.call.Function.Name,
 		Category: plan.category,
 		Args:     plan.args,
+		SubagentIndex: plan.subagentIndex,
 	})
 
 	startedAt := time.Now()
@@ -197,6 +198,7 @@ func (a *Agent) executePreparedTool(ctx context.Context, step int, plan prepared
 		Args:       plan.args,
 		Result:     &result,
 		DurationMS: time.Since(startedAt).Milliseconds(),
+		SubagentIndex: plan.subagentIndex,
 	})
 	return executedToolCall{index: plan.index, call: plan.call, result: result}
 }

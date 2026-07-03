@@ -84,7 +84,7 @@ func (c *stdioClient) Initialize(ctx context.Context) error {
 		"protocolVersion": protocolVersion,
 		"capabilities":    map[string]any{},
 		"clientInfo": map[string]string{
-			"name":    "local-agent",
+			"name":    "echo-dust-code",
 			"version": "0.1.0",
 		},
 	}, &result); err != nil {

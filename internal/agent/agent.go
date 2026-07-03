@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"local-agent/internal/approval"
 	contextmgr "local-agent/internal/context"
@@ -105,7 +106,7 @@ func systemPrompt(workspace string, maxParallelToolCalls int) string {
 		"# Tool Use",
 		"Only call tools when the user asks for a concrete workspace action such as reading, listing, searching, editing files, or running commands.",
 		"Do not inspect the workspace for greetings, small talk, thanks, or general capability questions.",
-		"For concrete workspace tasks, call update_todos before any workspace tool. Keep the todo list current: mark one item in_progress, mark completed items as completed, then move the next item to in_progress.",
+		"A default todo is initialized automatically when you begin concrete workspace tool work without first calling update_todos. Use update_todos to refine or revise that plan, and keep the todo list current: mark one item in_progress, mark completed items as completed, then move the next item to in_progress.",
 		"You may return multiple tool calls in one assistant turn when the calls are independent.",
 		fmt.Sprintf("Do not return more than %d non-update_todos tool calls in one assistant turn. Multiple calls to the same tool with different arguments count separately.", maxParallelToolCalls),
 		"Do not write JSON tool calls in assistant text. Tool calls must use native function calling only.",
@@ -189,6 +190,7 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 		if strings.TrimSpace(resp.Content) != "" {
 			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeAssistantMessage, Message: strings.TrimSpace(resp.Content)})
 		}
+		a.ensureTodoForToolCalls(step, input, resp.ToolCalls)
 		todosBefore := a.todoTool.Items()
 		executedCalls := a.executeToolCalls(ctx, step, resp.ToolCalls)
 		for _, executed := range executedCalls {
@@ -304,6 +306,72 @@ func (a *Agent) initializeAutoTodo() {
 	_ = a.todoTool.SetItems([]tools.TodoItem{
 		{Text: text, Status: tools.TodoInProgress},
 	})
+}
+
+func (a *Agent) ensureTodoForToolCalls(step int, input string, calls []llm.ToolCall) {
+	if a.todoTool.Ready() || !needsAutoTodo(calls) {
+		return
+	}
+	text := strings.TrimSpace(a.autoTodoText)
+	if text == "" {
+		text = mainAutoTodoText(input)
+	}
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	_ = a.todoTool.SetItems([]tools.TodoItem{
+		{Text: text, Status: tools.TodoInProgress},
+	})
+	a.emit(runtimeevent.Event{
+		Step:  step,
+		Type:  runtimeevent.TypeTodoUpdate,
+		Todos: a.todoTool.Items(),
+	})
+}
+
+func needsAutoTodo(calls []llm.ToolCall) bool {
+	hasWorkspaceTool := false
+	for _, call := range calls {
+		if tools.IsUpdateTodosTool(call.Function.Name) {
+			return false
+		}
+		hasWorkspaceTool = true
+	}
+	return hasWorkspaceTool
+}
+
+func mainAutoTodoText(input string) string {
+	input = strings.Join(strings.Fields(strings.TrimSpace(input)), " ")
+	if input == "" {
+		return "Handle user request"
+	}
+	return truncateInlineUTF8("Handle request: "+input, 120)
+}
+
+func truncateInlineUTF8(text string, limit int) string {
+	if limit <= 0 || len(text) <= limit {
+		return text
+	}
+	suffix := "..."
+	if limit <= len(suffix) {
+		return suffix[:limit]
+	}
+	maxBytes := limit - len(suffix)
+	used := 0
+	var builder strings.Builder
+	for len(text) > 0 {
+		r, size := utf8.DecodeRuneInString(text)
+		if r == utf8.RuneError && size == 0 {
+			break
+		}
+		if used+size > maxBytes {
+			break
+		}
+		builder.WriteRune(r)
+		used += size
+		text = text[size:]
+	}
+	return strings.TrimSpace(builder.String()) + suffix
 }
 
 func (a *Agent) resetSubagentIndexes() {

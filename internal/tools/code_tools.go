@@ -181,11 +181,11 @@ func runGoplsPositionTool(ctx context.Context, workdir string, args json.RawMess
 }
 
 func goplsEnv() []string {
-	home := "/tmp/local-agent-home"
-	cacheHome := "/tmp/local-agent-cache"
-	tmpDir := "/tmp/local-agent-tmp"
-	goCache := "/tmp/local-agent-gocache"
-	goPath := "/tmp/local-agent-gopath"
+	home := "/tmp/echo-dust-code-home"
+	cacheHome := "/tmp/echo-dust-code-cache"
+	tmpDir := "/tmp/echo-dust-code-tmp"
+	goCache := "/tmp/echo-dust-code-gocache"
+	goPath := "/tmp/echo-dust-code-gopath"
 	for _, dir := range []string{home, cacheHome, tmpDir, goCache, goPath} {
 		_ = os.MkdirAll(dir, 0755)
 	}

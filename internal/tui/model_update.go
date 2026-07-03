@@ -1,0 +1,309 @@
+package tui
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+
+	"local-agent/internal/approval"
+)
+
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.syncLayout()
+		return m, nil
+	case runtimeEventMsg:
+		m.applyRuntimeEvent(msg.Event)
+		m.syncLayout()
+		return m, nil
+	case approvalPromptMsg:
+		m.approval = &approvalState{
+			Request:  msg.Request,
+			Options:  approval.DecisionOptions(msg.Request),
+			Response: msg.Response,
+		}
+		m.syncLayout()
+		m.viewport.GotoBottom()
+		return m, nil
+	case runFinishedMsg:
+		m.cancelCurrent = nil
+		m.running = false
+		m.interrupting = false
+		m.hideSubagentPanel()
+		if msg.Err != nil && !errors.Is(msg.Err, context.Canceled) && !m.runErrorReported {
+			if !m.lastRunHadFinal && strings.TrimSpace(m.assistantDraft) != "" {
+				m.appendBlock(transcriptBlock{
+					Kind:  blockAssistant,
+					Title: "Agent (partial)",
+					Body:  cleanTerminalText(m.assistantDraft),
+				})
+			}
+			m.appendBlock(transcriptBlock{
+				Kind:  blockError,
+				Title: "Run failed",
+				Body:  msg.Err.Error(),
+			})
+		}
+		if msg.Err != nil {
+			m.assistantDraft = ""
+		}
+		m.syncLayout()
+		return m, nil
+	case SignalMsg:
+		if m.approval != nil {
+			m.resolveApproval(approval.DecisionDeny)
+			return m, nil
+		}
+		if m.running {
+			m.interruptRun()
+			return m, nil
+		}
+		return m, tea.Quit
+	case tea.MouseMsg:
+		return m, m.updateActiveViewport(msg)
+	case tea.KeyMsg:
+		if m.approval != nil {
+			return m.updateApproval(msg)
+		}
+		return m.updateKey(msg)
+	}
+
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+func (m *Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		if m.running {
+			m.interruptRun()
+			return m, nil
+		}
+		return m, tea.Quit
+	case "esc":
+		if m.viewingSubagent {
+			m.viewingSubagent = false
+			m.syncLayout()
+			return m, nil
+		}
+	case "pgup", "pageup", "pgdown", "pagedown":
+		return m, m.updateActiveViewport(msg)
+	case "home":
+		m.gotoActiveTop()
+		return m, nil
+	case "end":
+		m.gotoActiveBottom()
+		return m, nil
+	case "enter":
+		if m.shouldOpenSelectedSubagent() {
+			m.viewingSubagent = true
+			m.syncLayout()
+			return m, nil
+		}
+		return m, m.submitInput()
+	case "up":
+		if m.viewingSubagent {
+			return m, m.updateActiveViewport(msg)
+		}
+		if m.shouldNavigateSubagents() {
+			m.selectPreviousSubagent()
+			return m, nil
+		}
+		if len(m.input.MatchedSuggestions()) == 0 && m.historyUp() {
+			return m, nil
+		}
+	case "down":
+		if m.viewingSubagent {
+			return m, m.updateActiveViewport(msg)
+		}
+		if m.shouldNavigateSubagents() {
+			m.selectNextSubagent()
+			return m, nil
+		}
+		if len(m.input.MatchedSuggestions()) == 0 && m.historyDown() {
+			return m, nil
+		}
+	}
+
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+func (m *Model) updateApproval(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "esc", "n", "N", "d", "D":
+		m.resolveApproval(approval.DecisionDeny)
+	case "pgup", "pageup", "pgdown", "pagedown":
+		return m, m.updateActiveViewport(msg)
+	case "home":
+		m.gotoActiveTop()
+		return m, nil
+	case "end":
+		m.gotoActiveBottom()
+		return m, nil
+	case "left", "up", "k", "K":
+		if m.approval != nil && len(m.approval.Options) > 0 {
+			m.approval.Selected = (m.approval.Selected - 1 + len(m.approval.Options)) % len(m.approval.Options)
+		}
+	case "right", "down", "j", "J", "tab":
+		if m.approval != nil && len(m.approval.Options) > 0 {
+			m.approval.Selected = (m.approval.Selected + 1) % len(m.approval.Options)
+		}
+	case "a", "A", "y", "Y":
+		if decision, ok := m.quickApprovalDecision(approval.DecisionAllow, approval.DecisionAlways); ok {
+			m.resolveApproval(decision)
+		}
+	case "enter":
+		if m.approval != nil && len(m.approval.Options) > 0 {
+			m.resolveApproval(m.approval.Options[m.approval.Selected])
+		}
+	}
+	m.syncLayout()
+	return m, nil
+}
+
+func (m *Model) quickApprovalDecision(primary, fallback approval.Decision) (approval.Decision, bool) {
+	if m.approval == nil {
+		return "", false
+	}
+	for _, option := range m.approval.Options {
+		if option == primary {
+			return option, true
+		}
+	}
+	for _, option := range m.approval.Options {
+		if option == fallback {
+			return option, true
+		}
+	}
+	return "", false
+}
+
+func (m *Model) resolveApproval(decision approval.Decision) {
+	if m.approval == nil {
+		return
+	}
+	response := m.approval.Response
+	m.approval = nil
+	if response != nil {
+		response <- decision
+		close(response)
+	}
+}
+
+func (m *Model) submitInput() tea.Cmd {
+	input := strings.TrimSpace(m.input.Value())
+	if input == "" {
+		return nil
+	}
+	if m.slashFunc != nil && strings.HasPrefix(input, "/") {
+		output, handled, shouldExit := m.slashFunc(input)
+		if handled {
+			m.addHistory(input)
+			m.input.Reset()
+			m.historyPos = len(m.history)
+			m.historyDraft = ""
+			if strings.TrimSpace(output) != "" {
+				m.appendBlock(transcriptBlock{Kind: blockInfo, Title: "Slash", Body: output})
+			}
+			m.syncLayout()
+			if shouldExit {
+				if m.running {
+					m.interruptRun()
+				}
+				return tea.Quit
+			}
+			return nil
+		}
+	}
+	if m.running {
+		m.appendBlock(transcriptBlock{
+			Kind:  blockInfo,
+			Title: "Busy",
+			Body:  "Agent is running. Wait for it to finish or press Ctrl+C to interrupt.",
+		})
+		m.syncLayout()
+		return nil
+	}
+	m.addHistory(input)
+	m.input.Reset()
+	m.historyPos = len(m.history)
+	m.historyDraft = ""
+	return m.startRun(input)
+}
+
+func (m *Model) startRun(input string) tea.Cmd {
+	if m.runFunc == nil {
+		m.appendBlock(transcriptBlock{Kind: blockError, Title: "Run failed", Body: "run function is not configured"})
+		m.syncLayout()
+		return nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancelCurrent = cancel
+	m.running = true
+	m.interrupting = false
+	m.lastRunHadFinal = false
+	m.runErrorReported = false
+	m.assistantDraft = ""
+	return func() tea.Msg {
+		var err error
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				err = fmt.Errorf("agent panic: %v", recovered)
+			}
+		}()
+		err = m.runFunc(ctx, input)
+		return runFinishedMsg{Err: err}
+	}
+}
+
+func (m *Model) interruptRun() {
+	if m.cancelCurrent != nil {
+		m.interrupting = true
+		m.cancelCurrent()
+	}
+}
+
+func (m *Model) addHistory(line string) {
+	if strings.TrimSpace(line) == "" {
+		return
+	}
+	if len(m.history) > 0 && m.history[len(m.history)-1] == line {
+		return
+	}
+	m.history = append(m.history, line)
+	m.historyPos = len(m.history)
+}
+
+func (m *Model) historyUp() bool {
+	if len(m.history) == 0 || m.historyPos == 0 {
+		return false
+	}
+	if m.historyPos == len(m.history) {
+		m.historyDraft = m.input.Value()
+	}
+	m.historyPos--
+	m.input.SetValue(m.history[m.historyPos])
+	return true
+}
+
+func (m *Model) historyDown() bool {
+	if len(m.history) == 0 || m.historyPos >= len(m.history) {
+		return false
+	}
+	m.historyPos++
+	if m.historyPos == len(m.history) {
+		m.input.SetValue(m.historyDraft)
+		return true
+	}
+	m.input.SetValue(m.history[m.historyPos])
+	return true
+}

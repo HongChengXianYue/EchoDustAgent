@@ -33,10 +33,10 @@ subagents:
   result_max_bytes: 6789
 memory:
   enabled: false
-  user_dir: /tmp/local-agent-memory
+  user_dir: /tmp/echo-dust-code-memory
 mcp:
   enabled: true
-  dir: /tmp/local-agent-mcp
+  dir: /tmp/echo-dust-code-mcp
   start_timeout_seconds: 3
   request_timeout_seconds: 4
 context:
@@ -111,13 +111,13 @@ ui:
 	if cfg.Memory.Enabled {
 		t.Fatalf("memory enabled = true, want false")
 	}
-	if cfg.Memory.UserDir != "/tmp/local-agent-memory" {
+	if cfg.Memory.UserDir != "/tmp/echo-dust-code-memory" {
 		t.Fatalf("memory user dir = %q", cfg.Memory.UserDir)
 	}
 	if !cfg.MCP.Enabled {
 		t.Fatalf("mcp enabled = false, want true")
 	}
-	if cfg.MCP.Dir != "/tmp/local-agent-mcp" {
+	if cfg.MCP.Dir != "/tmp/echo-dust-code-mcp" {
 		t.Fatalf("mcp dir = %q", cfg.MCP.Dir)
 	}
 	if cfg.MCP.StartTimeoutSeconds != 3 || cfg.MCP.RequestTimeoutSeconds != 4 {

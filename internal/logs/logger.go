@@ -16,7 +16,7 @@ type Logger struct {
 }
 
 func New(workdir string) (*Logger, error) {
-	dir := filepath.Join(workdir, ".local-agent", "logs")
+	dir := filepath.Join(workdir, ".echo-dust-code", "logs")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
 	}

@@ -171,11 +171,11 @@ func Default() Config {
 		},
 		Memory: MemoryConfig{
 			Enabled: true,
-			UserDir: "~/.local-agent",
+			UserDir: "~/.echo-dust-code",
 		},
 		MCP: MCPConfig{
 			Enabled:               true,
-			Dir:                   "~/.local-agent/mcp",
+			Dir:                   "~/.echo-dust-code/mcp",
 			StartTimeoutSeconds:   10,
 			RequestTimeoutSeconds: 60,
 		},

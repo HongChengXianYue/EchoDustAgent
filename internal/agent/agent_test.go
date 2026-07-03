@@ -375,7 +375,8 @@ func TestRunUsesPromptGuidanceInsteadOfHidingToolsForGreeting(t *testing.T) {
 		"# Final Answers",
 		"Do not inspect the workspace for greetings",
 		"Only call tools when the user asks for a concrete workspace action",
-		"call update_todos before any workspace tool",
+		"default todo is initialized automatically",
+		"Use update_todos to refine or revise that plan",
 		"multiple tool calls in one assistant turn",
 		"more than 10 non-update_todos tool calls",
 		"broad codebase analysis",
@@ -480,7 +481,7 @@ func TestRunExposesToolsForWorkspaceTask(t *testing.T) {
 	}
 }
 
-func TestRunBlocksWorkspaceToolBeforeTodoList(t *testing.T) {
+func TestRunAutoInitializesTodoBeforeWorkspaceTool(t *testing.T) {
 	client := &fakeClient{responses: []*llm.ChatResponse{
 		{
 			ToolCalls: []llm.ToolCall{
@@ -492,17 +493,24 @@ func TestRunBlocksWorkspaceToolBeforeTodoList(t *testing.T) {
 	tool := &namedTool{name: "read_file"}
 	registry := tools.NewRegistry()
 	registry.Register(tool)
+	renderer := &captureRenderer{}
 
 	agent := New(client, registry, 3)
+	agent.SetRenderer(renderer)
 	if _, err := agent.Run(context.Background(), "read README"); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if len(tool.calls) != 0 {
-		t.Fatalf("tool calls = %d, want 0 before todo list", len(tool.calls))
+	if len(tool.calls) != 1 {
+		t.Fatalf("tool calls = %d, want 1 after auto todo init", len(tool.calls))
 	}
-	messages := agent.Messages()
-	if got := messages[len(messages)-2]; got.Role != "tool" || !strings.Contains(got.Content, "requires a todo list") {
-		t.Fatalf("missing todo-required tool result: %#v", got)
+	if len(renderer.events) < 4 || renderer.events[2].Type != runtimeevent.TypeTodoUpdate || renderer.events[3].Type != runtimeevent.TypeToolCall {
+		t.Fatalf("events = %#v, want auto todo update before tool call", renderer.events)
+	}
+	if len(renderer.events[2].Todos) != 1 || !strings.Contains(renderer.events[2].Todos[0].Text, "Handle request: read README") {
+		t.Fatalf("auto todo event = %#v", renderer.events[2])
+	}
+	if messageSnapshotsContain(client.messages, "requires a todo list") {
+		t.Fatalf("auto todo init should avoid todo gate failure: %#v", client.messages)
 	}
 }
 
@@ -575,8 +583,8 @@ func TestRunResetsTodoListForEachUserInput(t *testing.T) {
 	if _, err := agent.Run(context.Background(), "read b"); err != nil {
 		t.Fatalf("second Run() error = %v", err)
 	}
-	if len(tool.calls) != 1 {
-		t.Fatalf("tool calls = %d, want only first run to execute", len(tool.calls))
+	if len(tool.calls) != 2 {
+		t.Fatalf("tool calls = %d, want both runs to execute", len(tool.calls))
 	}
 	if len(client.messages) < 3 {
 		t.Fatalf("client messages snapshots = %d, want at least 3", len(client.messages))

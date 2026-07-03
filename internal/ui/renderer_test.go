@@ -188,7 +188,7 @@ func TestBlockRendererRendersDelegateTaskAsSubagent(t *testing.T) {
 		Result: &tools.Result{
 			Status:  "success",
 			Summary: "subagent completed",
-			Output:  "README describes local-agent.",
+			Output:  "README describes echo dust code.",
 		},
 	})
 
@@ -197,7 +197,7 @@ func TestBlockRendererRendersDelegateTaskAsSubagent(t *testing.T) {
 		"• Subagent",
 		"Task: Inspect README",
 		"subagent completed",
-		"README describes local-agent.",
+		"README describes echo dust code.",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("output missing %q:\n%s", want, text)
@@ -1072,27 +1072,27 @@ func TestBlockRendererRendersTokenUsageInLiveFrame(t *testing.T) {
 
 	// Main agent token usage events.
 	renderer.HandleEvent(runtimeevent.Event{
-		Type:            runtimeevent.TypeTokenUsage,
-		PromptTokens:    100,
+		Type:             runtimeevent.TypeTokenUsage,
+		PromptTokens:     100,
 		CompletionTokens: 20,
-		CumulativeTotal: 120,
+		CumulativeTotal:  120,
 	})
 	renderer.HandleEvent(runtimeevent.Event{
-		Type:            runtimeevent.TypeTokenUsage,
-		PromptTokens:    200,
+		Type:             runtimeevent.TypeTokenUsage,
+		PromptTokens:     200,
 		CompletionTokens: 40,
-		CumulativeTotal: 360,
+		CumulativeTotal:  360,
 	})
 
 	// Subagent token usage event.
 	renderer.HandleEvent(runtimeevent.Event{
-		Type:            runtimeevent.TypeTokenUsage,
-		Source:          "subagent",
-		SubagentIndex:   1,
-		ParentTool:      "Research: architecture",
-		PromptTokens:    50,
+		Type:             runtimeevent.TypeTokenUsage,
+		Source:           "subagent",
+		SubagentIndex:    1,
+		ParentTool:       "Research: architecture",
+		PromptTokens:     50,
 		CompletionTokens: 10,
-		CumulativeTotal: 60,
+		CumulativeTotal:  60,
 	})
 
 	text := out.String()

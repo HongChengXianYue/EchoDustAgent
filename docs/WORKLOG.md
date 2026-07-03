@@ -238,6 +238,20 @@
 - 验证：`git diff --check` 通过；未运行 Go 测试，因为本次仅新增和更新文档。
 - 备注：分析依据来自上游 `main-v2` Go 版本源码和 legacy 缓存基准文档；缓存命中率数字引用上游报告，未在本地独立复测。
 
+## 2026-07-02 - 新增 internal/tui Bubble Tea 交互界面
+
+- 摘要：保留原始 `internal/ui` 目录不动，新增 `internal/tui` 作为新的 Bubble Tea 界面实现；TTY 交互模式默认切到新 TUI，非 TTY 继续走旧 `internal/ui`。同时把 slash 命令改成可返回文本，方便 TUI 在界面内展示 `/info`、`/model` 和未知命令输出。
+- 主要模块：`internal/tui`、`cmd/agent/main.go`、`cmd/agent/slash.go`、`go.mod`、`go.sum`。
+- 验证：`go mod tidy` 通过；`gofmt -w cmd/agent/main.go cmd/agent/slash.go cmd/agent/slash_test.go internal/tui/bridge.go internal/tui/helpers.go internal/tui/model.go internal/tui/model_test.go` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：新 TUI 已接入滚轮滚动、审批弹窗、运行时事件转发、slash 建议和运行中中断；旧 `internal/ui` 仍保留并作为非交互终端回退路径。由于引入 `github.com/charmbracelet/bubbles v1.0.0`，模块 `go` 版本提升为 `1.24.2`。
+
+## 2026-07-02 - TUI 改成大 Banner + 无框内容区
+
+- 摘要：按新的终端布局要求，去掉中间 `Session` 固定边框盒子，顶部改为大号 `ECHO DUST CODE` banner，中间内容区改成无框滚动区，底部改成独立输入框。
+- 主要模块：`internal/tui/model.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
+- 验证：`gofmt -w internal/tui/model.go internal/tui/model_test.go` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
+- 备注：宽终端下显示 ASCII 大字 banner，窄终端下自动回退为紧凑标题；输入框保留 slash 建议，但不再在内容区外层加固定边框。
+
 ## 2026-06-18 - Reasonix 风格 Memory
 
 - 摘要：新增 `internal/memory` 包，实现启动时层级文档记忆加载、`@path` 导入、稳定 system prompt 拼接、Markdown 持久 fact store，以及 `memory`、`remember`、`forget` 三个原生工具；入口按配置加载 memory 并注册工具，主 agent 和 subagent 都继承同一个 memory block。
@@ -486,3 +500,126 @@
   - `main.go`：`ReadLine` 的 prompt 从 `› ` 改为 `    › `（4 空格 + ›）。
 - 验证：`go test ./...` 全部通过；`go vet ./...` 通过。
 - 备注：三者现在都从终端左边界 + 4 字符位置开始，视觉统一。
+
+## 2026-07-02 - TUI 布局改成大 Banner 与底部输入框
+
+- 摘要：按新的终端布局要求调整 `internal/tui`，顶部改为大号 `ECHO DUST CODE` banner，中间改为无框内容滚动区，底部改为独立输入框，并移除旧的 `Session` 固定边框感。
+- 主要模块：`internal/tui/model.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
+- 验证：`gofmt -w internal/tui/model.go internal/tui/model_test.go` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
+- 备注：宽终端下显示 ASCII 大字 banner，窄终端下自动回退为紧凑标题；slash 建议仍保留，但输入框现在作为底部独立区域渲染。
+
+## 2026-07-02 - 主 Agent 缺失 todo 时自动初始化
+
+- 摘要：主 Agent 在一轮响应包含 workspace tool、但模型没有显式调用 `update_todos` 时，会自动补一个默认 todo，并先发出 `todo_update` 事件，避免工具执行前反复撞上 “requires a todo list” 门禁。
+- 主要模块：`internal/agent/agent.go`、`internal/agent/agent_test.go`、`docs/WORKLOG.md`。
+- 验证：`gofmt -w internal/agent/agent.go internal/agent/agent_test.go` 通过；`go test ./internal/agent` 通过；`go vet ./...` 通过；`git diff --check` 通过；`go test ./...` 未完全通过，失败原因是 `internal/tools` 的 `TestGoCodeNavigationTools` 依赖 `gopls`，当前环境 `PATH` 中不存在该可执行文件。
+- 备注：system prompt 同步改为“默认 todo 会自动初始化，`update_todos` 用于细化计划”；如果模型本轮已经显式调用 `update_todos`，则不会重复自动补 todo。
+
+## 2026-07-02 - TUI 增加 subagent 折叠面板与详情视图
+
+- 摘要：为 `internal/tui` 增加独立的 subagent 面板，默认把每个 subagent 的工具输出折叠成列表项，不再把大量子任务日志直接塞进主对话滚动区。输入框上方新增 subagent 选择框，支持 `↑/↓` 选择、`Enter` 进入详情、`Esc` 返回列表；主内容区和 subagent 详情区都支持 `End` 直达底部。
+- 主要模块：`internal/tui/model.go`、`internal/tui/helpers.go`、`internal/tui/model_test.go`、`internal/agent/tool_scheduler.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - `model.go`：新增 subagent 会话状态、独立 viewport、折叠列表渲染和详情渲染；把 `delegate_task` 及转发的 subagent 事件从主 transcript 中剥离，改为单独归档到 subagent 面板。
+  - `model.go`：键盘交互新增列表选择与详情切换逻辑；`End` 现在会作用于当前活跃显示区，详情打开时直达 subagent 输出底部。
+  - `helpers.go`：新增单行截断辅助函数，避免任务摘要在 subagent 列表里换行打乱布局。
+  - `model_test.go`：新增默认折叠、上下选择/进入详情、详情区滚轮滚动与 `End` 跳底测试。
+- 验证：`gofmt -w internal/tui/model.go internal/tui/helpers.go internal/tui/model_test.go` 通过；`go test ./internal/tui ./internal/agent` 通过；`go vet ./...` 通过；`git diff --check` 通过；`go test ./...` 未完全通过，失败原因仍是 `internal/tools` 的 `TestGoCodeNavigationTools` 依赖 `gopls`，当前环境 `PATH` 中不存在该可执行文件。
+- 备注：subagent 列表默认优先吃掉空输入状态下的 `↑/↓`，因此有 subagent 面板时，空输入状态不会再直接进入历史命令导航；需要看某个子任务详情时先选中再按 `Enter`。
+
+## 2026-07-02 - TUI 按功能拆分文件
+
+- 摘要：按职责把 `internal/tui/model.go` 和 `internal/tui/helpers.go` 拆成多个小文件，避免状态定义、输入更新、事件处理、布局渲染、subagent 面板、tool 文案、文本清洗和 markdown 配置全部堆在两个超大文件里。
+- 主要模块：`internal/tui/model.go`、`internal/tui/model_update.go`、`internal/tui/model_events.go`、`internal/tui/model_layout.go`、`internal/tui/model_render.go`、`internal/tui/model_subagent.go`、`internal/tui/transcript.go`、`internal/tui/toolfmt.go`、`internal/tui/text.go`、`internal/tui/markdown.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - `model.go`：仅保留 `Model` 结构、基础类型、banner 常量、构造函数和 options 归一化，作为 TUI 状态骨架。
+  - `model_update.go` / `model_events.go`：把 Bubble Tea `Update` 流程、输入提交、approval 选择、运行生命周期和 runtime event 消费拆开。
+  - `model_layout.go` / `model_render.go` / `model_subagent.go`：把布局计算、主界面渲染和 subagent 列表/详情逻辑分层，便于后续只改一个板块。
+  - `transcript.go` / `toolfmt.go` / `text.go` / `markdown.go`：把原 `helpers.go` 里的基础 transcript 类型、tool 事件标题/详情、终端文本清洗、markdown renderer 配置拆开。
+- 验证：`gofmt -w internal/tui/*.go` 通过；`go test ./internal/tui` 通过；`go test ./internal/agent` 通过；`go vet ./...` 通过；`git diff --check` 通过；`go test ./...` 未完全通过，失败原因仍是 `internal/tools` 的 `TestGoCodeNavigationTools` 依赖 `gopls`，当前环境 `PATH` 中不存在该可执行文件。
+- 备注：这次重构只调整文件边界，不改 TUI 对外接口和现有交互行为；后续如果继续拆分，优先考虑把 `model_subagent.go` 和 `toolfmt.go` 再细化，而不是重新引入跨文件状态耦合。
+
+## 2026-07-02 - Subagent 面板在父 Run 完成后自动隐藏
+
+- 摘要：修正 TUI subagent 面板生命周期。之前面板一旦收到 subagent 事件就会一直显示到下一轮 `run_start`，即使 subagent 已结束、主 Agent 已经输出最终结果，输入框上方的子任务框也不会消失。现在父 Run 产出 `final` 或结束时会自动隐藏该面板。
+- 主要模块：`internal/tui/model.go`、`internal/tui/model_events.go`、`internal/tui/model_update.go`、`internal/tui/model_render.go`、`internal/tui/model_subagent.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - 新增 `showSubagents` 显示开关，把 subagent 面板从“只要有历史 session 就显示”改成“当前 run 期间收到 subagent 事件才显示”。
+  - 在 `TypeFinal`、`TypeRunEnd` 和 `runFinishedMsg` 路径统一调用 `hideSubagentPanel()`，关闭 subagent 列表/详情视图。
+  - `renderSubagentPanel()`、布局高度计算和空输入态上下键选择逻辑都改为依赖 `showSubagents`，隐藏后不会再占位或抢键盘焦点。
+  - 新增回归测试：主 Agent 收到 `final` 后，subagent 面板必须从界面消失。
+- 验证：`gofmt -w internal/tui/model.go internal/tui/model_events.go internal/tui/model_update.go internal/tui/model_render.go internal/tui/model_subagent.go internal/tui/model_test.go` 通过；`go test ./internal/tui ./internal/agent` 通过；`go vet ./...` 通过；`git diff --check` 通过；`go test ./...` 未完全通过，失败原因仍是 `internal/tools` 的 `TestGoCodeNavigationTools` 依赖 `gopls`，当前环境 `PATH` 中不存在该可执行文件。
+- 备注：这次修正是“自动隐藏”，不是“自动清空 subagent session 数据”；隐藏后的历史状态仍留在内存里，直到下一轮 `run_start` 重置。
+
+## 2026-07-02 - 启动页改为纯 Banner，移除顶部元信息与默认提示文案
+
+- 摘要：按新的视觉要求收紧 TUI 启动页。顶部只保留 `ECHO DUST CODE` banner，不再渲染 `cwd/model/status/todos/tool/tokens/log` 元信息行；空会话也不再预置 `Ready` / `/info` 提示和 `No conversation yet.` 占位文本。
+- 主要模块：`internal/tui/model.go`、`internal/tui/model_render.go`、`internal/tui/model_layout.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - `NewModel()` 去掉默认 `Ready` block，启动时主内容区不再自动插入提示文案。
+  - `renderHeader()` 改为只返回 banner，本轮不再展示顶部状态元信息。
+  - `rebuildViewportContent()` 在空内容时保留空白，不再塞入 `No conversation yet.`。
+  - 新增启动页回归测试，确保 idle 视图不再出现 `cwd`、`status idle`、`Ready`、`/info` 等文字。
+- 验证：`gofmt -w internal/tui/model.go internal/tui/model_render.go internal/tui/model_layout.go internal/tui/model_test.go` 通过；`go test ./internal/tui ./internal/agent` 通过；`go vet ./...` 通过；`git diff --check` 通过；`go test ./...` 未完全通过，失败原因仍是 `internal/tools` 的 `TestGoCodeNavigationTools` 依赖 `gopls`，当前环境 `PATH` 中不存在该可执行文件。
+- 备注：这次改动也顺带让首页更接近“空白工作台”而不是“信息看板”；如果后续还要保留运行状态信息，更合适的放置点应该是输入框附近的轻量状态位，而不是 banner 下方一整行。
+
+## 2026-07-02 - TUI 仅显示工具调用，不显示工具结果
+
+- 摘要：调整 `internal/tui` 的 tool event 展示规则。现在主对话区和 subagent 详情区都会显示所有 `tool_call`，但不再展示任何 `tool_result` 内容；界面只保留“调用了什么工具”这一层信息。
+- 主要模块：`internal/tui/toolfmt.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - `toolEventTitle()`：`TypeToolCall` 统一收敛到工具名级别展示，例如 `Tool read_file`、`Tool run_command`；不再按工具种类拼接命令详情或把 explore/edit 工具静默掉。
+  - `toolEventTitle()`：`TypeToolResult` 统一返回空字符串，从渲染层彻底隐藏所有工具结果 block。
+  - `toolEventDetail()`：`TypeToolCall` 与 `TypeToolResult` 都不再返回正文，界面只看标题，不再泄露工具结果、命令输出、文件预览或 explore 内容。
+  - `model_test.go`：新增回归测试，确保主对话区显示 `tool_call` 但隐藏 `tool_result`；subagent 详情区也只显示工具名，不显示结果输出。
+- 验证：`gofmt -w internal/tui/toolfmt.go internal/tui/model_test.go` 通过；`go test ./internal/tui ./internal/agent` 通过；`go vet ./...` 通过；`git diff --check` 通过；`go test ./...` 未完全通过，失败原因仍是 `internal/tools` 的 `TestGoCodeNavigationTools` 依赖 `gopls`，当前环境 `PATH` 中不存在该可执行文件。
+- 备注：这次改动只影响 TUI 的事件可视化，不影响 runtime event 发射本身；如果后续需要更细粒度控制，可以把“主区只看 tool_call / subagent 详情看 tool_call+assistant message”单独抽成策略函数。
+
+## 2026-07-03 - Tool Call 展示参数，继续隐藏 Tool Result
+
+- 摘要：在 `internal/tui` 中恢复 `tool_call` 参数展示。现在主对话区和 subagent 详情区会显示“工具名 + 参数”，但仍然不展示任何 `tool_result` 内容。
+- 主要模块：`internal/tui/toolfmt.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - `toolEventDetail()` 对 `TypeToolCall` 恢复参数渲染：普通工具显示 compact JSON 参数，`delegate_task` 保留任务摘要格式。
+  - `toolEventDetail()` 对 `TypeToolResult` 继续保持空返回，工具结果、命令输出、文件预览和搜索正文仍不会出现在 TUI 中。
+  - `model_test.go`：补充主对话区与 subagent 详情区测试，确保都能看到 `tool_call` 参数，同时继续看不到 `tool_result` 输出。
+- 验证：`gofmt -w internal/tui/toolfmt.go internal/tui/model_test.go` 通过；`go test ./internal/tui ./internal/agent` 通过；`go vet ./...` 通过；`git diff --check` 通过；`go test ./...` 通过。
+- 备注：当前参数展示使用 compact JSON，优点是实现简单且适用于所有工具；如果后续要进一步压缩视觉噪音，可以只对 `read_file` / `search_files` / `run_command` 做定制化参数摘要。
+
+## 2026-07-03 - Tool Call 前增加绿色状态点
+
+- 摘要：为 TUI 中的工具调用块增加单独的视觉标记。现在 `tool_call` 会以前置绿色实心点 `●` 显示，便于在长对话中快速扫出工具调用位置。
+- 主要模块：`internal/tui/transcript.go`、`internal/tui/model.go`、`internal/tui/model_events.go`、`internal/tui/model_subagent.go`、`internal/tui/model_layout.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - 新增 `blockToolCall` transcript 类型，把工具调用从普通 info block 里单独分流。
+  - 主对话区和 subagent 详情区在接收 `TypeToolCall` 时都改用 `blockToolCall`，保持视觉一致。
+  - `renderBlock()` 为 `blockToolCall` 渲染 `● + 标题`，其中点为绿色，标题用独立的 tool call 标题样式。
+  - 新增测试，确保工具调用块渲染时带有状态点。
+- 验证：`gofmt -w internal/tui/transcript.go internal/tui/model.go internal/tui/model_events.go internal/tui/model_subagent.go internal/tui/model_layout.go internal/tui/model_test.go` 通过；`go test ./internal/tui ./internal/agent` 通过；`go vet ./...` 通过；`git diff --check` 通过；`go test ./...` 通过。
+- 备注：这次只给工具调用加点，不影响 assistant/user/error 等其他块的标题样式；如果后续需要更贴近参考图，可以继续把工具标题改成更暖色的高对比度配色。
+
+## 2026-07-03 - 审批改为贴着请求块的行内选项
+
+- 摘要：把 `internal/tui` 的审批交互从居中 modal 改成 transcript 内联展示。现在出现审批时，不会再覆盖整屏，而是在 `Approval requested` 这条请求块下面直接展开可选项，更接近旧 CLI UI 的工作方式。
+- 主要模块：`internal/tui/transcript.go`、`internal/tui/model.go`、`internal/tui/model_events.go`、`internal/tui/model_layout.go`、`internal/tui/model_render.go`、`internal/tui/model_update.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - 新增 `blockApprovalRequest`，把审批请求从普通 info block 里单独标识出来，方便在对应位置挂载审批选项。
+  - 移除 `renderApprovalScreen()` 的全屏弹窗逻辑，`View()` 恢复正常 banner + transcript + 输入框布局。
+  - `rebuildViewportContent()` 现在会把审批选项直接插在最新的审批请求块下方；如果 `approvalPromptMsg` 比 `approval_request` 事件先到，还会临时补一个内联审批块，避免界面空窗。
+  - 审批进行中保留原有键盘决策逻辑，同时恢复滚轮、`PgUp/PgDn/Home/End` 对主内容区的滚动能力。
+  - 新增回归测试，覆盖“行内审批渲染”和“prompt 先于 runtime event 到达”的场景。
+- 验证：`gofmt -w internal/tui/transcript.go internal/tui/model.go internal/tui/model_events.go internal/tui/model_render.go internal/tui/model_layout.go internal/tui/model_update.go internal/tui/model_test.go` 通过；`go test ./internal/tui ./internal/agent` 通过；`go vet ./...` 通过；`git diff --check` 通过；`go test ./...` 通过。
+- 备注：这次只改审批呈现层，不改 Agent 的审批事件时序；工具真正执行前仍然先发 `approval_request`，用户确认后才会进入 `tool_call`。
+
+## 2026-07-03 - local-agent 品牌名切换为 echo dust code
+
+- 摘要：把项目里用户可见的 `local-agent` 品牌名切换为 `echo dust code`，同步调整默认记忆目录、MCP 目录、日志目录、全局记忆文档名和对外 client 标识；Go 模块名与 import path 保持 `local-agent` 不变，避免把这次品牌调整升级成模块迁移。
+- 主要模块：`config.yaml`、`README.md`、`docs/TUI_MIGRATION_PLAN.md`、`internal/config/config.go`、`internal/logs/logger.go`、`internal/memory/doc.go`、`internal/memory/memory_test.go`、`internal/mcp/stdio.go`、`internal/llm/responses.go`、`internal/tools/code_tools.go`、`internal/ui/startup_test.go`、`internal/ui/renderer_test.go`、`internal/config/config_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - 默认用户目录和 MCP 目录从 `~/.local-agent` 改为 `~/.echo-dust-code`，工作区日志目录从 `.local-agent/logs` 改为 `.echo-dust-code/logs`。
+  - 全局记忆文档默认名改为 `ECHO-DUST-CODE.md`，同时保留对旧 `LOCAL-AGENT.md` 的兼容加载，避免已有用户配置失效。
+  - Responses API 的 `prompt_cache_key`、`client_metadata.client` 以及 MCP `clientInfo.name` 改为 `echo-dust-code`。
+  - README 和迁移文档里的品牌文案、目录示例和缓存路径示例同步更新。
+  - 测试用例和临时目录命名同步改到新品牌，并新增旧 `LOCAL-AGENT.md` 兼容回归测试。
+- 验证：`gofmt -w internal/config/config.go internal/logs/logger.go internal/memory/doc.go internal/memory/memory_test.go internal/mcp/stdio.go internal/llm/responses.go internal/tools/code_tools.go internal/ui/startup_test.go internal/ui/renderer_test.go internal/config/config_test.go` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
+- 备注：这次没有修改 `go.mod` 的 `module local-agent`，也没有改任何 import path；如果后续要把模块名也迁移到新品牌，需要单独做一次完整的 Go 模块重命名和下游兼容处理。

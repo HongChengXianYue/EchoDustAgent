@@ -1,4 +1,4 @@
-# local-agent TUI 迁移方案
+# echo dust code TUI 迁移方案
 
 > 基于 2025 年对话分析整理。当前 UI 使用手写 ANSI 转义码（事件驱动 + 实时帧覆盖 + 折叠输出），本文件记录引入 Bubble Tea TUI 的全套方案。
 

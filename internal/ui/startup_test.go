@@ -13,7 +13,7 @@ func TestRenderStartupBannerFallsBackToCompactForNonTerminal(t *testing.T) {
 		Workdir: "/tmp/project",
 		Model:   "test-model",
 		WireAPI: "responses",
-		LogFile: "/tmp/project/.local-agent/logs/agent.log",
+		LogFile: "/tmp/project/.echo-dust-code/logs/agent.log",
 	})
 
 	text := out.String()

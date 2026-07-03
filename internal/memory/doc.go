@@ -1,4 +1,4 @@
-// Package memory implements cache-friendly persistent memory for local-agent.
+// Package memory implements cache-friendly persistent memory for echo dust code.
 //
 // It follows the Reasonix shape: project/user memory files are discovered once
 // at startup and folded into the system prompt, while saved facts live in plain
@@ -24,12 +24,15 @@ const (
 )
 
 var docNames = []string{"REASONIX.md", "AGENTS.md", "CLAUDE.md"}
-var userDocNames = []string{"LOCAL-AGENT.md", "REASONIX.md", "AGENTS.md", "CLAUDE.md"}
+
+// Keep the legacy LOCAL-AGENT.md fallback so existing user setups continue to
+// load after the branding rename.
+var userDocNames = []string{"ECHO-DUST-CODE.md", "LOCAL-AGENT.md", "REASONIX.md", "AGENTS.md", "CLAUDE.md"}
 var localNames = []string{"REASONIX.local.md", "AGENTS.local.md", "CLAUDE.local.md"}
 
 const (
 	defaultDocName     = "AGENTS.md"
-	defaultUserDocName = "LOCAL-AGENT.md"
+	defaultUserDocName = "ECHO-DUST-CODE.md"
 	defaultLocalName   = "AGENTS.local.md"
 	maxImportDepth     = 5
 )

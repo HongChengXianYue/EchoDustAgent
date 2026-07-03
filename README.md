@@ -1,4 +1,4 @@
-# EchoDustAgent
+# Echo Dust Code
 
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -108,11 +108,11 @@ read_only → search_inspect → build_test → workspace_write
 ### Memory System
 
 ```
-~/.local-agent/
+~/.echo-dust-code/
 ├── memory/
 │   ├── global/              # Shared across projects
 │   └── projects/<slug>/     # Project-specific
-├── LOCAL-AGENT.md           # Global instructions (like Codex global AGENTS)
+├── ECHO-DUST-CODE.md       # Global instructions (like Codex global AGENTS)
 └── mcp/servers.json         # MCP server declarations
 ```
 
@@ -212,7 +212,7 @@ The final answer is rendered as Markdown with custom dark styling.
 ##  Project Structure
 
 ```
-EchoDustAgent/
+echo-dust-code/
 ├── cmd/agent/
 │   ├── main.go                 # Entry point: config, wiring, input loop
 │   └── slash.go                # /info, /model, /exit, /quit commands
@@ -247,7 +247,7 @@ EchoDustAgent/
 go test ./...
 
 # Run with custom Go cache
-env GOCACHE=/tmp/local-agent-go-build go test ./...
+env GOCACHE=/tmp/echo-dust-code-go-build go test ./...
 
 # Run vet
 go vet ./...

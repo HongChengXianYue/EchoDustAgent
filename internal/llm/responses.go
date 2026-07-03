@@ -135,9 +135,9 @@ func (c *OpenAICompatibleClient) responsesRequestBody(messages []Message, tools 
 		Store:             false,
 		Stream:            stream,
 		Include:           include,
-		PromptCacheKey:    "local-agent",
+		PromptCacheKey:    "echo-dust-code",
 		ClientMetadata: map[string]string{
-			"client": "local-agent",
+			"client": "echo-dust-code",
 		},
 	}
 	return reqBody

@@ -10,6 +10,9 @@ import (
 	"syscall"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"golang.org/x/term"
+
 	"local-agent/internal/agent"
 	"local-agent/internal/approval"
 	"local-agent/internal/config"
@@ -18,6 +21,7 @@ import (
 	"local-agent/internal/mcp"
 	"local-agent/internal/memory"
 	"local-agent/internal/tools"
+	"local-agent/internal/tui"
 	"local-agent/internal/ui"
 )
 
@@ -69,9 +73,6 @@ func main() {
 		ParallelToolCalls: cfg.LLM.ParallelToolCalls,
 	})
 	codingAgent := agent.NewWithWorkspaceAndOptions(client, registry, cfg.Agent.MaxSteps, workdir, agentOptions(cfg.Agent, cfg.Subagents, cfg.Context, loadedMemory))
-	renderer := ui.NewInteractiveBlockRendererWithOptions(os.Stdin, os.Stdout, uiOptions(cfg.UI))
-	codingAgent.SetRenderer(renderer)
-	codingAgent.SetApprover(approval.NewMemoryApprover(approval.NewTerminalApprover(os.Stdin, os.Stdout)))
 
 	startupInfo = ui.StartupInfo{
 		Workdir:    workdir,
@@ -81,7 +82,59 @@ func main() {
 		MCPTools:   mcpToolCount(mcpManager),
 		LogFile:    logger.Path(),
 	}
-	ui.RenderStartupBanner(os.Stdout, startupInfo)
+
+	if isInteractiveTTY(os.Stdin) && isInteractiveTTY(os.Stdout) {
+		if err := runTUI(codingAgent, cfg.UI, startupInfo); err != nil {
+			logs.Errorf("tui exited with error: %v", err)
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	runClassicUI(codingAgent, cfg.UI, startupInfo)
+}
+
+func runTUI(codingAgent *agent.Agent, cfg config.UIConfig, startup ui.StartupInfo) (err error) {
+	bridge := tui.NewBridge()
+	model := tui.NewModel(uiOptions(cfg), startup, bridge)
+	model.SetRunFunc(func(ctx context.Context, input string) error {
+		_, err := codingAgent.Run(ctx, input)
+		return err
+	})
+	model.SetSlashFunc(dispatchSlashText)
+	model.SetSlashCommands(SlashCommandList())
+	codingAgent.SetRenderer(model)
+	codingAgent.SetApprover(approval.NewMemoryApprover(tui.NewBubbleApprover(bridge)))
+
+	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	bridge.SetProgram(program)
+
+	interrupts := make(chan os.Signal, 1)
+	signal.Notify(interrupts, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
+	defer signal.Stop(interrupts)
+	go func() {
+		for sig := range interrupts {
+			logs.Errorf("received signal: %v", sig)
+			program.Send(tui.SignalMsg{Signal: sig})
+		}
+	}()
+
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("tui panic: %v", recovered)
+		}
+	}()
+
+	_, err = program.Run()
+	return err
+}
+
+func runClassicUI(codingAgent *agent.Agent, cfg config.UIConfig, startup ui.StartupInfo) {
+	renderer := ui.NewInteractiveBlockRendererWithOptions(os.Stdin, os.Stdout, uiOptions(cfg))
+	codingAgent.SetRenderer(renderer)
+	codingAgent.SetApprover(approval.NewMemoryApprover(approval.NewTerminalApprover(os.Stdin, os.Stdout)))
+	ui.RenderStartupBanner(os.Stdout, startup)
 
 	var runMu sync.Mutex
 	var running bool
@@ -144,6 +197,13 @@ func main() {
 		cancelCurrent = nil
 		runMu.Unlock()
 	}
+}
+
+func isInteractiveTTY(file *os.File) bool {
+	if file == nil {
+		return false
+	}
+	return term.IsTerminal(int(file.Fd()))
 }
 
 func toolOptions(cfg config.ToolsConfig) tools.Options {
