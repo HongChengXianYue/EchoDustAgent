@@ -162,12 +162,26 @@ func (m *Model) tokenSummary() string {
 		return "-"
 	}
 	if m.tokens.Cached > 0 {
-		return fmt.Sprintf("%d (p%d c%d, cache %d)", m.tokens.Total, m.tokens.Prompt, m.tokens.Completion, m.tokens.Cached)
+		return fmt.Sprintf(
+			"%s (p%s c%s, cache %s)",
+			formatCompactTokenCount(m.tokens.Total),
+			formatCompactTokenCount(m.tokens.Prompt),
+			formatCompactTokenCount(m.tokens.Completion),
+			formatCompactTokenCount(m.tokens.Cached),
+		)
 	}
-	return fmt.Sprintf("%d (p%d c%d)", m.tokens.Total, m.tokens.Prompt, m.tokens.Completion)
+	return fmt.Sprintf(
+		"%s (p%s c%s)",
+		formatCompactTokenCount(m.tokens.Total),
+		formatCompactTokenCount(m.tokens.Prompt),
+		formatCompactTokenCount(m.tokens.Completion),
+	)
 }
 
 func formatCompactTokenCount(count int) string {
+	if count >= 1_000_000 {
+		return fmt.Sprintf("%.1fm", float64(count)/1_000_000)
+	}
 	if count >= 1000 {
 		return fmt.Sprintf("%.1fk", float64(count)/1000)
 	}
@@ -212,28 +226,39 @@ func (m *Model) footerSummary(limit int) string {
 		total := mainTotal + subTotal
 		if totalCached > 0 {
 			candidates = append(candidates,
-				fmt.Sprintf("Tokens %d total | main %d | sub %d | cache %d", total, mainTotal, subTotal, totalCached),
-				fmt.Sprintf("Tokens %d total | cache %d", total, totalCached),
+				fmt.Sprintf(
+					"Tokens %s total | main %s | sub %s | cache %s",
+					formatCompactTokenCount(total),
+					formatCompactTokenCount(mainTotal),
+					formatCompactTokenCount(subTotal),
+					formatCompactTokenCount(totalCached),
+				),
+				fmt.Sprintf("Tokens %s total | cache %s", formatCompactTokenCount(total), formatCompactTokenCount(totalCached)),
 			)
 		}
 		candidates = append(candidates,
-			fmt.Sprintf("Tokens %d total | main %d | sub %d", total, mainTotal, subTotal),
-			fmt.Sprintf("Tokens %d total", total),
-			fmt.Sprintf("Tokens %d", total),
+			fmt.Sprintf(
+				"Tokens %s total | main %s | sub %s",
+				formatCompactTokenCount(total),
+				formatCompactTokenCount(mainTotal),
+				formatCompactTokenCount(subTotal),
+			),
+			fmt.Sprintf("Tokens %s total", formatCompactTokenCount(total)),
+			fmt.Sprintf("Tokens %s", formatCompactTokenCount(total)),
 		)
 	case mainTotal > 0:
 		candidates = append(candidates, "Tokens "+m.tokenSummary())
 		if totalCached > 0 {
-			candidates = append(candidates, fmt.Sprintf("Tokens %d | cache %d", mainTotal, totalCached))
+			candidates = append(candidates, fmt.Sprintf("Tokens %s | cache %s", formatCompactTokenCount(mainTotal), formatCompactTokenCount(totalCached)))
 		}
-		candidates = append(candidates, fmt.Sprintf("Tokens %d", mainTotal))
+		candidates = append(candidates, fmt.Sprintf("Tokens %s", formatCompactTokenCount(mainTotal)))
 	default:
 		if totalCached > 0 {
-			candidates = append(candidates, fmt.Sprintf("Tokens %d subagents | cache %d", subTotal, totalCached))
+			candidates = append(candidates, fmt.Sprintf("Tokens %s subagents | cache %s", formatCompactTokenCount(subTotal), formatCompactTokenCount(totalCached)))
 		}
 		candidates = append(candidates,
-			fmt.Sprintf("Tokens %d subagents", subTotal),
-			fmt.Sprintf("Tokens %d", subTotal),
+			fmt.Sprintf("Tokens %s subagents", formatCompactTokenCount(subTotal)),
+			fmt.Sprintf("Tokens %s", formatCompactTokenCount(subTotal)),
 		)
 	}
 

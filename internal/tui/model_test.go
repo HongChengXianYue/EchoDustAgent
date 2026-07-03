@@ -106,10 +106,10 @@ func TestTokenFooterRendersAboveInputBox(t *testing.T) {
 	}})
 
 	view := model.View()
-	if !containsAll(view, "Tokens 34108 (p32665 c1443, cache 800)", "Ask the agent") {
+	if !containsAll(view, "Tokens 34.1k (p32.7k c1.4k, cache 800)", "Ask the agent") {
 		t.Fatalf("token footer missing expected summary:\n%s", view)
 	}
-	if strings.LastIndex(view, "Tokens 34108 (p32665 c1443, cache 800)") > strings.LastIndex(view, "Ask the agent") {
+	if strings.LastIndex(view, "Tokens 34.1k (p32.7k c1.4k, cache 800)") > strings.LastIndex(view, "Ask the agent") {
 		t.Fatalf("token footer should render above the input box:\n%s", view)
 	}
 }
@@ -133,8 +133,31 @@ func TestTokenFooterIncludesSubagentTotals(t *testing.T) {
 	}})
 
 	view := model.View()
-	if !strings.Contains(view, "Tokens 2200 total | main 1500 | sub 700 | cache 250") {
+	if !strings.Contains(view, "Tokens 2.2k total | main 1.5k | sub 700 | cache 250") {
 		t.Fatalf("expected combined main/subagent token footer:\n%s", view)
+	}
+}
+
+func TestTokenFooterUsesMillionSuffixForLargeCounts(t *testing.T) {
+	model := newSizedTestModel()
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
+		Type:             runtimeevent.TypeTokenUsage,
+		PromptTokens:     11647,
+		CompletionTokens: 333,
+		CumulativeTotal:  11647,
+		CachedTokens:     1127680,
+	}})
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
+		Type:            runtimeevent.TypeTokenUsage,
+		Source:          "subagent",
+		ParentTool:      "Analyze repo",
+		SubagentIndex:   1,
+		CumulativeTotal: 1398223,
+	}})
+
+	view := model.View()
+	if !strings.Contains(view, "Tokens 1.4m total | main 11.6k | sub 1.4m | cache 1.1m") {
+		t.Fatalf("expected footer to use compact million suffixes:\n%s", view)
 	}
 }
 
