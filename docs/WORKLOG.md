@@ -719,7 +719,42 @@
 - 改动要点：
   - 子代理会额外累计 `PromptTokens`，不再只保留 `TokenTotal` 和 `CachedTokens`；这样主 Agent 和 subagent 可以用同一口径计算命中率。
   - footer 的全局统计改为在有 cache 命中时显示 `cache <n> | hit <rate>`；主 Agent 独立运行时也会在原来的 `Tokens ... (p... c...)` 摘要里追加 `hit`。
-  - 子代理列表仍然保持低噪音：每一行默认只显示 token 总量；只有当前选中的 subagent 才额外展开 `cache` 和 `hit`。
-  - `cache hit rate` 的分母明确使用 `PromptTokens`，不再拿 `TotalTokens` 充数，避免长回答把命中率稀释掉。
+- 子代理列表仍然保持低噪音：每一行默认只显示 token 总量；只有当前选中的 subagent 才额外展开 `cache` 和 `hit`。
+- `cache hit rate` 的分母明确使用 `PromptTokens`，不再拿 `TotalTokens` 充数，避免长回答把命中率稀释掉。
 - 验证：`gofmt -w internal/tui/model.go internal/tui/model_render.go internal/tui/model_subagent.go internal/tui/model_test.go` 通过；`go test ./internal/tui` 通过；`go test ./internal/agent` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
 - 备注：这里仍然是 provider usage 字段驱动的“best effort”统计；如果某次调用没有返回 `PromptTokens` 或 `CachedTokens`，TUI 会退回只显示已有数字，不会硬算一个不可靠的命中率。
+
+## 2026-07-03 - TUI 对话改成提问框加无标题回答
+
+- 摘要：调整主对话区的视觉结构。用户提问不再显示 `You` 标签，而是渲染成一个高对比度的横向深色提问框；assistant 回复也去掉 `Agent` 标签，直接排在提问框下方，减少噪音，让一问一答的层级更明确。
+- 主要模块：`internal/tui/model.go`、`internal/tui/model_layout.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - 新增用户提问框样式，边框结构沿用输入框的语言，但增加深色背景和更亮的边框，和正文图片区分开。
+  - `renderBlock()` 现在对 `blockUser` 和 `blockAssistant` 走专门分支：用户消息输出为 question box，assistant 消息只输出正文。
+  - markdown assistant 回复仍然保留 markdown 渲染能力，只是不再附带 `Agent` 标题行。
+- 增加 TUI 测试，覆盖“去掉 You/Agent 标签”和“用户消息必须渲染成带边框的提问框”这两个约束。
+- 验证：`gofmt -w internal/tui/model.go internal/tui/model_layout.go internal/tui/model_test.go` 通过；`go test ./internal/tui` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
+- 备注：这次只调整主 transcript 的视觉结构；工具调用、审批块、todo 清单和子代理列表保持原有语义与顺序，不混入新的问答框样式。
+
+## 2026-07-03 - TUI 用户提问框收敛为黄色星号提示
+
+- 摘要：回退掉上一版过重的整条深色提问框，把用户消息改成左侧黄色 `*` 标记加正文。assistant 回复仍然保持无标题正文，这样问答层级还在，但视觉重量明显降低。
+- 主要模块：`internal/tui/model.go`、`internal/tui/model_layout.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - 删除用户提问专用 box 样式，改成 `* ` 前缀的轻量提示行。
+  - 保留多行换行对齐，第二行开始与正文左边界对齐，不和星号重叠。
+- 更新测试，明确要求用户块存在 `*` 标记、隐藏 `You` 标签，并且不再渲染边框字符。
+- 验证：`gofmt -w internal/tui/model.go internal/tui/model_layout.go internal/tui/model_test.go` 通过；`go test ./internal/tui` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
+- 备注：这次只收敛用户消息样式；assistant、tool、approval、todo 和 subagent 的展示逻辑都没改。
+
+## 2026-07-03 - 复用 session 审批时不再重复刷 Approval 日志
+
+- 摘要：修正审批链路的日志噪音。之前即使 session 级别的 `Always` 审批已经命中缓存，Agent 仍然会继续发 `Approval requested` / `Approval always` 事件，导致正文里反复出现没有信息增量的审批块。现在命中缓存时直接放行，不再额外产生日志事件。
+- 主要模块：`internal/approval/types.go`、`internal/approval/memory.go`、`internal/approval/approval_test.go`、`internal/agent/tool_approval.go`、`internal/agent/agent_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - 新增 `approval.DecisionCache` 接口，让 approver 可以在真正发起审批前暴露“是否已有缓存决策”。
+  - `MemoryApprover` 增加 `CachedDecision()`，目前只对 session 级别的 `Always` 复用生效；loop 级审批仍按原来的单轮逻辑处理。
+  - `approveTool()` 在发 `TypeApprovalRequest` 事件前先探测缓存；如果命中，直接放行，不再发 request/decision 这对事件。
+  - 补充测试，明确要求同一 session 内第二次 workspace write 不再出现新的审批事件。
+- 验证：`gofmt -w internal/approval/types.go internal/approval/memory.go internal/approval/approval_test.go internal/agent/tool_approval.go internal/agent/agent_test.go` 通过；`go test ./internal/approval ./internal/agent` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
+- 备注：这次只压掉“缓存命中后的重复审批日志”；第一次真实审批，以及 loop 级 external write 的按轮审批行为没有变化。

@@ -14,16 +14,28 @@ func NewMemoryApprover(next Approver) *MemoryApprover {
 	}
 }
 
-func (a *MemoryApprover) Approve(ctx context.Context, request Request) Decision {
-	key := CacheKey(request)
+func (a *MemoryApprover) CachedDecision(request Request) (Decision, bool) {
 	scope := request.Scope
 	if scope == "" {
 		scope = ScopeSession
 	}
-	if scope == ScopeSession {
-		if _, ok := a.always[key]; ok {
-			return DecisionAlways
-		}
+	if scope != ScopeSession {
+		return "", false
+	}
+	if _, ok := a.always[CacheKey(request)]; ok {
+		return DecisionAlways, true
+	}
+	return "", false
+}
+
+func (a *MemoryApprover) Approve(ctx context.Context, request Request) Decision {
+	if decision, ok := a.CachedDecision(request); ok {
+		return decision
+	}
+	key := CacheKey(request)
+	scope := request.Scope
+	if scope == "" {
+		scope = ScopeSession
 	}
 	if a.next == nil {
 		return DecisionDeny

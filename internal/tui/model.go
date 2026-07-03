@@ -120,13 +120,14 @@ type Model struct {
 	bannerAltStyle        lipgloss.Style
 	contentStyle          lipgloss.Style
 	inputBoxStyle         lipgloss.Style
+	userPromptMarkerStyle lipgloss.Style
+	userPromptTextStyle   lipgloss.Style
 	subagentBoxStyle      lipgloss.Style
 	titleStyle            lipgloss.Style
 	mutedStyle            lipgloss.Style
 	todoStyle             lipgloss.Style
 	todoDoneStyle         lipgloss.Style
-	userStyle             lipgloss.Style
-	infoStyle             lipgloss.Style
+	assistantBodyStyle    lipgloss.Style
 	errorStyle            lipgloss.Style
 	toolCallTitleStyle    lipgloss.Style
 	toolCallDotStyle      lipgloss.Style
@@ -169,6 +170,12 @@ func NewModel(options ui.Options, startup ui.StartupInfo, bridge *Bridge) *Model
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(lipgloss.Color("240")).
 			Padding(0, 1),
+		userPromptMarkerStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("221")).
+			Bold(true),
+		userPromptTextStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("255")).
+			Bold(true),
 		subagentBoxStyle: lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(lipgloss.Color("240")).
@@ -177,8 +184,7 @@ func NewModel(options ui.Options, startup ui.StartupInfo, bridge *Bridge) *Model
 		mutedStyle:            lipgloss.NewStyle().Foreground(lipgloss.Color("245")),
 		todoStyle:             lipgloss.NewStyle().Foreground(lipgloss.Color("150")).Bold(true),
 		todoDoneStyle:         lipgloss.NewStyle().Foreground(lipgloss.Color("114")),
-		userStyle:             lipgloss.NewStyle().Foreground(lipgloss.Color("117")).Bold(true),
-		infoStyle:             lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Bold(true),
+		assistantBodyStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("255")),
 		errorStyle:            lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true),
 		toolCallTitleStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("229")).Bold(true),
 		toolCallDotStyle:      lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true),

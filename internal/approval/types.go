@@ -50,6 +50,12 @@ type Approver interface {
 	Approve(ctx context.Context, request Request) Decision
 }
 
+// DecisionCache reports whether an approver can answer a request from cached
+// session state without re-prompting the user.
+type DecisionCache interface {
+	CachedDecision(request Request) (Decision, bool)
+}
+
 func RequiresApproval(category Category) bool {
 	switch category {
 	case CategoryReadOnly, CategorySearchInspect, CategoryBuildTest:

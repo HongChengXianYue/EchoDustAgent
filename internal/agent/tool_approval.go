@@ -20,6 +20,13 @@ func (a *Agent) approveTool(ctx context.Context, step int, tool string, category
 	if request.Scope == approval.ScopeLoop && loopApprovals[key] {
 		return true
 	}
+	// Session-scoped approvals can be remembered by the approver. If so, avoid
+	// emitting another approval request/decision pair into the transcript.
+	if cachedApprover, ok := a.approver.(approval.DecisionCache); ok {
+		if decision, cached := cachedApprover.CachedDecision(request); cached {
+			return decision == approval.DecisionAllow || decision == approval.DecisionAlways
+		}
+	}
 	a.emit(runtimeevent.Event{
 		Step:      step,
 		Type:      runtimeevent.TypeApprovalRequest,

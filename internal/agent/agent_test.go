@@ -1236,6 +1236,56 @@ func TestRunExecutesWorkspaceWritesToDifferentFilesConcurrentlyAfterSessionAppro
 	}
 }
 
+func TestRunSkipsApprovalEventsWhenSessionApprovalIsReused(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_1", "Write first file"),
+				testToolCall("call_a", "write_file", `{"path":"a.txt","content":"a"}`),
+			},
+		},
+		{Content: "finished first"},
+		{
+			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_2", "Write second file"),
+				testToolCall("call_b", "write_file", `{"path":"b.txt","content":"b"}`),
+			},
+		},
+		{Content: "finished second"},
+	}}
+	registry := tools.NewRegistry()
+	registry.Register(&namedTool{name: "write_file"})
+	approver := &fakeApprover{decision: approval.DecisionAlways}
+	renderer := &captureRenderer{}
+
+	agent := NewWithWorkspace(client, registry, 4, "/tmp/local-agent-work")
+	agent.SetApprover(approval.NewMemoryApprover(approver))
+	agent.SetRenderer(renderer)
+
+	if _, err := agent.Run(context.Background(), "write first file"); err != nil {
+		t.Fatalf("first Run() error = %v", err)
+	}
+	if _, err := agent.Run(context.Background(), "write second file"); err != nil {
+		t.Fatalf("second Run() error = %v", err)
+	}
+	if len(approver.calls) != 1 {
+		t.Fatalf("approval calls = %d, want 1 reused session approval", len(approver.calls))
+	}
+	requestEvents := 0
+	decisionEvents := 0
+	for _, event := range renderer.events {
+		switch event.Type {
+		case runtimeevent.TypeApprovalRequest:
+			requestEvents++
+		case runtimeevent.TypeApprovalDecision:
+			decisionEvents++
+		}
+	}
+	if requestEvents != 1 || decisionEvents != 1 {
+		t.Fatalf("approval events = request:%d decision:%d, want exactly one visible approval pair", requestEvents, decisionEvents)
+	}
+}
+
 func TestRunSerializesWorkspaceWritesToSameFile(t *testing.T) {
 	client := &fakeClient{responses: []*llm.ChatResponse{
 		{

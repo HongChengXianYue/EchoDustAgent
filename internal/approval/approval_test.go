@@ -158,6 +158,33 @@ func TestMemoryApproverAlwaysIsExactToRequest(t *testing.T) {
 	}
 }
 
+func TestMemoryApproverCachedDecisionOnlyHitsSessionScope(t *testing.T) {
+	next := &sequenceApprover{decisions: []Decision{DecisionAlways}}
+	approver := NewMemoryApprover(next)
+	request := Request{
+		Tool:     "write_file",
+		Category: CategoryWorkspaceWrite,
+		Args:     []byte(`{"path":"notes.txt","content":"hello"}`),
+		Scope:    ScopeSession,
+		Key:      WorkspaceWriteApprovalKey(),
+	}
+
+	if decision, ok := approver.CachedDecision(request); ok || decision != "" {
+		t.Fatalf("unexpected cached decision before approval: %q ok=%v", decision, ok)
+	}
+	if got := approver.Approve(context.Background(), request); got != DecisionAlways {
+		t.Fatalf("first decision = %q, want always", got)
+	}
+	if decision, ok := approver.CachedDecision(request); !ok || decision != DecisionAlways {
+		t.Fatalf("cached decision = %q ok=%v, want always true", decision, ok)
+	}
+	loopRequest := request
+	loopRequest.Scope = ScopeLoop
+	if decision, ok := approver.CachedDecision(loopRequest); ok || decision != "" {
+		t.Fatalf("loop scope should not reuse session cache: %q ok=%v", decision, ok)
+	}
+}
+
 func TestChooseApprovalSelection(t *testing.T) {
 	tests := []struct {
 		name  string

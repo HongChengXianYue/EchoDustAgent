@@ -176,16 +176,19 @@ func todoMarker(status runtimeevent.TodoStatus) string {
 }
 
 func (m *Model) renderBlock(block transcriptBlock, width int) string {
-	title := block.Title
-	if strings.TrimSpace(title) == "" && strings.TrimSpace(block.Body) == "" {
+	if strings.TrimSpace(block.Title) == "" && strings.TrimSpace(block.Body) == "" {
 		return ""
 	}
-	var titleLine string
 	switch block.Kind {
 	case blockUser:
-		titleLine = m.userStyle.Render(title)
+		return m.renderUserQuestionBlock(block.Body, width)
 	case blockAssistant:
-		titleLine = m.infoStyle.Render(title)
+		return m.renderAssistantBodyBlock(block, width)
+	}
+
+	title := block.Title
+	var titleLine string
+	switch block.Kind {
 	case blockError:
 		titleLine = m.errorStyle.Render(title)
 	case blockToolCall:
@@ -207,6 +210,41 @@ func (m *Model) renderBlock(block transcriptBlock, width int) string {
 		}
 	}
 	return titleLine + "\n" + indentBlock(wrapText(body, max(20, width)), "  ")
+}
+
+// User turns act as anchor points for the next assistant reply, so render them
+// as a lightweight prompt marker instead of repeating role labels or large boxes.
+func (m *Model) renderUserQuestionBlock(body string, width int) string {
+	body = collapseHorizontalSpace(strings.TrimSpace(body))
+	if body == "" {
+		return ""
+	}
+	prefix := "* "
+	continuation := strings.Repeat(" ", lipgloss.Width(prefix))
+	lines := strings.Split(wrapText(body, max(8, width-lipgloss.Width(prefix))), "\n")
+	if len(lines) == 0 {
+		lines = []string{body}
+	}
+	lines[0] = m.userPromptMarkerStyle.Render("*") + " " + m.userPromptTextStyle.Render(lines[0])
+	for i := 1; i < len(lines); i++ {
+		lines[i] = continuation + m.userPromptTextStyle.Render(lines[i])
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m *Model) renderAssistantBodyBlock(block transcriptBlock, width int) string {
+	body := strings.TrimSpace(block.Body)
+	if body == "" {
+		return ""
+	}
+	if block.Markdown {
+		renderer := m.markdownForWidth(max(20, width))
+		rendered, err := renderMarkdown(renderer, body)
+		if err == nil {
+			return strings.TrimRight(rendered, "\n")
+		}
+	}
+	return m.assistantBodyStyle.Render(wrapText(body, max(20, width)))
 }
 
 func (m *Model) shouldAttachInlineApproval(index int, block transcriptBlock) bool {

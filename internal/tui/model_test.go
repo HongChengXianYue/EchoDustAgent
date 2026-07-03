@@ -35,11 +35,54 @@ func TestRuntimeEventsRenderTranscript(t *testing.T) {
 	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeFinal, Message: "**done**"}})
 
 	view := model.View()
-	if !containsAll(view, "███████", "You", "hello", "Agent", "done") {
+	if !containsAll(view, "███████", "hello", "working on it", "done") {
 		t.Fatalf("view missing transcript content:\n%s", view)
+	}
+	if strings.Contains(view, "\nYou\n") || strings.Contains(view, "\nAgent\n") {
+		t.Fatalf("view should hide transcript role labels:\n%s", view)
 	}
 	if strings.Contains(view, "Session") {
 		t.Fatalf("view should not render legacy session box label:\n%s", view)
+	}
+}
+
+func TestUserBlocksRenderWithPromptMarker(t *testing.T) {
+	model := newSizedTestModel()
+
+	rendered := model.renderBlock(transcriptBlock{
+		Kind:  blockUser,
+		Title: "You",
+		Body:  "请问你谁？",
+	}, 40)
+
+	if !strings.Contains(rendered, "请问你谁？") {
+		t.Fatalf("expected user question text in rendered block:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "You") {
+		t.Fatalf("user role label should be hidden inside question box:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "*") {
+		t.Fatalf("expected user block to render with a star marker:\n%s", rendered)
+	}
+	if containsAll(rendered, "┌", "┐", "└", "┘") {
+		t.Fatalf("user block should no longer render as a bordered box:\n%s", rendered)
+	}
+}
+
+func TestAssistantBlocksRenderWithoutRoleTitle(t *testing.T) {
+	model := newSizedTestModel()
+
+	rendered := model.renderBlock(transcriptBlock{
+		Kind:  blockAssistant,
+		Title: "Agent",
+		Body:  "我是 Echo Dust Code 的本地 coding agent。",
+	}, 48)
+
+	if !strings.Contains(rendered, "我是 Echo Dust Code 的本地 coding agent。") {
+		t.Fatalf("expected assistant body in rendered block:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "Agent") {
+		t.Fatalf("assistant role label should be hidden:\n%s", rendered)
 	}
 }
 
