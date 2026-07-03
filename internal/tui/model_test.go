@@ -179,6 +179,94 @@ func TestRunStartResetsTokenFooter(t *testing.T) {
 	}
 }
 
+func TestTodoRendersInMainContentDuringRun(t *testing.T) {
+	model := newSizedTestModel()
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeRunStart}})
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
+		Type: runtimeevent.TypeTodoUpdate,
+		Todos: []runtimeevent.TodoItem{
+			{Text: "Read files", Status: runtimeevent.TodoInProgress},
+			{Text: "Summarize findings", Status: runtimeevent.TodoCompleted},
+		},
+	}})
+
+	view := model.View()
+	if !containsAll(view, "Todo", "[>] Read files", "[✓] Summarize findings") {
+		t.Fatalf("todo block should render in main content while running:\n%s", view)
+	}
+}
+
+func TestTodoStaysAboveCurrentRunToolCalls(t *testing.T) {
+	model := newSizedTestModel()
+	model.appendBlock(transcriptBlock{
+		Kind:  blockAssistant,
+		Title: "Agent",
+		Body:  "previous run",
+	})
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeRunStart}})
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
+		Type:    runtimeevent.TypeUserMessage,
+		Message: "当前项目是做什么？",
+	}})
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
+		Type: runtimeevent.TypeTodoUpdate,
+		Todos: []runtimeevent.TodoItem{
+			{Text: "Handle request: 当前项目是做什么？", Status: runtimeevent.TodoInProgress},
+		},
+	}})
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
+		Type: runtimeevent.TypeToolCall,
+		Tool: "list_files",
+		Args: json.RawMessage(`{"path":"."}`),
+	}})
+
+	view := model.View()
+	userIndex := strings.Index(view, "当前项目是做什么？")
+	todoIndex := strings.Index(view, "Todo")
+	toolIndex := strings.Index(view, "Tool list_files")
+	if userIndex < 0 || todoIndex < 0 || toolIndex < 0 {
+		t.Fatalf("expected user message, todo block and tool call in view:\n%s", view)
+	}
+	if !(userIndex < todoIndex && todoIndex < toolIndex) {
+		t.Fatalf("todo block should stay between current user turn and tool log:\n%s", view)
+	}
+}
+
+func TestRunWithoutTodoDoesNotRenderTodoBlock(t *testing.T) {
+	model := newSizedTestModel()
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeRunStart}})
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
+		Type:    runtimeevent.TypeUserMessage,
+		Message: "hello",
+	}})
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
+		Type:    runtimeevent.TypeAssistantMessage,
+		Message: "Hello!",
+	}})
+
+	view := model.View()
+	if strings.Contains(view, "Todo") || strings.Contains(view, "Waiting for todo list") {
+		t.Fatalf("plain text runs should not render todo block before a real todo update:\n%s", view)
+	}
+}
+
+func TestTodoBlockHidesAfterRunEnd(t *testing.T) {
+	model := newSizedTestModel()
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeRunStart}})
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
+		Type: runtimeevent.TypeTodoUpdate,
+		Todos: []runtimeevent.TodoItem{
+			{Text: "Read files", Status: runtimeevent.TodoInProgress},
+		},
+	}})
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeRunEnd}})
+
+	view := model.View()
+	if strings.Contains(view, "Todo") || strings.Contains(view, "Read files") {
+		t.Fatalf("todo block should hide after run end:\n%s", view)
+	}
+}
+
 func TestMouseWheelScrollsViewport(t *testing.T) {
 	model := newSizedTestModel()
 	model.Update(tea.WindowSizeMsg{Width: 60, Height: 12})

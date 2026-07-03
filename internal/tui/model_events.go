@@ -16,10 +16,12 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 	switch event.Type {
 	case runtimeevent.TypeRunStart:
 		m.running = true
+		m.runStartBlock = len(m.blocks)
 		m.interrupting = false
 		m.lastRunHadFinal = false
 		m.runErrorReported = false
 		m.assistantDraft = ""
+		m.todos = nil
 		m.tokens = tokenState{}
 	case runtimeevent.TypeRunEnd:
 		m.running = false

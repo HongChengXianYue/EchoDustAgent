@@ -102,6 +102,7 @@ type Model struct {
 	historyPos       int
 	historyDraft     string
 	running          bool
+	runStartBlock    int
 	interrupting     bool
 	cancelCurrent    context.CancelFunc
 	lastRunHadFinal  bool

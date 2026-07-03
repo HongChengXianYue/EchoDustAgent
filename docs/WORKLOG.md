@@ -646,6 +646,42 @@
   - Chat Completions API 兼容解析 `prompt_tokens_details.cached_tokens`，并保留顶层 `cached_tokens` 兜底。
   - Agent 在发射 `TypeTokenUsage` runtime event 时追加 `CachedTokens`，同时累计到主 agent 总 usage。
   - 新 TUI footer 在有 cache 命中时显示 `cache <n>`；旧 CLI live frame 和 final summary 也同步展示 cache 统计。
-  - 补充解析层、Agent 事件层、TUI footer 和旧 renderer 的回归测试，确保 cache hit 不会在中途丢失。
+- 补充解析层、Agent 事件层、TUI footer 和旧 renderer 的回归测试，确保 cache hit 不会在中途丢失。
 - 验证：`gofmt -w internal/llm/client.go internal/llm/chat_completions.go internal/llm/responses.go internal/agent/agent.go internal/runtimeevent/runtimeevent.go internal/tui/model.go internal/tui/model_events.go internal/tui/model_subagent.go internal/tui/model_render.go internal/ui/renderer.go internal/ui/renderer_frame.go internal/agent/agent_test.go internal/llm/openai_test.go internal/tui/model_test.go internal/ui/renderer_test.go` 通过；`go test ./internal/llm ./internal/agent ./internal/tui ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
 - 备注：这里展示的是 provider 返回的 cache hit token 数，不等于所有厂商统一账单口径；如果某个模型或网关不返回该字段，UI 会自动退回旧展示，不会报错。
+
+## 2026-07-03 - TUI 恢复正文 todo 展示并压缩 token 文案
+
+- 摘要：调整 `internal/tui` 的运行中状态展示。现在正文区会在运行期间显示一个动态 `Todo` block，直接展示当前 `update_todos` 清单；底部 token footer 同时改为 `k/m` 紧凑格式，避免大数字把右下角占满。
+- 主要模块：`internal/tui/model_events.go`、`internal/tui/model_layout.go`、`internal/tui/model_render.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - `TypeRunStart` 时清空上一轮 `m.todos`，避免新任务开始后看到旧清单残留。
+  - `rebuildViewportContent()` 新增动态 `Todo` block，仅在当前 run 进行中且已经收到真实 `todo_update` 后显示；像 `hello` 这样的纯文本 run 不再出现 todo 占位。
+  - 审批出现时临时隐藏动态 todo，把可视优先级让给审批请求和选项。
+  - token footer 统一改成紧凑格式，支持 `k/m`，例如 `34.1k`、`1.4m`。
+  - 新增 TUI 回归测试，覆盖运行中 todo 渲染、纯文本 run 不显示 todo、run 结束后隐藏，以及 footer 紧凑数字格式。
+- 验证：`gofmt -w internal/tui/model_events.go internal/tui/model_layout.go internal/tui/model_render.go internal/tui/model_test.go` 通过；`go test ./internal/tui` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
+- 备注：当前 todo 是“动态运行态块”，不会像普通 transcript block 那样把每一次更新都永久堆进正文；这样可以减少噪音，但意味着 run 结束后 todo 会消失。
+
+## 2026-07-03 — 同步 config 默认值与 config.yaml 实际值
+
+- 将 `internal/config/config.go` 中 `Default()` 的 13 个默认值同步为 `config.yaml` 的实际配置，使不携带 config 文件时的行为与当前使用习惯一致。
+- 改动模块：`internal/config/config.go`。
+  - LLM：`base_url` → `anyrouter.top/v1`、`model` → `gpt-5.5`、`wire_api` → `responses`、`request_timeout_seconds` → 300。
+  - Agent：`max_steps` 20→30、`max_step_extensions` 3→5。
+  - Subagents：`max_concurrent` 2→5、`max_steps` 8→30、`result_max_bytes` 12288→16888。
+  - Context：`window_tokens` 128000→256000。
+- UI：`separator_width` 0→80、`live_frame_max_width` 0→100、`markdown_word_wrap` 0→100。
+- 验证：`go test ./...` 全部通过；`go vet ./...` 无报错。
+- 备注：同步后可仅通过 `AGENT_API_KEY` 环境变量启动，无需携带 config.yaml；LLM 提供商信息（base_url/model/wire_api）已固化进默认值，若切换提供商仍需 config 或新增环境变量覆盖。
+
+## 2026-07-03 - TUI todo 固定在当前轮工具日志之前
+
+- 摘要：修正正文区 live todo 的插入位置。运行中 todo 不再永远追加在正文末尾，而是固定插入到“当前这轮用户/助手文本之后、工具日志之前”，避免工具调用越多，todo 越被挤到下面。
+- 主要模块：`internal/tui/model.go`、`internal/tui/model_events.go`、`internal/tui/model_layout.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - `TypeRunStart` 时记录当前 run 的 block 起点，用于区分历史正文和本轮正文。
+  - `rebuildViewportContent()` 按当前 run 的 block 边界计算 todo 插入点，不再简单把 live todo 追加到最后。
+  - 新增回归测试，明确要求正文顺序为“当前用户消息 < Todo < Tool call”。
+- 验证：`gofmt -w internal/tui/model.go internal/tui/model_events.go internal/tui/model_layout.go internal/tui/model_test.go` 通过；`go test ./internal/tui` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
+- 备注：这次只调整展示顺序，没有改变主 Agent 自动补默认 todo 的门禁策略；也就是说，模型没显式调用 `update_todos` 时，workspace 工具前的自动 todo 仍然存在，只是位置更稳定。

@@ -58,7 +58,15 @@ func (m *Model) rebuildViewportContent() {
 	bodyWidth := max(20, m.viewport.Width)
 	parts := make([]string, 0, len(m.blocks)+1)
 	attachedApproval := false
+	todoBlock := m.renderLiveTodoBlock(bodyWidth)
+	todoInsertAt := m.todoInsertBlockIndex()
 	for i, block := range m.blocks {
+		// Keep the live todo anchored near the current user turn instead of
+		// appending it after a growing stream of tool-call blocks.
+		if todoBlock != "" && i == todoInsertAt {
+			parts = append(parts, todoBlock)
+			todoBlock = ""
+		}
 		rendered := m.renderBlock(block, bodyWidth)
 		if strings.TrimSpace(rendered) != "" {
 			parts = append(parts, rendered)
@@ -67,6 +75,9 @@ func (m *Model) rebuildViewportContent() {
 			parts = append(parts, m.renderInlineApprovalOptions(bodyWidth))
 			attachedApproval = true
 		}
+	}
+	if todoBlock != "" {
+		parts = append(parts, todoBlock)
 	}
 	// approvalPromptMsg and runtimeEventMsg are sent separately; if the prompt
 	// arrives first, keep the inline approval visible instead of waiting for the
@@ -91,6 +102,57 @@ func (m *Model) rebuildViewportContent() {
 		return
 	}
 	m.viewport.SetYOffset(offset)
+}
+
+func (m *Model) renderLiveTodoBlock(width int) string {
+	if !m.running || m.approval != nil || len(m.todos) == 0 {
+		return ""
+	}
+	return m.renderBlock(transcriptBlock{
+		Kind:  blockInfo,
+		Title: "Todo",
+		Body:  m.todoBody(),
+	}, width)
+}
+
+func (m *Model) todoInsertBlockIndex() int {
+	if !m.running {
+		return len(m.blocks)
+	}
+	start := m.runStartBlock
+	if start < 0 {
+		start = 0
+	}
+	if start > len(m.blocks) {
+		start = len(m.blocks)
+	}
+	insertAt := len(m.blocks)
+	for i := start; i < len(m.blocks); i++ {
+		if m.blocks[i].Kind != blockUser && m.blocks[i].Kind != blockAssistant {
+			return i
+		}
+		insertAt = i + 1
+	}
+	return insertAt
+}
+
+func (m *Model) todoBody() string {
+	lines := make([]string, 0, len(m.todos))
+	for _, item := range m.todos {
+		lines = append(lines, todoMarker(item.Status)+" "+item.Text)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func todoMarker(status runtimeevent.TodoStatus) string {
+	switch status {
+	case runtimeevent.TodoCompleted:
+		return "[✓]"
+	case runtimeevent.TodoInProgress:
+		return "[>]"
+	default:
+		return "[ ]"
+	}
 }
 
 func (m *Model) renderBlock(block transcriptBlock, width int) string {
