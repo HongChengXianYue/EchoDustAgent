@@ -108,11 +108,7 @@ func (m *Model) renderLiveTodoBlock(width int) string {
 	if !m.running || m.approval != nil || len(m.todos) == 0 {
 		return ""
 	}
-	return m.renderBlock(transcriptBlock{
-		Kind:  blockInfo,
-		Title: "Todo",
-		Body:  m.todoBody(),
-	}, width)
+	return m.renderTodoChecklist(width)
 }
 
 func (m *Model) todoInsertBlockIndex() int {
@@ -136,22 +132,46 @@ func (m *Model) todoInsertBlockIndex() int {
 	return insertAt
 }
 
-func (m *Model) todoBody() string {
+func (m *Model) renderTodoChecklist(width int) string {
+	width = max(12, width)
 	lines := make([]string, 0, len(m.todos))
 	for _, item := range m.todos {
-		lines = append(lines, todoMarker(item.Status)+" "+item.Text)
+		lines = append(lines, m.renderTodoLine(item, width))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (m *Model) renderTodoLine(item runtimeevent.TodoItem, width int) string {
+	marker := todoMarker(item.Status)
+	style := m.todoStyle
+	if item.Status == runtimeevent.TodoCompleted {
+		style = m.todoDoneStyle
+	}
+	body := collapseHorizontalSpace(strings.TrimSpace(item.Text))
+	if body == "" {
+		body = "Untitled todo"
+	}
+	prefix := marker + " "
+	continuation := strings.Repeat(" ", lipgloss.Width(prefix))
+	lines := strings.Split(wrapText(body, max(8, width-lipgloss.Width(prefix))), "\n")
+	if len(lines) == 0 {
+		lines = []string{body}
+	}
+	lines[0] = prefix + lines[0]
+	for i := 1; i < len(lines); i++ {
+		lines[i] = continuation + lines[i]
+	}
+	return style.Render(strings.Join(lines, "\n"))
 }
 
 func todoMarker(status runtimeevent.TodoStatus) string {
 	switch status {
 	case runtimeevent.TodoCompleted:
-		return "[✓]"
+		return "■"
 	case runtimeevent.TodoInProgress:
-		return "[>]"
+		return "□"
 	default:
-		return "[ ]"
+		return "□"
 	}
 }
 

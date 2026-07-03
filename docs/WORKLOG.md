@@ -685,3 +685,15 @@
   - 新增回归测试，明确要求正文顺序为“当前用户消息 < Todo < Tool call”。
 - 验证：`gofmt -w internal/tui/model.go internal/tui/model_events.go internal/tui/model_layout.go internal/tui/model_test.go` 通过；`go test ./internal/tui` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
 - 备注：这次只调整展示顺序，没有改变主 Agent 自动补默认 todo 的门禁策略；也就是说，模型没显式调用 `update_todos` 时，workspace 工具前的自动 todo 仍然存在，只是位置更稳定。
+
+## 2026-07-03 - TUI todo 改成清单方框样式
+
+- 摘要：把正文区 live todo 从带标题的信息块，改成直接嵌入正文的清单方框样式，更接近任务列表而不是状态面板，减少“Todo 标题 + 缩进块”带来的视觉重量。
+- 主要模块：`internal/tui/model.go`、`internal/tui/model_layout.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - 新增 todo 文本样式和已完成样式，运行中 todo 统一走专门的 checklist renderer。
+  - 取消 live todo 的 `Todo` 标题，正文里直接输出 `□` / `■` 风格的任务项。
+  - 保持之前修复过的插入顺序：当前轮用户消息之后、工具日志之前。
+  - 更新测试，覆盖 checklist 样式和顺序约束。
+- 验证：`gofmt -w internal/tui/model.go internal/tui/model_layout.go internal/tui/model_test.go` 通过；`go test ./internal/tui` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
+- 备注：这次只改 TUI 展示样式，不改 todo 的生成与门禁逻辑；自动补 todo 的策略保持不变。

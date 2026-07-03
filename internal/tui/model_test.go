@@ -191,8 +191,11 @@ func TestTodoRendersInMainContentDuringRun(t *testing.T) {
 	}})
 
 	view := model.View()
-	if !containsAll(view, "Todo", "[>] Read files", "[✓] Summarize findings") {
-		t.Fatalf("todo block should render in main content while running:\n%s", view)
+	if strings.Contains(view, "Todo") {
+		t.Fatalf("todo title should not render in checklist mode:\n%s", view)
+	}
+	if !containsAll(view, "□ Read files", "■ Summarize findings") {
+		t.Fatalf("todo checklist should render in main content while running:\n%s", view)
 	}
 }
 
@@ -222,7 +225,7 @@ func TestTodoStaysAboveCurrentRunToolCalls(t *testing.T) {
 
 	view := model.View()
 	userIndex := strings.Index(view, "当前项目是做什么？")
-	todoIndex := strings.Index(view, "Todo")
+	todoIndex := strings.Index(view, "□ Handle request: 当前项目是做什么？")
 	toolIndex := strings.Index(view, "Tool list_files")
 	if userIndex < 0 || todoIndex < 0 || toolIndex < 0 {
 		t.Fatalf("expected user message, todo block and tool call in view:\n%s", view)
@@ -262,7 +265,7 @@ func TestTodoBlockHidesAfterRunEnd(t *testing.T) {
 	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeRunEnd}})
 
 	view := model.View()
-	if strings.Contains(view, "Todo") || strings.Contains(view, "Read files") {
+	if strings.Contains(view, "□ Read files") || strings.Contains(view, "■ Read files") {
 		t.Fatalf("todo block should hide after run end:\n%s", view)
 	}
 }

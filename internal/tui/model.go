@@ -120,6 +120,8 @@ type Model struct {
 	subagentBoxStyle      lipgloss.Style
 	titleStyle            lipgloss.Style
 	mutedStyle            lipgloss.Style
+	todoStyle             lipgloss.Style
+	todoDoneStyle         lipgloss.Style
 	userStyle             lipgloss.Style
 	infoStyle             lipgloss.Style
 	errorStyle            lipgloss.Style
@@ -170,6 +172,8 @@ func NewModel(options ui.Options, startup ui.StartupInfo, bridge *Bridge) *Model
 			Padding(0, 1),
 		titleStyle:            lipgloss.NewStyle().Foreground(lipgloss.Color("117")).Bold(true),
 		mutedStyle:            lipgloss.NewStyle().Foreground(lipgloss.Color("245")),
+		todoStyle:             lipgloss.NewStyle().Foreground(lipgloss.Color("150")).Bold(true),
+		todoDoneStyle:         lipgloss.NewStyle().Foreground(lipgloss.Color("114")),
 		userStyle:             lipgloss.NewStyle().Foreground(lipgloss.Color("117")).Bold(true),
 		infoStyle:             lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Bold(true),
 		errorStyle:            lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true),
