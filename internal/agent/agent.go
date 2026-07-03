@@ -36,6 +36,7 @@ type Agent struct {
 	autoTodoText    string
 	subagentMu      sync.Mutex
 	nextSubagentID  int
+	subagentTasks   map[int]*asyncSubagentTask
 	options         Options
 	subagentLimiter chan struct{}
 	subagentTool    *delegateTaskTool
@@ -87,6 +88,7 @@ func newAgent(client llm.Client, registry *tools.Registry, maxSteps int, workspa
 				Content: prompt,
 			},
 		},
+		subagentTasks: map[int]*asyncSubagentTask{},
 	}
 	if options.Subagents.Enabled {
 		agent.subagentLimiter = make(chan struct{}, options.Subagents.MaxConcurrent)
@@ -114,9 +116,11 @@ func systemPrompt(workspace string, maxParallelToolCalls int) string {
 		"",
 		"# Delegation",
 		"Use delegate_task for independent read-only research, cross-file investigation, or focused code analysis that can be isolated from the main conversation. Do not use delegate_task for simple direct lookups.",
+		"delegate_task starts a background subagent and returns immediately. Continue with any independent parent work after delegating.",
 		"For broad codebase analysis, architecture review, finding missing project capabilities, or tasks that would require reading many files, delegate one or more focused research tasks before doing your own synthesis.",
 		"When a broad analysis has multiple independent areas, split it into multiple delegate_task calls in the same assistant turn, such as architecture, tools, UI, config, tests, or security.",
 		"When delegating multiple tasks in parallel, keep one top-level todo in_progress for the overall delegation or exactly one subtask in_progress; keep the other planned subtasks pending.",
+		"When you are ready to synthesize a final answer, the runtime will wait for any unfinished delegated tasks and inject their final conclusions back into the conversation.",
 		"Do not personally inspect many files for broad analysis before deciding whether to delegate; use subagents to keep the main context small.",
 		"",
 		"# Workspace Navigation",
@@ -149,6 +153,9 @@ func (a *Agent) SetApprover(approver approval.Approver) {
 }
 
 func (a *Agent) Run(ctx context.Context, input string) (string, error) {
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	a.pruneTransientToolHistory()
 	a.todoTool.Reset()
 	a.initializeAutoTodo()
@@ -157,7 +164,7 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
 	a.pruneStaleToolResults()
-	a.maybeCompact(ctx)
+	a.maybeCompact(runCtx)
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeUserMessage, Message: input})
 	a.messages = append(a.messages, llm.Message{Role: "user", Content: input})
 
@@ -165,8 +172,9 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 	progressHistory := stepProgressHistory{}
 	lastStep := 0
 	for step := 0; step < budget.limit; step++ {
+		a.collectCompletedSubagentResults()
 		lastStep = step
-		resp, err := a.chatWithTools(ctx, step)
+		resp, err := a.chatWithTools(runCtx, step)
 		if err != nil {
 			logs.Errorf("agent chat failed: step=%d err=%v", step, err)
 			a.logTokenUsage()
@@ -180,8 +188,24 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 			ToolCalls: resp.ToolCalls,
 		}
 		a.messages = append(a.messages, assistantMessage)
+		assistantMessageIndex := len(a.messages) - 1
 
 		if len(resp.ToolCalls) == 0 {
+			// A no-tool assistant turn normally means the run is ready to finish.
+			// For async delegate_task, join any unfinished subagents first so the
+			// next turn can synthesize their conclusions into the final answer.
+			waited, err := a.awaitOutstandingSubagents(runCtx)
+			if err != nil {
+				logs.Errorf("await subagents failed: step=%d err=%v", step, err)
+				a.logTokenUsage()
+				a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeError, Error: err.Error()})
+				a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeRunEnd})
+				return "", err
+			}
+			if waited {
+				a.messages = append(a.messages[:assistantMessageIndex], a.messages[assistantMessageIndex+1:]...)
+				continue
+			}
 			final := strings.TrimSpace(resp.Content)
 			a.logTokenUsage()
 			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeRunEnd})
@@ -193,7 +217,7 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 		}
 		a.ensureTodoForToolCalls(step, input, resp.ToolCalls)
 		todosBefore := a.todoTool.Items()
-		executedCalls := a.executeToolCalls(ctx, step, resp.ToolCalls)
+		executedCalls := a.executeToolCalls(runCtx, step, resp.ToolCalls)
 		for _, executed := range executedCalls {
 			a.messages = append(a.messages, llm.Message{
 				Role:       "tool",
@@ -201,8 +225,9 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 				Content:    executed.result.JSON(),
 			})
 		}
+		a.collectCompletedSubagentResults()
 		progressHistory.record(stepProgressFromExecuted(resp.ToolCalls, executedCalls, todosBefore, a.todoTool.Items()))
-		if !a.maybeExtendStepBudget(ctx, step, &budget, progressHistory) {
+		if !a.maybeExtendStepBudget(runCtx, step, &budget, progressHistory) {
 			lastStep = step
 			break
 		}
@@ -380,6 +405,7 @@ func truncateInlineUTF8(text string, limit int) string {
 func (a *Agent) resetSubagentIndexes() {
 	a.subagentMu.Lock()
 	a.nextSubagentID = 0
+	a.subagentTasks = map[int]*asyncSubagentTask{}
 	a.subagentMu.Unlock()
 }
 

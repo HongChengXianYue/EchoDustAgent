@@ -217,6 +217,9 @@ func (m *Model) subagentRowTokenSummary(session *subagentSession, selected bool)
 	summary := "  · " + formatCompactTokenCount(session.TokenTotal)
 	if selected && session.Cached > 0 {
 		summary += " | cache " + formatCompactTokenCount(session.Cached)
+		if hitRate, ok := formatCacheHitRate(session.Cached, session.Prompt); ok {
+			summary += " | hit " + hitRate
+		}
 	}
 	return summary
 }
@@ -411,13 +414,24 @@ func (m *Model) updateSubagentStatus(session *subagentSession, event runtimeeven
 		if event.Result != nil && event.Result.Status == "error" {
 			session.Status = "error"
 		} else if tools.IsDelegateTaskTool(event.Tool) {
-			session.Status = "done"
+			if event.Result != nil && strings.TrimSpace(event.Result.Summary) == "subagent completed" {
+				session.Status = "done"
+			} else {
+				session.Status = "running"
+			}
+		} else if session.Status != "done" {
+			session.Status = "running"
+		}
+	case runtimeevent.TypeToolCall:
+		if tools.IsDelegateTaskTool(event.Tool) {
+			session.Status = "running"
 		} else if session.Status != "done" {
 			session.Status = "running"
 		}
 	case runtimeevent.TypeError:
 		session.Status = "error"
 	case runtimeevent.TypeTokenUsage:
+		session.Prompt += event.PromptTokens
 		session.TokenTotal = event.CumulativeTotal
 		session.Cached += event.CachedTokens
 	default:

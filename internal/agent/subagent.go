@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
 	"local-agent/internal/approval"
+	"local-agent/internal/llm"
 	"local-agent/internal/runtimeevent"
 	"local-agent/internal/tools"
 )
@@ -21,12 +23,27 @@ type delegateTaskArgs struct {
 	ExpectedOutput string `json:"expected_output,omitempty"`
 }
 
+const (
+	subagentStartedSummary   = "subagent started"
+	subagentCompletedSummary = "subagent completed"
+)
+
+type asyncSubagentTask struct {
+	Index     int
+	Task      string
+	Args      json.RawMessage
+	doneCh    chan struct{}
+	done      bool
+	collected bool
+	result    tools.Result
+}
+
 func (t *delegateTaskTool) Name() string {
 	return tools.DelegateTaskToolName
 }
 
 func (t *delegateTaskTool) Description() string {
-	return "Delegate one independent read-only research task to an isolated subagent. For broad analysis, call this tool multiple times in the same turn with focused tasks such as architecture, tools, UI, config, tests, or security. The subagent returns only its final conclusion."
+	return "Start one independent read-only research subagent in the background. For broad analysis, call this tool multiple times in the same turn with focused tasks such as architecture, tools, UI, config, tests, or security. Continue independent parent work after delegating; the runtime will inject each subagent's final conclusion back before final synthesis."
 }
 
 func (t *delegateTaskTool) Parameters() json.RawMessage {
@@ -60,24 +77,24 @@ func (a *Agent) runSubagentWithIndex(ctx context.Context, args json.RawMessage, 
 	if a.subagentLimiter == nil {
 		return tools.Error("subagent is disabled")
 	}
-
 	select {
-	case a.subagentLimiter <- struct{}{}:
-		defer func() { <-a.subagentLimiter }()
 	case <-ctx.Done():
 		return tools.Error(ctx.Err().Error())
+	default:
 	}
 
-	subagent := a.newSubagent(params.Task, index)
-	answer, err := subagent.Run(ctx, subagentUserInput(params))
-	if err != nil {
-		return tools.Error("subagent failed: " + err.Error())
+	task := &asyncSubagentTask{
+		Index:  index,
+		Task:   params.Task,
+		Args:   append(json.RawMessage(nil), args...),
+		doneCh: make(chan struct{}),
 	}
-	answer = truncateUTF8Bytes(strings.TrimSpace(answer), a.options.Subagents.ResultMaxBytes)
-	if answer == "" {
-		answer = "(subagent returned no final answer)"
-	}
-	return tools.Success("subagent completed", answer)
+	a.registerSubagentTask(task)
+	go a.executeSubagentTask(ctx, task, params)
+	return tools.Success(
+		subagentStartedSummary,
+		fmt.Sprintf("Subagent-%d is running in background for task: %s", index, params.Task),
+	)
 }
 
 func parseDelegateTaskArgs(args json.RawMessage) (delegateTaskArgs, error) {
@@ -113,6 +130,31 @@ func (a *Agent) newSubagent(task string, index int) *Agent {
 		})
 	}
 	return subagent
+}
+
+func (a *Agent) executeSubagentTask(ctx context.Context, task *asyncSubagentTask, params delegateTaskArgs) {
+	result := a.runSubagentTask(ctx, task, params)
+	a.finishSubagentTask(task, result)
+}
+
+func (a *Agent) runSubagentTask(ctx context.Context, task *asyncSubagentTask, params delegateTaskArgs) tools.Result {
+	select {
+	case a.subagentLimiter <- struct{}{}:
+		defer func() { <-a.subagentLimiter }()
+	case <-ctx.Done():
+		return tools.Error(ctx.Err().Error())
+	}
+
+	subagent := a.newSubagent(params.Task, task.Index)
+	answer, err := subagent.Run(ctx, subagentUserInput(params))
+	if err != nil {
+		return tools.Error("subagent failed: " + err.Error())
+	}
+	answer = truncateUTF8Bytes(strings.TrimSpace(answer), a.options.Subagents.ResultMaxBytes)
+	if answer == "" {
+		answer = "(subagent returned no final answer)"
+	}
+	return tools.Success(subagentCompletedSummary, answer)
 }
 
 func (a *Agent) subagentRegistry() *tools.Registry {
@@ -165,6 +207,145 @@ func subagentAutoTodoText(task string) string {
 		return "Research delegated task"
 	}
 	return "Research: " + task
+}
+
+func (a *Agent) registerSubagentTask(task *asyncSubagentTask) {
+	if a == nil || task == nil {
+		return
+	}
+	a.subagentMu.Lock()
+	defer a.subagentMu.Unlock()
+	if a.subagentTasks == nil {
+		a.subagentTasks = map[int]*asyncSubagentTask{}
+	}
+	a.subagentTasks[task.Index] = task
+}
+
+func (a *Agent) finishSubagentTask(task *asyncSubagentTask, result tools.Result) {
+	if a == nil || task == nil {
+		return
+	}
+	a.subagentMu.Lock()
+	stored := a.subagentTasks[task.Index]
+	if stored == nil {
+		stored = task
+		a.subagentTasks[task.Index] = stored
+	}
+	stored.result = result
+	if !stored.done {
+		stored.done = true
+		close(stored.doneCh)
+	}
+	args := append(json.RawMessage(nil), stored.Args...)
+	index := stored.Index
+	a.subagentMu.Unlock()
+
+	a.emit(runtimeevent.Event{
+		Type:          runtimeevent.TypeToolResult,
+		Tool:          tools.DelegateTaskToolName,
+		Category:      approval.CategoryReadOnly,
+		Args:          args,
+		Result:        &result,
+		SubagentIndex: index,
+	})
+}
+
+func (a *Agent) collectCompletedSubagentResults() {
+	if a == nil {
+		return
+	}
+	// Completed delegated work is surfaced back to the parent as synthetic
+	// system messages so the next parent turn can reason over the conclusion
+	// without blocking every delegate_task call synchronously.
+	type completedSubagent struct {
+		index  int
+		task   string
+		result tools.Result
+	}
+	completed := make([]completedSubagent, 0)
+
+	a.subagentMu.Lock()
+	for index, task := range a.subagentTasks {
+		if task == nil || !task.done || task.collected {
+			continue
+		}
+		task.collected = true
+		completed = append(completed, completedSubagent{
+			index:  index,
+			task:   task.Task,
+			result: task.result,
+		})
+	}
+	a.subagentMu.Unlock()
+
+	sort.Slice(completed, func(i, j int) bool { return completed[i].index < completed[j].index })
+	for _, item := range completed {
+		a.messages = append(a.messages, llm.Message{
+			Role:    "system",
+			Content: subagentCompletionMessage(item.index, item.task, item.result),
+		})
+	}
+}
+
+func (a *Agent) awaitOutstandingSubagents(ctx context.Context) (bool, error) {
+	if a == nil {
+		return false, nil
+	}
+	// The parent only joins delegated work when it is otherwise ready to stop.
+	// This keeps delegate_task asynchronous during active work, while still
+	// ensuring the final synthesis sees every delegated conclusion.
+	pending := a.outstandingSubagentTasks()
+	if len(pending) == 0 {
+		return false, nil
+	}
+	for _, task := range pending {
+		select {
+		case <-task.doneCh:
+		case <-ctx.Done():
+			return true, ctx.Err()
+		}
+	}
+	a.collectCompletedSubagentResults()
+	return true, nil
+}
+
+func (a *Agent) outstandingSubagentTasks() []*asyncSubagentTask {
+	a.subagentMu.Lock()
+	defer a.subagentMu.Unlock()
+	pending := make([]*asyncSubagentTask, 0, len(a.subagentTasks))
+	for _, task := range a.subagentTasks {
+		if task == nil || task.collected {
+			continue
+		}
+		pending = append(pending, task)
+	}
+	sort.Slice(pending, func(i, j int) bool { return pending[i].Index < pending[j].Index })
+	return pending
+}
+
+func subagentCompletionMessage(index int, task string, result tools.Result) string {
+	task = strings.TrimSpace(task)
+	if task == "" {
+		task = fmt.Sprintf("Subagent-%d", index)
+	}
+	lines := []string{
+		"Background delegate_task result.",
+		fmt.Sprintf("Subagent-%d task: %s", index, task),
+	}
+	if result.Status == "error" {
+		lines = append(lines, "Status: error")
+		if summary := strings.TrimSpace(result.Summary); summary != "" {
+			lines = append(lines, "Error: "+summary)
+		}
+		return strings.Join(lines, "\n")
+	}
+	lines = append(lines, "Status: completed")
+	if output := strings.TrimSpace(result.Output); output != "" {
+		lines = append(lines, "Conclusion:\n"+output)
+	} else if summary := strings.TrimSpace(result.Summary); summary != "" {
+		lines = append(lines, "Conclusion:\n"+summary)
+	}
+	return strings.Join(lines, "\n")
 }
 
 type denyAllApprover struct{}

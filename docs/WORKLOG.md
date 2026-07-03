@@ -697,3 +697,29 @@
   - 更新测试，覆盖 checklist 样式和顺序约束。
 - 验证：`gofmt -w internal/tui/model.go internal/tui/model_layout.go internal/tui/model_test.go` 通过；`go test ./internal/tui` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
 - 备注：这次只改 TUI 展示样式，不改 todo 的生成与门禁逻辑；自动补 todo 的策略保持不变。
+
+## 2026-07-03 - delegate_task 改为异步 subagent
+
+- 摘要：把 `delegate_task` 从“启动并同步等待子代理返回”改成“后台启动、父 Agent 继续工作、最终收尾时再自动汇总结果”的异步模型。主 Agent 现在可以在子代理运行期间继续执行自己的独立工具调用，不会一发起委托就整轮卡住。
+- 主要模块：`internal/agent/agent.go`、`internal/agent/subagent.go`、`internal/agent/agent_test.go`、`internal/tui/model_subagent.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - `delegate_task` 现在立即返回 `subagent started`，后台 goroutine 再真正运行子代理。
+  - 父 Agent 维护单轮 subagent 任务表；每轮开始前会先收集已完成子代理，把结论注入为合成 `system` message，供下一轮推理直接使用。
+  - 当父 Agent 准备无工具结束时，如果仍有未收集的子代理，会先等待这些后台任务完成，再继续下一轮综合，不直接提前 final。
+  - `Run()` 改为使用 run-scope context，确保父 run 结束时能取消仍在后台的异步子代理，避免悬挂 goroutine 继续输出事件。
+  - TUI 子代理列表把 `delegate_task` 的即时成功结果视为 `running`，只有后台终态 `subagent completed` 才切到 `done`。
+  - 测试重写为父/子独立脚本客户端，覆盖异步继续工作、结果回注、子代理隔离、安全门禁与事件转发。
+- 验证：`gofmt -w internal/agent/agent.go internal/agent/subagent.go internal/agent/agent_test.go internal/tui/model_subagent.go` 通过；`go test ./internal/agent ./internal/tui ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
+- 备注：当前 join 仍是“隐式 join”而不是显式 `await_subagent` 工具；也就是父 Agent 可异步推进，但最终综合阶段仍由 runtime 自动等完后台子代理再继续。
+
+## 2026-07-03 - TUI 增加 cache hit rate 展示
+
+- 摘要：在新 TUI 的 token 统计里补上 `cache hit rate` 计算，并把结果直接显示到 footer 和子代理列表中。现在不再只看到 `cache <n>`，还能看到按 `cached / prompt` 计算出来的命中比例。
+- 主要模块：`internal/tui/model.go`、`internal/tui/model_render.go`、`internal/tui/model_subagent.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - 子代理会额外累计 `PromptTokens`，不再只保留 `TokenTotal` 和 `CachedTokens`；这样主 Agent 和 subagent 可以用同一口径计算命中率。
+  - footer 的全局统计改为在有 cache 命中时显示 `cache <n> | hit <rate>`；主 Agent 独立运行时也会在原来的 `Tokens ... (p... c...)` 摘要里追加 `hit`。
+  - 子代理列表仍然保持低噪音：每一行默认只显示 token 总量；只有当前选中的 subagent 才额外展开 `cache` 和 `hit`。
+  - `cache hit rate` 的分母明确使用 `PromptTokens`，不再拿 `TotalTokens` 充数，避免长回答把命中率稀释掉。
+- 验证：`gofmt -w internal/tui/model.go internal/tui/model_render.go internal/tui/model_subagent.go internal/tui/model_test.go` 通过；`go test ./internal/tui` 通过；`go test ./internal/agent` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
+- 备注：这里仍然是 provider usage 字段驱动的“best effort”统计；如果某次调用没有返回 `PromptTokens` 或 `CachedTokens`，TUI 会退回只显示已有数字，不会硬算一个不可靠的命中率。

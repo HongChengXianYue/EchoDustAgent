@@ -61,11 +61,14 @@ type tokenState struct {
 }
 
 type subagentSession struct {
-	Index      int
-	Task       string
-	Blocks     []transcriptBlock
-	Status     string
-	LastTitle  string
+	Index     int
+	Task      string
+	Blocks    []transcriptBlock
+	Status    string
+	LastTitle string
+	// Cache hit rate uses prompt-side tokens as the denominator, so subagents
+	// track prompt usage separately from their cumulative total.
+	Prompt     int
 	TokenTotal int
 	Cached     int
 }

@@ -161,21 +161,19 @@ func (m *Model) tokenSummary() string {
 	if m.tokens.Total <= 0 {
 		return "-"
 	}
-	if m.tokens.Cached > 0 {
-		return fmt.Sprintf(
-			"%s (p%s c%s, cache %s)",
-			formatCompactTokenCount(m.tokens.Total),
-			formatCompactTokenCount(m.tokens.Prompt),
-			formatCompactTokenCount(m.tokens.Completion),
-			formatCompactTokenCount(m.tokens.Cached),
-		)
-	}
-	return fmt.Sprintf(
-		"%s (p%s c%s)",
+	summary := fmt.Sprintf(
+		"%s (p%s c%s",
 		formatCompactTokenCount(m.tokens.Total),
 		formatCompactTokenCount(m.tokens.Prompt),
 		formatCompactTokenCount(m.tokens.Completion),
 	)
+	if m.tokens.Cached > 0 {
+		summary += ", cache " + formatCompactTokenCount(m.tokens.Cached)
+		if hitRate, ok := formatCacheHitRate(m.tokens.Cached, m.tokens.Prompt); ok {
+			summary += ", hit " + hitRate
+		}
+	}
+	return summary + ")"
 }
 
 func formatCompactTokenCount(count int) string {
@@ -200,6 +198,18 @@ func (m *Model) subagentTokenTotal() int {
 	return total
 }
 
+func (m *Model) subagentPromptTokenTotal() int {
+	total := 0
+	for _, index := range m.subagentOrder {
+		session := m.subagents[index]
+		if session == nil || session.Prompt <= 0 {
+			continue
+		}
+		total += session.Prompt
+	}
+	return total
+}
+
 func (m *Model) subagentCachedTokenTotal() int {
 	total := 0
 	for _, index := range m.subagentOrder {
@@ -215,6 +225,7 @@ func (m *Model) subagentCachedTokenTotal() int {
 func (m *Model) footerSummary(limit int) string {
 	mainTotal := m.tokens.Total
 	subTotal := m.subagentTokenTotal()
+	totalPrompt := m.tokens.Prompt + m.subagentPromptTokenTotal()
 	totalCached := m.tokens.Cached + m.subagentCachedTokenTotal()
 	if mainTotal <= 0 && subTotal <= 0 {
 		return ""
@@ -225,15 +236,19 @@ func (m *Model) footerSummary(limit int) string {
 	case mainTotal > 0 && subTotal > 0:
 		total := mainTotal + subTotal
 		if totalCached > 0 {
+			cacheSummary := "cache " + formatCompactTokenCount(totalCached)
+			if hitRate, ok := formatCacheHitRate(totalCached, totalPrompt); ok {
+				cacheSummary += " | hit " + hitRate
+			}
 			candidates = append(candidates,
 				fmt.Sprintf(
-					"Tokens %s total | main %s | sub %s | cache %s",
+					"Tokens %s total | main %s | sub %s | %s",
 					formatCompactTokenCount(total),
 					formatCompactTokenCount(mainTotal),
 					formatCompactTokenCount(subTotal),
-					formatCompactTokenCount(totalCached),
+					cacheSummary,
 				),
-				fmt.Sprintf("Tokens %s total | cache %s", formatCompactTokenCount(total), formatCompactTokenCount(totalCached)),
+				fmt.Sprintf("Tokens %s total | %s", formatCompactTokenCount(total), cacheSummary),
 			)
 		}
 		candidates = append(candidates,
@@ -249,12 +264,20 @@ func (m *Model) footerSummary(limit int) string {
 	case mainTotal > 0:
 		candidates = append(candidates, "Tokens "+m.tokenSummary())
 		if totalCached > 0 {
-			candidates = append(candidates, fmt.Sprintf("Tokens %s | cache %s", formatCompactTokenCount(mainTotal), formatCompactTokenCount(totalCached)))
+			cacheSummary := "cache " + formatCompactTokenCount(totalCached)
+			if hitRate, ok := formatCacheHitRate(totalCached, totalPrompt); ok {
+				cacheSummary += " | hit " + hitRate
+			}
+			candidates = append(candidates, fmt.Sprintf("Tokens %s | %s", formatCompactTokenCount(mainTotal), cacheSummary))
 		}
 		candidates = append(candidates, fmt.Sprintf("Tokens %s", formatCompactTokenCount(mainTotal)))
 	default:
 		if totalCached > 0 {
-			candidates = append(candidates, fmt.Sprintf("Tokens %s subagents | cache %s", formatCompactTokenCount(subTotal), formatCompactTokenCount(totalCached)))
+			cacheSummary := "cache " + formatCompactTokenCount(totalCached)
+			if hitRate, ok := formatCacheHitRate(totalCached, totalPrompt); ok {
+				cacheSummary += " | hit " + hitRate
+			}
+			candidates = append(candidates, fmt.Sprintf("Tokens %s subagents | %s", formatCompactTokenCount(subTotal), cacheSummary))
 		}
 		candidates = append(candidates,
 			fmt.Sprintf("Tokens %s subagents", formatCompactTokenCount(subTotal)),
@@ -268,6 +291,15 @@ func (m *Model) footerSummary(limit int) string {
 		}
 	}
 	return truncateSingleLine(candidates[len(candidates)-1], limit)
+}
+
+func formatCacheHitRate(cached, prompt int) (string, bool) {
+	if cached <= 0 || prompt <= 0 {
+		return "", false
+	}
+	// Cache reuse only applies to prompt-side tokens. Using total tokens here
+	// would understate long answers and skew parent/subagent comparisons.
+	return fmt.Sprintf("%.1f%%", (float64(cached)/float64(prompt))*100), true
 }
 
 func truncatePath(path string, limit int) string {

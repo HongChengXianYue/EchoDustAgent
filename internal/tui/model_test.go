@@ -106,10 +106,10 @@ func TestTokenFooterRendersAboveInputBox(t *testing.T) {
 	}})
 
 	view := model.View()
-	if !containsAll(view, "Tokens 34.1k (p32.7k c1.4k, cache 800)", "Ask the agent") {
+	if !containsAll(view, "Tokens 34.1k (p32.7k c1.4k, cache 800, hit 2.4%)", "Ask the agent") {
 		t.Fatalf("token footer missing expected summary:\n%s", view)
 	}
-	if strings.LastIndex(view, "Tokens 34.1k (p32.7k c1.4k, cache 800)") > strings.LastIndex(view, "Ask the agent") {
+	if strings.LastIndex(view, "Tokens 34.1k (p32.7k c1.4k, cache 800, hit 2.4%)") > strings.LastIndex(view, "Ask the agent") {
 		t.Fatalf("token footer should render above the input box:\n%s", view)
 	}
 }
@@ -128,12 +128,13 @@ func TestTokenFooterIncludesSubagentTotals(t *testing.T) {
 		Source:          "subagent",
 		ParentTool:      "Inspect README",
 		SubagentIndex:   1,
+		PromptTokens:    500,
 		CumulativeTotal: 700,
 		CachedTokens:    50,
 	}})
 
 	view := model.View()
-	if !strings.Contains(view, "Tokens 2.2k total | main 1.5k | sub 700 | cache 250") {
+	if !strings.Contains(view, "Tokens 2.2k total | main 1.5k | sub 700 | cache 250 | hit 14.7%") {
 		t.Fatalf("expected combined main/subagent token footer:\n%s", view)
 	}
 }
@@ -141,22 +142,22 @@ func TestTokenFooterIncludesSubagentTotals(t *testing.T) {
 func TestTokenFooterUsesMillionSuffixForLargeCounts(t *testing.T) {
 	model := newSizedTestModel()
 	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
-		Type:             runtimeevent.TypeTokenUsage,
-		PromptTokens:     11647,
-		CompletionTokens: 333,
-		CumulativeTotal:  11647,
-		CachedTokens:     1127680,
+		Type:            runtimeevent.TypeTokenUsage,
+		PromptTokens:    11647,
+		CumulativeTotal: 11647,
 	}})
 	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
 		Type:            runtimeevent.TypeTokenUsage,
 		Source:          "subagent",
 		ParentTool:      "Analyze repo",
 		SubagentIndex:   1,
+		PromptTokens:    1200000,
 		CumulativeTotal: 1398223,
+		CachedTokens:    1127680,
 	}})
 
 	view := model.View()
-	if !strings.Contains(view, "Tokens 1.4m total | main 11.6k | sub 1.4m | cache 1.1m") {
+	if !strings.Contains(view, "Tokens 1.4m total | main 11.6k | sub 1.4m | cache 1.1m | hit 93.1%") {
 		t.Fatalf("expected footer to use compact million suffixes:\n%s", view)
 	}
 }
@@ -171,7 +172,7 @@ func TestRunStartResetsTokenFooter(t *testing.T) {
 	}})
 	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeRunStart}})
 
-	if model.tokens.Total != 0 || model.tokens.Prompt != 0 || model.tokens.Completion != 0 {
+	if model.tokens.Total != 0 || model.tokens.Prompt != 0 || model.tokens.Completion != 0 || model.tokens.Cached != 0 {
 		t.Fatalf("tokens should reset on new run start, got %+v", model.tokens)
 	}
 	if strings.Contains(model.View(), "Tokens ") {
@@ -464,6 +465,7 @@ func TestSubagentRowShowsOwnTokenTotal(t *testing.T) {
 		Source:          "subagent",
 		ParentTool:      "Inspect README",
 		SubagentIndex:   1,
+		PromptTokens:    1000,
 		CumulativeTotal: 1500,
 		CachedTokens:    800,
 	}})
@@ -474,6 +476,9 @@ func TestSubagentRowShowsOwnTokenTotal(t *testing.T) {
 	}
 	if !strings.Contains(view, "cache 800") {
 		t.Fatalf("expected selected subagent row to show cache usage:\n%s", view)
+	}
+	if !strings.Contains(view, "hit 80.0%") {
+		t.Fatalf("expected selected subagent row to show cache hit rate:\n%s", view)
 	}
 }
 
@@ -486,6 +491,7 @@ func TestOnlySelectedSubagentRowShowsCacheBreakdown(t *testing.T) {
 		Source:          "subagent",
 		ParentTool:      "Inspect README",
 		SubagentIndex:   1,
+		PromptTokens:    1000,
 		CumulativeTotal: 1500,
 		CachedTokens:    800,
 	}})
@@ -494,6 +500,7 @@ func TestOnlySelectedSubagentRowShowsCacheBreakdown(t *testing.T) {
 		Source:          "subagent",
 		ParentTool:      "Trace scheduler",
 		SubagentIndex:   2,
+		PromptTokens:    1000,
 		CumulativeTotal: 2200,
 		CachedTokens:    900,
 	}})
@@ -501,6 +508,9 @@ func TestOnlySelectedSubagentRowShowsCacheBreakdown(t *testing.T) {
 	view := model.View()
 	if strings.Contains(view, "cache 900") {
 		t.Fatalf("unselected subagent row should not show cache breakdown:\n%s", view)
+	}
+	if strings.Contains(view, "hit 90.0%") {
+		t.Fatalf("unselected subagent row should not show cache hit rate:\n%s", view)
 	}
 	if !strings.Contains(view, "· 2.2k") {
 		t.Fatalf("every subagent row should still show total tokens:\n%s", view)
