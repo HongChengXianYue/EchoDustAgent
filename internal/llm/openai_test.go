@@ -245,7 +245,7 @@ func TestOpenAICompatibleClientResponsesSendsFlatToolSpecAndParsesOutput(t *test
 					"arguments": "{\"path\":\"go.mod\"}"
 				}
 			],
-			"usage": {"input_tokens": 2, "output_tokens": 5, "total_tokens": 7}
+			"usage": {"input_tokens": 2, "output_tokens": 5, "total_tokens": 7, "input_tokens_details": {"cached_tokens": 1}}
 		}`)),
 		}, nil
 	})}
@@ -278,8 +278,8 @@ func TestOpenAICompatibleClientResponsesSendsFlatToolSpecAndParsesOutput(t *test
 	if string(resp.ToolCalls[0].ArgumentsJSON()) != `{"path":"go.mod"}` {
 		t.Fatalf("arguments = %s", resp.ToolCalls[0].ArgumentsJSON())
 	}
-	if resp.Usage == nil || resp.Usage.PromptTokens != 2 || resp.Usage.CompletionTokens != 5 || resp.Usage.TotalTokens != 7 {
-		t.Fatalf("usage = %#v, want 2/5/7", resp.Usage)
+	if resp.Usage == nil || resp.Usage.PromptTokens != 2 || resp.Usage.CompletionTokens != 5 || resp.Usage.TotalTokens != 7 || resp.Usage.CachedTokens != 1 {
+		t.Fatalf("usage = %#v, want 2/5/7 cached=1", resp.Usage)
 	}
 }
 
@@ -485,7 +485,7 @@ func TestOpenAICompatibleClientResponsesStreamsContentAndToolCalls(t *testing.T)
 			``,
 			`data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_1","name":"read_file","arguments":"{\"path\":\"go.mod\"}"}}`,
 			``,
-			`data: {"type":"response.completed","response":{"id":"resp_1","usage":{"input_tokens":2,"output_tokens":5,"total_tokens":7}}}`,
+			`data: {"type":"response.completed","response":{"id":"resp_1","usage":{"input_tokens":2,"output_tokens":5,"total_tokens":7,"input_tokens_details":{"cached_tokens":1}}}}`,
 			``,
 		}, "\n")
 		return &http.Response{
@@ -521,8 +521,8 @@ func TestOpenAICompatibleClientResponsesStreamsContentAndToolCalls(t *testing.T)
 	if string(resp.ToolCalls[0].ArgumentsJSON()) != `{"path":"go.mod"}` {
 		t.Fatalf("arguments = %s", resp.ToolCalls[0].ArgumentsJSON())
 	}
-	if resp.Usage == nil || resp.Usage.PromptTokens != 2 || resp.Usage.CompletionTokens != 5 || resp.Usage.TotalTokens != 7 {
-		t.Fatalf("usage = %#v, want 2/5/7", resp.Usage)
+	if resp.Usage == nil || resp.Usage.PromptTokens != 2 || resp.Usage.CompletionTokens != 5 || resp.Usage.TotalTokens != 7 || resp.Usage.CachedTokens != 1 {
+		t.Fatalf("usage = %#v, want 2/5/7 cached=1", resp.Usage)
 	}
 	if len(deltas) != 2 {
 		t.Fatalf("deltas = %#v, want content and done", deltas)
@@ -545,7 +545,7 @@ func TestOpenAICompatibleClientStreamsContent(t *testing.T) {
 		body := strings.Join([]string{
 			`data: {"choices":[{"delta":{"content":"hello "}}]}`,
 			``,
-			`data: {"choices":[{"delta":{"content":"world"}}],"usage":{"total_tokens":9}}`,
+			`data: {"choices":[{"delta":{"content":"world"}}],"usage":{"total_tokens":9,"prompt_tokens_details":{"cached_tokens":4}}}`,
 			``,
 			`data: [DONE]`,
 			``,
@@ -573,8 +573,8 @@ func TestOpenAICompatibleClientStreamsContent(t *testing.T) {
 	if resp.Content != "hello world" {
 		t.Fatalf("content = %q, want hello world", resp.Content)
 	}
-	if resp.Usage == nil || resp.Usage.TotalTokens != 9 {
-		t.Fatalf("usage = %#v, want total 9", resp.Usage)
+	if resp.Usage == nil || resp.Usage.TotalTokens != 9 || resp.Usage.CachedTokens != 4 {
+		t.Fatalf("usage = %#v, want total 9 cached=4", resp.Usage)
 	}
 }
 

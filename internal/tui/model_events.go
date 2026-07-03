@@ -20,6 +20,7 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 		m.lastRunHadFinal = false
 		m.runErrorReported = false
 		m.assistantDraft = ""
+		m.tokens = tokenState{}
 	case runtimeevent.TypeRunEnd:
 		m.running = false
 		m.interrupting = false
@@ -90,6 +91,7 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 		}
 		m.tokens.Prompt += event.PromptTokens
 		m.tokens.Completion += event.CompletionTokens
+		m.tokens.Cached += event.CachedTokens
 		m.tokens.Total = event.CumulativeTotal
 	case runtimeevent.TypeFinal:
 		m.lastRunHadFinal = true

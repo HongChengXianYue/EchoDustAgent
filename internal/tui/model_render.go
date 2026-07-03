@@ -21,6 +21,9 @@ func (m *Model) View() string {
 	if panel := m.renderSubagentPanel(); panel != "" {
 		parts = append(parts, panel)
 	}
+	if footer := m.renderFooter(); footer != "" {
+		parts = append(parts, footer)
+	}
 	if suggestions := m.renderSuggestions(); suggestions != "" {
 		parts = append(parts, suggestions)
 	}
@@ -78,6 +81,17 @@ func (m *Model) renderSubagentPanel() string {
 func (m *Model) renderInputBox() string {
 	width := max(10, m.width-m.inputBoxStyle.GetHorizontalFrameSize())
 	return m.inputBoxStyle.Width(width).Render(m.input.View())
+}
+
+func (m *Model) renderFooter() string {
+	summary := m.footerSummary(max(12, m.width-2))
+	if summary == "" {
+		return ""
+	}
+	return lipgloss.NewStyle().
+		Width(max(20, m.width)).
+		Align(lipgloss.Right).
+		Render(m.mutedStyle.Render(summary))
 }
 
 func (m *Model) renderSuggestions() string {
@@ -147,7 +161,88 @@ func (m *Model) tokenSummary() string {
 	if m.tokens.Total <= 0 {
 		return "-"
 	}
+	if m.tokens.Cached > 0 {
+		return fmt.Sprintf("%d (p%d c%d, cache %d)", m.tokens.Total, m.tokens.Prompt, m.tokens.Completion, m.tokens.Cached)
+	}
 	return fmt.Sprintf("%d (p%d c%d)", m.tokens.Total, m.tokens.Prompt, m.tokens.Completion)
+}
+
+func formatCompactTokenCount(count int) string {
+	if count >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(count)/1000)
+	}
+	return fmt.Sprintf("%d", count)
+}
+
+func (m *Model) subagentTokenTotal() int {
+	total := 0
+	for _, index := range m.subagentOrder {
+		session := m.subagents[index]
+		if session == nil || session.TokenTotal <= 0 {
+			continue
+		}
+		total += session.TokenTotal
+	}
+	return total
+}
+
+func (m *Model) subagentCachedTokenTotal() int {
+	total := 0
+	for _, index := range m.subagentOrder {
+		session := m.subagents[index]
+		if session == nil || session.Cached <= 0 {
+			continue
+		}
+		total += session.Cached
+	}
+	return total
+}
+
+func (m *Model) footerSummary(limit int) string {
+	mainTotal := m.tokens.Total
+	subTotal := m.subagentTokenTotal()
+	totalCached := m.tokens.Cached + m.subagentCachedTokenTotal()
+	if mainTotal <= 0 && subTotal <= 0 {
+		return ""
+	}
+
+	var candidates []string
+	switch {
+	case mainTotal > 0 && subTotal > 0:
+		total := mainTotal + subTotal
+		if totalCached > 0 {
+			candidates = append(candidates,
+				fmt.Sprintf("Tokens %d total | main %d | sub %d | cache %d", total, mainTotal, subTotal, totalCached),
+				fmt.Sprintf("Tokens %d total | cache %d", total, totalCached),
+			)
+		}
+		candidates = append(candidates,
+			fmt.Sprintf("Tokens %d total | main %d | sub %d", total, mainTotal, subTotal),
+			fmt.Sprintf("Tokens %d total", total),
+			fmt.Sprintf("Tokens %d", total),
+		)
+	case mainTotal > 0:
+		candidates = append(candidates, "Tokens "+m.tokenSummary())
+		if totalCached > 0 {
+			candidates = append(candidates, fmt.Sprintf("Tokens %d | cache %d", mainTotal, totalCached))
+		}
+		candidates = append(candidates, fmt.Sprintf("Tokens %d", mainTotal))
+	default:
+		if totalCached > 0 {
+			candidates = append(candidates, fmt.Sprintf("Tokens %d subagents | cache %d", subTotal, totalCached))
+		}
+		candidates = append(candidates,
+			fmt.Sprintf("Tokens %d subagents", subTotal),
+			fmt.Sprintf("Tokens %d", subTotal),
+		)
+	}
+
+	for _, candidate := range candidates {
+		if lipgloss.Width(candidate) <= limit {
+			return candidate
+		}
+	}
+	return truncateSingleLine(candidates[len(candidates)-1], limit)
 }
 
 func truncatePath(path string, limit int) string {

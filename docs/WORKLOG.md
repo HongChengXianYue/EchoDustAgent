@@ -623,3 +623,29 @@
   - 测试用例和临时目录命名同步改到新品牌，并新增旧 `LOCAL-AGENT.md` 兼容回归测试。
 - 验证：`gofmt -w internal/config/config.go internal/logs/logger.go internal/memory/doc.go internal/memory/memory_test.go internal/mcp/stdio.go internal/llm/responses.go internal/tools/code_tools.go internal/ui/startup_test.go internal/ui/renderer_test.go internal/config/config_test.go` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
 - 备注：这次没有修改 `go.mod` 的 `module local-agent`，也没有改任何 import path；如果后续要把模块名也迁移到新品牌，需要单独做一次完整的 Go 模块重命名和下游兼容处理。
+
+## 2026-07-03 - TUI 右下角增加 token 消耗显示
+
+- 摘要：在 `internal/tui` 底部输入框上方增加右对齐 token footer，用来显示当前 run 的 token 消耗。主 agent 有 usage 时显示 `Tokens <total> (p<prompt> c<completion>)`；如果存在 subagent usage，会汇总成 `Tokens <total> total | main <main> | sub <sub>`。
+- 主要模块：`internal/tui/model_render.go`、`internal/tui/model_layout.go`、`internal/tui/model_events.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - 新增 `renderFooter()` 和 `footerSummary()`，把 token 消耗渲染到输入框上方、右对齐的位置。
+  - 布局计算时为 footer 预留一行高度，避免和正文 viewport 叠在一起。
+  - 新 run 开始时重置 `m.tokens`，修正之前 TUI token 会跨轮串数的问题。
+  - 新增测试覆盖主 agent token footer、subagent token 汇总，以及 `run_start` 重置 token 状态。
+- 验证：`gofmt -w internal/tui/model_render.go internal/tui/model_layout.go internal/tui/model_events.go internal/tui/model_test.go` 通过；`go test ./internal/tui ./internal/agent` 通过；`go vet ./...` 通过；`git diff --check` 通过；`go test ./...` 通过。
+- 备注：这次显示的是运行时汇总，不是 provider 账单口径；数值来源仍然完全依赖 runtime event 里的 usage 字段。
+
+## 2026-07-03 - Token usage 增加 cache hit 统计
+
+- 摘要：把 provider 返回的 prompt cache hit 数据接进现有 token usage 链路。现在 Responses API 和 Chat Completions API 解析到的 `cached_tokens` 会进入 `llm.TokenUsage`，再通过 runtime event 传到新 TUI footer 和旧 CLI renderer，用户可以直接看到本轮命中的 cache token 数。
+- 主要模块：`internal/llm/client.go`、`internal/llm/chat_completions.go`、`internal/llm/responses.go`、`internal/agent/agent.go`、`internal/runtimeevent/runtimeevent.go`、`internal/tui/model.go`、`internal/tui/model_events.go`、`internal/tui/model_subagent.go`、`internal/tui/model_render.go`、`internal/ui/renderer.go`、`internal/ui/renderer_frame.go`、`internal/agent/agent_test.go`、`internal/llm/openai_test.go`、`internal/tui/model_test.go`、`internal/ui/renderer_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - `llm.TokenUsage` 新增 `CachedTokens` 字段，统一承接不同 provider 的 cache 命中统计。
+  - Responses API 兼容解析 `input_tokens_details.cached_tokens` / `prompt_tokens_details.cached_tokens` / 顶层 `cached_tokens`。
+  - Chat Completions API 兼容解析 `prompt_tokens_details.cached_tokens`，并保留顶层 `cached_tokens` 兜底。
+  - Agent 在发射 `TypeTokenUsage` runtime event 时追加 `CachedTokens`，同时累计到主 agent 总 usage。
+  - 新 TUI footer 在有 cache 命中时显示 `cache <n>`；旧 CLI live frame 和 final summary 也同步展示 cache 统计。
+  - 补充解析层、Agent 事件层、TUI footer 和旧 renderer 的回归测试，确保 cache hit 不会在中途丢失。
+- 验证：`gofmt -w internal/llm/client.go internal/llm/chat_completions.go internal/llm/responses.go internal/agent/agent.go internal/runtimeevent/runtimeevent.go internal/tui/model.go internal/tui/model_events.go internal/tui/model_subagent.go internal/tui/model_render.go internal/ui/renderer.go internal/ui/renderer_frame.go internal/agent/agent_test.go internal/llm/openai_test.go internal/tui/model_test.go internal/ui/renderer_test.go` 通过；`go test ./internal/llm ./internal/agent ./internal/tui ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
+- 备注：这里展示的是 provider 返回的 cache hit token 数，不等于所有厂商统一账单口径；如果某个模型或网关不返回该字段，UI 会自动退回旧展示，不会报错。

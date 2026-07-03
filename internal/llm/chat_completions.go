@@ -39,7 +39,7 @@ type chatCompletionResponse struct {
 			ToolCalls []ToolCall `json:"tool_calls"`
 		} `json:"message"`
 	} `json:"choices"`
-	Usage *TokenUsage `json:"usage,omitempty"`
+	Usage *chatCompletionUsage `json:"usage,omitempty"`
 }
 
 type chatCompletionChunk struct {
@@ -50,7 +50,19 @@ type chatCompletionChunk struct {
 		} `json:"delta"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
-	Usage *TokenUsage `json:"usage,omitempty"`
+	Usage *chatCompletionUsage `json:"usage,omitempty"`
+}
+
+type chatCompletionUsage struct {
+	PromptTokens       int                              `json:"prompt_tokens,omitempty"`
+	CompletionTokens   int                              `json:"completion_tokens,omitempty"`
+	TotalTokens        int                              `json:"total_tokens,omitempty"`
+	CachedTokens       int                              `json:"cached_tokens,omitempty"`
+	PromptTokensDetail *chatCompletionPromptTokenDetail `json:"prompt_tokens_details,omitempty"`
+}
+
+type chatCompletionPromptTokenDetail struct {
+	CachedTokens int `json:"cached_tokens,omitempty"`
 }
 
 func buildToolSpecs(tools []FunctionTool) []toolSpec {
@@ -167,8 +179,28 @@ func parseChatCompletionResponse(body []byte) (*ChatResponse, error) {
 	return &ChatResponse{
 		Content:   message.Content,
 		ToolCalls: message.ToolCalls,
-		Usage:     parsed.Usage,
+		Usage:     parsed.Usage.toTokenUsage(),
 	}, nil
+}
+
+func (u *chatCompletionUsage) toTokenUsage() *TokenUsage {
+	if u == nil {
+		return nil
+	}
+	totalTokens := u.TotalTokens
+	if totalTokens == 0 {
+		totalTokens = u.PromptTokens + u.CompletionTokens
+	}
+	cachedTokens := u.CachedTokens
+	if cachedTokens == 0 && u.PromptTokensDetail != nil {
+		cachedTokens = u.PromptTokensDetail.CachedTokens
+	}
+	return &TokenUsage{
+		PromptTokens:     u.PromptTokens,
+		CompletionTokens: u.CompletionTokens,
+		TotalTokens:      totalTokens,
+		CachedTokens:     cachedTokens,
+	}
 }
 
 func parseChatCompletionStream(body io.Reader, onDelta StreamHandler) (*ChatResponse, error) {
@@ -210,9 +242,9 @@ func parseChatCompletionStream(body io.Reader, onDelta StreamHandler) (*ChatResp
 			return nil, err
 		}
 		if chunk.Usage != nil {
-			usage = chunk.Usage
+			usage = chunk.Usage.toTokenUsage()
 		}
-		delta := StreamDelta{Usage: chunk.Usage}
+		delta := StreamDelta{Usage: chunk.Usage.toTokenUsage()}
 		for _, choice := range chunk.Choices {
 			if choice.Delta.Content != "" {
 				content.WriteString(choice.Delta.Content)

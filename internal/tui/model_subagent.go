@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"local-agent/internal/runtimeevent"
 	"local-agent/internal/tools"
@@ -185,10 +186,11 @@ func (m *Model) renderSubagentRow(session *subagentSession, width int) string {
 	}
 	marker := "○"
 	style := m.subagentIdleStyle
-	if m.selectedSubagent == session.Index {
+	isSelected := m.selectedSubagent == session.Index
+	if isSelected {
 		style = m.subagentSelectedStyle
 	}
-	if m.viewingSubagent && m.selectedSubagent == session.Index {
+	if m.viewingSubagent && isSelected {
 		marker = "●"
 		style = m.subagentOpenStyle
 	}
@@ -196,8 +198,27 @@ func (m *Model) renderSubagentRow(session *subagentSession, width int) string {
 	if label == "" {
 		label = "Pending task"
 	}
-	row := fmt.Sprintf("%s Subagent-%d  %s  [%s]", marker, session.Index, label, session.Status)
+	prefix := fmt.Sprintf("%s Subagent-%d  ", marker, session.Index)
+	status := fmt.Sprintf("  [%s]", session.Status)
+	tokenSummary := m.subagentRowTokenSummary(session, isSelected)
+	labelWidth := width - lipgloss.Width(prefix) - lipgloss.Width(status) - lipgloss.Width(tokenSummary)
+	if labelWidth < 8 {
+		labelWidth = 8
+	}
+	label = truncateSingleLine(label, labelWidth)
+	row := prefix + label + status + tokenSummary
 	return style.Render(truncateSingleLine(row, max(8, width)))
+}
+
+func (m *Model) subagentRowTokenSummary(session *subagentSession, selected bool) string {
+	if session == nil || session.TokenTotal <= 0 {
+		return ""
+	}
+	summary := "  · " + formatCompactTokenCount(session.TokenTotal)
+	if selected && session.Cached > 0 {
+		summary += " | cache " + formatCompactTokenCount(session.Cached)
+	}
+	return summary
 }
 
 func (m *Model) renderSubagentDetail() string {
@@ -398,6 +419,7 @@ func (m *Model) updateSubagentStatus(session *subagentSession, event runtimeeven
 		session.Status = "error"
 	case runtimeevent.TypeTokenUsage:
 		session.TokenTotal = event.CumulativeTotal
+		session.Cached += event.CachedTokens
 	default:
 		if session.Status == "" {
 			session.Status = "running"

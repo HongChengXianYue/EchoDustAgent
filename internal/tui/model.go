@@ -57,6 +57,7 @@ type tokenState struct {
 	Prompt     int
 	Completion int
 	Total      int
+	Cached     int
 }
 
 type subagentSession struct {
@@ -66,6 +67,7 @@ type subagentSession struct {
 	Status     string
 	LastTitle  string
 	TokenTotal int
+	Cached     int
 }
 
 type Model struct {

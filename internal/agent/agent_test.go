@@ -1520,16 +1520,16 @@ func TestRunEmitsTokenUsageEventsWithCumulativeTotal(t *testing.T) {
 		{
 			Content:   "",
 			ToolCalls: []llm.ToolCall{testToolCall("call_1", "echo", `{"text":"a"}`)},
-			Usage:     &llm.TokenUsage{PromptTokens: 100, CompletionTokens: 20, TotalTokens: 120},
+			Usage:     &llm.TokenUsage{PromptTokens: 100, CompletionTokens: 20, TotalTokens: 120, CachedTokens: 30},
 		},
 		{
 			Content:   "",
 			ToolCalls: []llm.ToolCall{testToolCall("call_2", "echo", `{"text":"b"}`)},
-			Usage:     &llm.TokenUsage{PromptTokens: 200, CompletionTokens: 40, TotalTokens: 240},
+			Usage:     &llm.TokenUsage{PromptTokens: 200, CompletionTokens: 40, TotalTokens: 240, CachedTokens: 40},
 		},
 		{
 			Content: "finished",
-			Usage:   &llm.TokenUsage{PromptTokens: 300, CompletionTokens: 60, TotalTokens: 360},
+			Usage:   &llm.TokenUsage{PromptTokens: 300, CompletionTokens: 60, TotalTokens: 360, CachedTokens: 50},
 		},
 	}}
 	registry := tools.NewRegistry()
@@ -1553,6 +1553,9 @@ func TestRunEmitsTokenUsageEventsWithCumulativeTotal(t *testing.T) {
 	if usage.TotalTokens != 720 {
 		t.Errorf("TotalTokens = %d, want 720", usage.TotalTokens)
 	}
+	if usage.CachedTokens != 120 {
+		t.Errorf("CachedTokens = %d, want 120", usage.CachedTokens)
+	}
 
 	// Verify token usage events carry correct per-call and cumulative values.
 	var tokenEvents []runtimeevent.Event
@@ -1565,11 +1568,11 @@ func TestRunEmitsTokenUsageEventsWithCumulativeTotal(t *testing.T) {
 		t.Fatalf("token events = %d, want 3", len(tokenEvents))
 	}
 	wantPerCall := []struct {
-		prompt, completion, cumulative int
+		prompt, completion, cumulative, cached int
 	}{
-		{100, 20, 120},
-		{200, 40, 360}, // 120 + 240
-		{300, 60, 720}, // 360 + 360
+		{100, 20, 120, 30},
+		{200, 40, 360, 40}, // 120 + 240
+		{300, 60, 720, 50}, // 360 + 360
 	}
 	for i, want := range wantPerCall {
 		got := tokenEvents[i]
@@ -1581,6 +1584,9 @@ func TestRunEmitsTokenUsageEventsWithCumulativeTotal(t *testing.T) {
 		}
 		if got.CumulativeTotal != want.cumulative {
 			t.Errorf("event[%d].CumulativeTotal = %d, want %d", i, got.CumulativeTotal, want.cumulative)
+		}
+		if got.CachedTokens != want.cached {
+			t.Errorf("event[%d].CachedTokens = %d, want %d", i, got.CachedTokens, want.cached)
 		}
 	}
 }

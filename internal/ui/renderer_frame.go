@@ -64,6 +64,7 @@ func (r *BlockRenderer) writeTokenUsageBlock(output *bytes.Buffer) {
 	}
 	fmt.Fprintln(output, separatorLine(r.separatorWidth()))
 	total := r.mainTokenTotal
+	totalCached := r.mainCachedTokens
 	hasSubagents := len(r.subagentTokens) > 0
 	if hasSubagents {
 		fmt.Fprintf(output, "• Tokens: %s main", formatTokenCount(r.mainTokenTotal))
@@ -74,10 +75,21 @@ func (r *BlockRenderer) writeTokenUsageBlock(output *bytes.Buffer) {
 			}
 			fmt.Fprintf(output, " | %s %s", label, formatTokenCount(count))
 			total += count
+			if r.subagentCacheHits != nil {
+				totalCached += r.subagentCacheHits[idx]
+			}
 		}
-		fmt.Fprintf(output, " | total %s\n", formatTokenCount(total))
+		fmt.Fprintf(output, " | total %s", formatTokenCount(total))
+		if totalCached > 0 {
+			fmt.Fprintf(output, " | cache %s", formatTokenCount(totalCached))
+		}
+		fmt.Fprintln(output)
 	} else {
-		fmt.Fprintf(output, "• Tokens: %s\n", formatTokenCount(r.mainTokenTotal))
+		fmt.Fprintf(output, "• Tokens: %s", formatTokenCount(r.mainTokenTotal))
+		if totalCached > 0 {
+			fmt.Fprintf(output, " | cache %s", formatTokenCount(totalCached))
+		}
+		fmt.Fprintln(output)
 	}
 }
 
@@ -102,8 +114,13 @@ func (r *BlockRenderer) writeFinalTokenSummary() {
 	}
 	fmt.Fprintln(r.output, separatorLine(r.separatorWidth()))
 	total := r.mainTokenTotal
+	totalCached := r.mainCachedTokens
 	if len(r.subagentTokens) == 0 {
-		fmt.Fprintf(r.output, "• Tokens: %s\n", formatTokenCount(r.mainTokenTotal))
+		fmt.Fprintf(r.output, "• Tokens: %s", formatTokenCount(r.mainTokenTotal))
+		if totalCached > 0 {
+			fmt.Fprintf(r.output, " | cache %s", formatTokenCount(totalCached))
+		}
+		fmt.Fprintln(r.output)
 		return
 	}
 	fmt.Fprintf(r.output, "• Tokens: %s main", formatTokenCount(r.mainTokenTotal))
@@ -114,8 +131,15 @@ func (r *BlockRenderer) writeFinalTokenSummary() {
 		}
 		fmt.Fprintf(r.output, " | %s %s", label, formatTokenCount(count))
 		total += count
+		if r.subagentCacheHits != nil {
+			totalCached += r.subagentCacheHits[idx]
+		}
 	}
-	fmt.Fprintf(r.output, " | total %s\n", formatTokenCount(total))
+	fmt.Fprintf(r.output, " | total %s", formatTokenCount(total))
+	if totalCached > 0 {
+		fmt.Fprintf(r.output, " | cache %s", formatTokenCount(totalCached))
+	}
+	fmt.Fprintln(r.output)
 }
 
 func (r *BlockRenderer) frameOutputText(text string) string {

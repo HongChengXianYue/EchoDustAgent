@@ -20,6 +20,7 @@ type tokenUsage struct {
 	PromptTokens     int
 	CompletionTokens int
 	TotalTokens      int
+	CachedTokens     int
 }
 
 type Agent struct {
@@ -246,6 +247,7 @@ func (a *Agent) chatWithTools(ctx context.Context, step int) (*llm.ChatResponse,
 			Type:             runtimeevent.TypeTokenUsage,
 			PromptTokens:     resp.Usage.PromptTokens,
 			CompletionTokens: resp.Usage.CompletionTokens,
+			CachedTokens:     resp.Usage.CachedTokens,
 			CumulativeTotal:  cumulative,
 		})
 	} else if ok && !a.streamingDisabled {
@@ -270,6 +272,7 @@ func (a *Agent) addTokenUsage(usage *llm.TokenUsage) int {
 	a.tokenUsage.PromptTokens += usage.PromptTokens
 	a.tokenUsage.CompletionTokens += usage.CompletionTokens
 	a.tokenUsage.TotalTokens += usage.TotalTokens
+	a.tokenUsage.CachedTokens += usage.CachedTokens
 	return a.tokenUsage.TotalTokens
 }
 
@@ -283,8 +286,8 @@ func (a *Agent) TokenUsage() tokenUsage {
 // logTokenUsage writes a final cumulative token usage summary to the log file.
 func (a *Agent) logTokenUsage() {
 	usage := a.TokenUsage()
-	logs.Infof("token usage: prompt=%d completion=%d total=%d",
-		usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens)
+	logs.Infof("token usage: prompt=%d completion=%d total=%d cached=%d",
+		usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, usage.CachedTokens)
 }
 
 func (a *Agent) emit(event runtimeevent.Event) {

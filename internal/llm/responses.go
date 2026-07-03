@@ -74,11 +74,18 @@ type responsesContentPart struct {
 }
 
 type responsesUsage struct {
-	InputTokens      int `json:"input_tokens,omitempty"`
-	OutputTokens     int `json:"output_tokens,omitempty"`
-	PromptTokens     int `json:"prompt_tokens,omitempty"`
-	CompletionTokens int `json:"completion_tokens,omitempty"`
-	TotalTokens      int `json:"total_tokens,omitempty"`
+	InputTokens        int                         `json:"input_tokens,omitempty"`
+	OutputTokens       int                         `json:"output_tokens,omitempty"`
+	PromptTokens       int                         `json:"prompt_tokens,omitempty"`
+	CompletionTokens   int                         `json:"completion_tokens,omitempty"`
+	TotalTokens        int                         `json:"total_tokens,omitempty"`
+	CachedTokens       int                         `json:"cached_tokens,omitempty"`
+	InputTokensDetails *responsesInputTokensDetail `json:"input_tokens_details,omitempty"`
+	PromptTokensDetail *responsesInputTokensDetail `json:"prompt_tokens_details,omitempty"`
+}
+
+type responsesInputTokensDetail struct {
+	CachedTokens int `json:"cached_tokens,omitempty"`
 }
 
 type responsesReasoning struct {
@@ -349,10 +356,18 @@ func (u *responsesUsage) toTokenUsage() *TokenUsage {
 	if totalTokens == 0 {
 		totalTokens = promptTokens + completionTokens
 	}
+	cachedTokens := u.CachedTokens
+	if cachedTokens == 0 && u.InputTokensDetails != nil {
+		cachedTokens = u.InputTokensDetails.CachedTokens
+	}
+	if cachedTokens == 0 && u.PromptTokensDetail != nil {
+		cachedTokens = u.PromptTokensDetail.CachedTokens
+	}
 	return &TokenUsage{
 		PromptTokens:     promptTokens,
 		CompletionTokens: completionTokens,
 		TotalTokens:      totalTokens,
+		CachedTokens:     cachedTokens,
 	}
 }
 

@@ -72,5 +72,6 @@ type Event struct {
 	// Token usage fields (TypeTokenUsage events).
 	PromptTokens     int `json:"prompt_tokens,omitempty"`
 	CompletionTokens int `json:"completion_tokens,omitempty"`
+	CachedTokens     int `json:"cached_tokens,omitempty"`
 	CumulativeTotal  int `json:"cumulative_total,omitempty"`
 }

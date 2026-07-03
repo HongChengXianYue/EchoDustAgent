@@ -1076,12 +1076,14 @@ func TestBlockRendererRendersTokenUsageInLiveFrame(t *testing.T) {
 		PromptTokens:     100,
 		CompletionTokens: 20,
 		CumulativeTotal:  120,
+		CachedTokens:     30,
 	})
 	renderer.HandleEvent(runtimeevent.Event{
 		Type:             runtimeevent.TypeTokenUsage,
 		PromptTokens:     200,
 		CompletionTokens: 40,
 		CumulativeTotal:  360,
+		CachedTokens:     40,
 	})
 
 	// Subagent token usage event.
@@ -1093,6 +1095,7 @@ func TestBlockRendererRendersTokenUsageInLiveFrame(t *testing.T) {
 		PromptTokens:     50,
 		CompletionTokens: 10,
 		CumulativeTotal:  60,
+		CachedTokens:     10,
 	})
 
 	text := out.String()
@@ -1102,6 +1105,7 @@ func TestBlockRendererRendersTokenUsageInLiveFrame(t *testing.T) {
 		"Research: architectu", // truncated task name (20 chars)
 		"60",                   // subagent cumulative
 		"total",                // total line
+		"cache 80",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("output missing %q:\n%s", want, text)
@@ -1119,6 +1123,7 @@ func TestBlockRendererTracksMainAndSubagentTokensSeparately(t *testing.T) {
 	renderer.HandleEvent(runtimeevent.Event{
 		Type:            runtimeevent.TypeTokenUsage,
 		CumulativeTotal: 500,
+		CachedTokens:    100,
 	})
 
 	// Subagent tokens.
@@ -1128,6 +1133,7 @@ func TestBlockRendererTracksMainAndSubagentTokensSeparately(t *testing.T) {
 		SubagentIndex:   1,
 		ParentTool:      "subtask-1",
 		CumulativeTotal: 200,
+		CachedTokens:    50,
 	})
 	renderer.HandleEvent(runtimeevent.Event{
 		Type:            runtimeevent.TypeTokenUsage,
@@ -1135,11 +1141,12 @@ func TestBlockRendererTracksMainAndSubagentTokensSeparately(t *testing.T) {
 		SubagentIndex:   2,
 		ParentTool:      "subtask-2",
 		CumulativeTotal: 300,
+		CachedTokens:    60,
 	})
 
 	text := out.String()
 	// Verify the final frame shows all three components.
-	for _, want := range []string{"500 main", "subtask-1", "200", "subtask-2", "300", "total 1.0k"} {
+	for _, want := range []string{"500 main", "subtask-1", "200", "subtask-2", "300", "total 1.0k", "cache 210"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("output missing %q:\n%s", want, text)
 		}
@@ -1149,6 +1156,9 @@ func TestBlockRendererTracksMainAndSubagentTokensSeparately(t *testing.T) {
 	if renderer.mainTokenTotal != 500 {
 		t.Errorf("mainTokenTotal = %d, want 500", renderer.mainTokenTotal)
 	}
+	if renderer.mainCachedTokens != 100 {
+		t.Errorf("mainCachedTokens = %d, want 100", renderer.mainCachedTokens)
+	}
 	if len(renderer.subagentTokens) != 2 {
 		t.Errorf("subagentTokens count = %d, want 2", len(renderer.subagentTokens))
 	}
@@ -1157,6 +1167,12 @@ func TestBlockRendererTracksMainAndSubagentTokensSeparately(t *testing.T) {
 	}
 	if renderer.subagentTokens[2] != 300 {
 		t.Errorf("subagentTokens[2] = %d, want 300", renderer.subagentTokens[2])
+	}
+	if renderer.subagentCacheHits[1] != 50 {
+		t.Errorf("subagentCacheHits[1] = %d, want 50", renderer.subagentCacheHits[1])
+	}
+	if renderer.subagentCacheHits[2] != 60 {
+		t.Errorf("subagentCacheHits[2] = %d, want 60", renderer.subagentCacheHits[2])
 	}
 }
 
@@ -1190,6 +1206,7 @@ func TestBlockRendererPrintsTokenSummaryAfterFinalAnswer(t *testing.T) {
 	renderer.HandleEvent(runtimeevent.Event{
 		Type:            runtimeevent.TypeTokenUsage,
 		CumulativeTotal: 12500,
+		CachedTokens:    1000,
 	})
 	renderer.HandleEvent(runtimeevent.Event{
 		Type:            runtimeevent.TypeTokenUsage,
@@ -1197,6 +1214,7 @@ func TestBlockRendererPrintsTokenSummaryAfterFinalAnswer(t *testing.T) {
 		SubagentIndex:   1,
 		ParentTool:      "Research: architecture",
 		CumulativeTotal: 3200,
+		CachedTokens:    200,
 	})
 
 	// Final answer is printed after RunEnd.
@@ -1222,7 +1240,7 @@ func TestBlockRendererPrintsTokenSummaryAfterFinalAnswer(t *testing.T) {
 		t.Fatalf("token summary should appear after final answer, but tokenIdx=%d < finalIdx=%d:\n%s", tokenIdx, finalIdx, text)
 	}
 	// Verify the summary contains expected values.
-	for _, want := range []string{"12.5k main", "15.7k"} {
+	for _, want := range []string{"12.5k main", "15.7k", "cache 1.2k"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("token summary missing %q:\n%s", want, text)
 		}
