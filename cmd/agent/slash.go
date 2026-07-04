@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -54,6 +55,10 @@ func newSlashRouter(startup *ui.StartupInfo, sessions *sessionRuntime, isRunning
 	router.commands["quit"] = slashCommand{
 		desc:    "exit the agent",
 		handler: router.slashExit,
+	}
+	router.commands["init"] = slashCommand{
+		desc:    "generate ECHODUST.md project instruction file",
+		handler: router.slashInit,
 	}
 	return router
 }
@@ -204,4 +209,44 @@ func parseSlash(input string) (name string, args []string) {
 		return name, nil
 	}
 	return name, strings.Fields(parts[1])
+}
+
+// slashInit generates an ECHODUST.md template in the project root.
+func (r *slashRouter) slashInit(_ []string) (string, error) {
+	if r.startup == nil || r.startup.Workdir == "" {
+		return "", fmt.Errorf("workdir not available")
+	}
+
+	// Keep /init aligned with memory.ScopeProject, which is defined as the
+	// current workspace directory rather than the git repository root.
+	agentsPath := filepath.Join(r.startup.Workdir, "ECHODUST.md")
+
+	// Check if file already exists
+	if _, err := os.Stat(agentsPath); err == nil {
+		return "", fmt.Errorf("ECHODUST.md already exists at %s", agentsPath)
+	}
+
+	template := `# Project Instructions
+
+This file contains project-specific instructions for the AI agent.
+It will be automatically loaded and injected into the system prompt.
+
+## Overview
+
+<!-- Describe your project here -->
+
+## Coding Standards
+
+<!-- Add your coding standards and conventions -->
+
+## Important Notes
+
+<!-- Add any important context about the project -->
+`
+
+	if err := os.WriteFile(agentsPath, []byte(template), 0o644); err != nil {
+		return "", fmt.Errorf("failed to create ECHODUST.md: %w", err)
+	}
+
+	return fmt.Sprintf("Created ECHODUST.md at %s", agentsPath), nil
 }

@@ -24,11 +24,9 @@ const (
 )
 
 // docNames lists project/ancestor-scoped document filenames scanned at startup.
-// REASONIX.md, AGENTS.md and CLAUDE.md used to live here but have been removed
-// on purpose: the project no longer auto-loads those filenames. The slice is
-// kept (instead of deleted) so DocPath and discoverDocs keep their shape for
-// future additions.
-var docNames = []string{}
+// ECHODUST.md is the canonical project-level instruction file that gets injected
+// into the system prompt. Use /init to generate a template.
+var docNames = []string{"ECHODUST.md"}
 
 // Keep the legacy LOCAL-AGENT.md fallback so existing user setups continue to
 // load after the branding rename. REASONIX.md, AGENTS.md and CLAUDE.md were
@@ -37,7 +35,7 @@ var userDocNames = []string{"ECHO-DUST-CODE.md", "LOCAL-AGENT.md"}
 var localNames = []string{"REASONIX.local.md", "AGENTS.local.md", "CLAUDE.local.md"}
 
 const (
-	defaultDocName     = "AGENTS.md"
+	defaultDocName     = "ECHODUST.md"
 	defaultUserDocName = "ECHO-DUST-CODE.md"
 	defaultLocalName   = "AGENTS.local.md"
 	maxImportDepth     = 5

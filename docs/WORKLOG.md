@@ -961,3 +961,33 @@
   - 更新 agent 测试：默认不再期待 `TypeStepTiming`，新增一条开启开关后会发出 step timing 的测试。
 - 验证：`gofmt -w` 通过；全量验证见本次最终回复。
 - 备注：当前 UI 行为变为“默认只展示总耗时；需要逐 step 耗时时再开启配置”。
+
+## 2026-07-05 - 修正 /init 作用域并补齐 ECHODUST 注入回归测试
+
+- 摘要：修复新加 `/init` 命令把 `ECHODUST.md` 写到 git 根目录的问题，改为与 `memory.ScopeProject` 一致，始终写到当前 workspace；同时修正 `.gitignore` 对 `cmd/agent/` / `internal/agent/` 新文件的误伤，并恢复对旧 `AGENTS.md` 的忽略；补齐 `/init` 和 `ECHODUST.md` 自动加载的回归测试。
+- 主要模块：`cmd/agent/slash.go`、`cmd/agent/slash_test.go`、`internal/memory/memory_test.go`、`.gitignore`、`docs/WORKLOG.md`。
+- 改动要点：
+  - `slash.go`：删除“向上寻找 git 根目录后写文件”的逻辑，`/init` 现在直接在 `startup.Workdir` 下生成 `ECHODUST.md`，与 `discoverDocs()`/`DocPath(ScopeProject)` 的项目作用域定义保持一致。
+  - `slash_test.go`：新增测试覆盖“在嵌套 workspace 中执行 `/init` 时，文件写入当前 workspace 而不是仓库根目录”以及“目标文件已存在时返回错误提示”。
+  - `memory_test.go`：把项目级注入测试改为真实覆盖 `ECHODUST.md` 的发现与 `@import` 展开，并校验 `DocPath(ScopeProject)` 默认名。
+  - `.gitignore`：将根目录二进制忽略规则从 `agent` 收紧为 `/agent`，避免误伤 `cmd/agent/`、`internal/agent/` 下的新文件；同时恢复忽略旧 `AGENTS.md`，避免已有本地说明文件因为品牌迁移而意外出现在版本控制中。
+- 验证：
+  - `go test ./...` 通过。
+  - `go vet ./...` 通过。
+- 已知限制或后续风险：
+  - `README.md` 里关于 `/init` 和 `ECHODUST.md` 的公开说明仍未同步；当前修复先保证运行时行为和测试正确，文档可以在下一次整理时一并收敛。
+
+## 2026-07-05 - 强化系统提示词的工程审查约束
+
+- 摘要：将“结论前核实、跨模块不变量检查、副作用扫描、测试语义覆盖、review 先列 findings”等工程规则直接加入 agent 基础系统提示词，降低把文档滞后误判成实现缺失、或改动后遗漏仓库副作用检查的概率。
+- 主要模块：`internal/agent/agent.go`、`internal/agent/agent_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - `agent.go`：新增 `# Engineering Discipline` 段落，要求模型在声称“功能缺失”前先核实注册入口、实现函数、加载/注入链路，并区分实现缺失、语义不一致、文档过时、缺少测试、迁移未完成等问题类型。
+  - `agent.go`：明确要求涉及路径、文件名、作用域、配置键、提示词注入文件的改动时，必须检查写入路径与读取路径是否一致，`workspace/project/repo root` 语义是否一致，以及测试、文档、兼容名、ignore 规则是否同步。
+  - `agent.go`：把 `git status --short -uall` 与 `git diff --check` 提升为系统提示词里的默认副作用检查项，并要求验证成功路径、冲突路径、边界路径和兼容路径。
+  - `agent_test.go`：扩展系统提示词断言，防止后续重构时静默丢失这些工程约束。
+- 验证：
+  - `go test ./...`
+  - `go vet ./...`
+- 已知限制或后续风险：
+  - 系统提示词只能提高默认行为，不会替代具体任务里的项目规则；对于非常大的任务，仍然需要代码侧测试和人工 review 兜底。

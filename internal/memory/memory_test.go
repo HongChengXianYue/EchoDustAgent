@@ -37,18 +37,19 @@ func TestLoadDiscoversDocsAndImports(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(project, "extra.md"), []byte("Imported rule."), 0o644); err != nil {
 		t.Fatalf("write import: %v", err)
 	}
-	// Project/ancestor scope no longer auto-loads any filenames, so we exercise
-	// the import mechanism through the local-scope AGENTS.local.md entry point.
-	if err := os.WriteFile(filepath.Join(project, "AGENTS.local.md"), []byte("Local rule.\n@extra.md"), 0o644); err != nil {
-		t.Fatalf("write AGENTS.local.md: %v", err)
+	if err := os.WriteFile(filepath.Join(project, "ECHODUST.md"), []byte("Project rule.\n@extra.md"), 0o644); err != nil {
+		t.Fatalf("write ECHODUST.md: %v", err)
 	}
 
 	set := Load(Options{CWD: project})
 	block := set.Block()
-	for _, want := range []string{"Local rule.", "Imported rule."} {
+	for _, want := range []string{"Project rule.", "Imported rule."} {
 		if !strings.Contains(block, want) {
 			t.Fatalf("memory block missing %q:\n%s", want, block)
 		}
+	}
+	if got := filepath.Base(set.DocPath(ScopeProject)); got != "ECHODUST.md" {
+		t.Fatalf("DocPath project = %s, want ECHODUST.md", got)
 	}
 }
 

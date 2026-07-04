@@ -1,5 +1,5 @@
 # Built binary
-agent
+/agent
 
 # Local agent runtime state (logs, MCP server config)
 .local-agent/
@@ -11,6 +11,7 @@ agent
 
 # Claude Code / agent instruction files (not for public distribution)
 AGENTS.md
+ECHODUST.md
 CLAUDE.md
 
 # OS files
