@@ -489,7 +489,7 @@ func TestTodoRendersInMainContentDuringRun(t *testing.T) {
 	}
 }
 
-func TestTodoStaysAboveCurrentRunToolCalls(t *testing.T) {
+func TestTodoStaysAtEndOfCurrentRunContent(t *testing.T) {
 	model := newSizedTestModel()
 	model.appendBlock(transcriptBlock{
 		Kind:  blockAssistant,
@@ -515,13 +515,13 @@ func TestTodoStaysAboveCurrentRunToolCalls(t *testing.T) {
 
 	view := model.View()
 	userIndex := strings.Index(view, "当前项目是做什么？")
-	todoIndex := strings.Index(view, "□ Handle request: 当前项目是做什么？")
 	toolIndex := strings.Index(view, "Tool list_files")
+	todoIndex := strings.Index(view, "□ Handle request: 当前项目是做什么？")
 	if userIndex < 0 || todoIndex < 0 || toolIndex < 0 {
 		t.Fatalf("expected user message, todo block and tool call in view:\n%s", view)
 	}
-	if !(userIndex < todoIndex && todoIndex < toolIndex) {
-		t.Fatalf("todo block should stay between current user turn and tool log:\n%s", view)
+	if !(userIndex < toolIndex && toolIndex < todoIndex) {
+		t.Fatalf("todo block should stay at the end of the current run content:\n%s", view)
 	}
 }
 

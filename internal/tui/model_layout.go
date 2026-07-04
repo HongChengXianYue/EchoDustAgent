@@ -90,14 +90,7 @@ func (m *Model) rebuildViewportContent() {
 	parts := make([]string, 0, len(m.blocks)+1)
 	attachedApproval := false
 	todoBlock := m.renderLiveTodoBlock(bodyWidth)
-	todoInsertAt := m.todoInsertBlockIndex()
 	for i, block := range m.blocks {
-		// Keep the live todo anchored near the current user turn instead of
-		// appending it after a growing stream of tool-call blocks.
-		if todoBlock != "" && i == todoInsertAt {
-			parts = append(parts, todoBlock)
-			todoBlock = ""
-		}
 		rendered := m.renderBlock(block, bodyWidth)
 		if strings.TrimSpace(rendered) != "" {
 			parts = append(parts, rendered)
@@ -106,9 +99,6 @@ func (m *Model) rebuildViewportContent() {
 			parts = append(parts, m.renderInlineApprovalOptions(bodyWidth))
 			attachedApproval = true
 		}
-	}
-	if todoBlock != "" {
-		parts = append(parts, todoBlock)
 	}
 	if picker := m.renderResumePicker(bodyWidth); strings.TrimSpace(picker) != "" {
 		parts = append(parts, picker)
@@ -127,6 +117,11 @@ func (m *Model) rebuildViewportContent() {
 			Body:  cleanTerminalText(m.assistantDraft),
 		}, bodyWidth))
 	}
+	// Keep the live todo checklist pinned to the end of the content area so the
+	// latest agent/tool transcript always stays above it.
+	if todoBlock != "" {
+		parts = append(parts, todoBlock)
+	}
 	content := strings.Join(parts, "\n\n")
 	wasAtBottom := m.viewport.AtBottom()
 	offset := m.viewport.YOffset
@@ -143,27 +138,6 @@ func (m *Model) renderLiveTodoBlock(width int) string {
 		return ""
 	}
 	return m.renderTodoChecklist(width)
-}
-
-func (m *Model) todoInsertBlockIndex() int {
-	if !m.running {
-		return len(m.blocks)
-	}
-	start := m.runStartBlock
-	if start < 0 {
-		start = 0
-	}
-	if start > len(m.blocks) {
-		start = len(m.blocks)
-	}
-	insertAt := len(m.blocks)
-	for i := start; i < len(m.blocks); i++ {
-		if m.blocks[i].Kind != blockUser && m.blocks[i].Kind != blockAssistant {
-			return i
-		}
-		insertAt = i + 1
-	}
-	return insertAt
 }
 
 func (m *Model) renderTodoChecklist(width int) string {

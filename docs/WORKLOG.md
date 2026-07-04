@@ -991,3 +991,17 @@
   - `go vet ./...`
 - 已知限制或后续风险：
   - 系统提示词只能提高默认行为，不会替代具体任务里的项目规则；对于非常大的任务，仍然需要代码侧测试和人工 review 兜底。
+
+## 2026-07-05 - TUI Todo 区块固定到内容末尾
+
+- 摘要：调整 TUI 的 live todo 渲染顺序，不再把 todo 清单插到“当前用户消息”和后续 tool/agent 内容之间，而是固定追加到内容区末尾。这样运行中的 transcript、tool log 和 streaming 内容会一直显示在 todo 清单上方，todo 作为当前 run 的尾部状态区出现。
+- 主要模块：`internal/tui/model_layout.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - `model_layout.go`：移除 `todoInsertBlockIndex()` 的中间插入逻辑，改为在完成 transcript、resume picker、inline approval、assistant draft 的内容拼接后，再把 `renderLiveTodoBlock()` 追加到末尾。
+  - `model_layout.go`：补充注释，明确 todo 清单现在是“内容尾部状态区”，正文和工具流永远在它上方。
+  - `model_test.go`：把顺序断言从“todo 位于 user 与 tool 之间”改为“todo 位于 tool 之后”，防止后续回退到旧布局。
+- 验证：
+  - `go test ./...`
+  - `go vet ./...`
+- 已知限制或后续风险：
+  - 当前 todo 仍属于主 content viewport，而不是独立固定面板；如果后续需要“始终可见、不随正文滚动”的 todo 区，还需要再做单独布局分区。
