@@ -164,11 +164,32 @@ func toolEventTitle(event runtimeevent.Event, argsLimit int) string {
 		return prefix + "Extended step budget"
 	case runtimeevent.TypeStepBudgetStop:
 		return prefix + "Step budget exhausted"
+	case runtimeevent.TypeStepTiming:
+		// Display step number as 1-based for human readability.
+		return prefix + fmt.Sprintf("Step %d · %s", event.Step+1, formatDuration(event.DurationMS))
+	case runtimeevent.TypeRunTiming:
+		return prefix + fmt.Sprintf("Total · %s", formatDuration(event.DurationMS))
 	case runtimeevent.TypeError:
 		return prefix + "Error"
 	default:
 		return ""
 	}
+}
+
+// formatDuration renders a millisecond duration as a human-readable string.
+// It avoids edge cases like "1m60.0s" by using integer arithmetic for minutes.
+func formatDuration(ms int64) string {
+	if ms < 1000 {
+		return fmt.Sprintf("%dms", ms)
+	}
+	totalSeconds := float64(ms) / 1000.0
+	if totalSeconds < 60 {
+		return fmt.Sprintf("%.1fs", totalSeconds)
+	}
+	// Use integer division to avoid floating point edge cases.
+	minutes := int(totalSeconds) / 60
+	seconds := totalSeconds - float64(minutes*60)
+	return fmt.Sprintf("%dm%.1fs", minutes, seconds)
 }
 
 func toolEventDetail(event runtimeevent.Event, argsLimit, outputLimit, longOutputLimit, filePreviewLimit int) string {
@@ -198,6 +219,9 @@ func toolEventDetail(event runtimeevent.Event, argsLimit, outputLimit, longOutpu
 		return withEventSourceDetail(event, cleanTerminalText(event.Message))
 	case runtimeevent.TypeStepBudgetExtend, runtimeevent.TypeStepBudgetStop:
 		return withEventSourceDetail(event, stepBudgetDetail(event))
+	case runtimeevent.TypeStepTiming, runtimeevent.TypeRunTiming:
+		// Timing events have no detail body; the title already shows the duration.
+		return ""
 	case runtimeevent.TypeError:
 		return withEventSourceDetail(event, event.Error)
 	default:

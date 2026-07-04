@@ -120,6 +120,11 @@ func toolEventTitle(event runtimeevent.Event, argsLimit int) string {
 		return prefix + "Extended step budget"
 	case runtimeevent.TypeStepBudgetStop:
 		return prefix + "Step budget exhausted"
+	case runtimeevent.TypeStepTiming:
+		// Display step number as 1-based for human readability.
+		return prefix + fmt.Sprintf("Step %d · %s", event.Step+1, formatDuration(event.DurationMS))
+	case runtimeevent.TypeRunTiming:
+		return prefix + fmt.Sprintf("Total · %s", formatDuration(event.DurationMS))
 	case runtimeevent.TypeError:
 		return prefix + "Error"
 	default:
@@ -193,6 +198,22 @@ func stepBudgetDetail(event runtimeevent.Event) string {
 		parts = append(parts, event.Message)
 	}
 	return strings.Join(parts, "\n")
+}
+
+// formatDuration renders a millisecond duration as a human-readable string.
+// It avoids edge cases like "1m60.0s" by using integer arithmetic for minutes.
+func formatDuration(ms int64) string {
+	if ms < 1000 {
+		return fmt.Sprintf("%dms", ms)
+	}
+	totalSeconds := float64(ms) / 1000.0
+	if totalSeconds < 60 {
+		return fmt.Sprintf("%.1fs", totalSeconds)
+	}
+	// Use integer division to avoid floating point edge cases.
+	minutes := int(totalSeconds) / 60
+	seconds := totalSeconds - float64(minutes*60)
+	return fmt.Sprintf("%dm%.1fs", minutes, seconds)
 }
 
 func (r *BlockRenderer) fullToolLogText() string {

@@ -478,6 +478,8 @@ func (m *Model) appendSubagentBlock(session *subagentSession, event runtimeevent
 		runtimeevent.TypeCompactionSkip,
 		runtimeevent.TypeStepBudgetExtend,
 		runtimeevent.TypeStepBudgetStop,
+		runtimeevent.TypeStepTiming,
+		runtimeevent.TypeRunTiming,
 		runtimeevent.TypeError:
 		title := toolEventTitle(displayEvent, m.options.ApprovalArgsPreviewChars)
 		if title == "" {

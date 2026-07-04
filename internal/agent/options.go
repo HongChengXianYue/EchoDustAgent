@@ -7,6 +7,9 @@ import (
 
 type Options struct {
 	MaxParallelToolCalls int
+	// StepTimingEnabled controls whether per-step timing events are emitted.
+	// Total run timing remains enabled regardless of this flag.
+	StepTimingEnabled    bool
 	StepBudget           StepBudgetOptions
 	Subagents            SubagentOptions
 	Skills               SkillOptions

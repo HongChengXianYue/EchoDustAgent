@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -23,6 +24,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyRuntimeEvent(msg.Event)
 		m.syncLayout()
 		return m, nil
+	case runTimerTickMsg:
+		if m.running && !m.runStartedAt.IsZero() {
+			m.runElapsedMS = msg.At.Sub(m.runStartedAt).Milliseconds()
+			m.syncLayout()
+			return m, m.nextRunTimerTick()
+		}
+		return m, nil
 	case approvalPromptMsg:
 		m.approval = &approvalState{
 			Request:  msg.Request,
@@ -36,8 +44,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case runFinishedMsg:
 		m.cancelCurrent = nil
 		m.running = false
+		if !m.runStartedAt.IsZero() && m.runElapsedMS == 0 {
+			m.runElapsedMS = time.Since(m.runStartedAt).Milliseconds()
+		}
 		m.interrupting = false
 		m.hideSubagentPanel()
+		m.markLayoutDirty()
 		m.markViewportDirty()
 		if msg.Err != nil && !errors.Is(msg.Err, context.Canceled) && !m.runErrorReported {
 			if !m.lastRunHadFinal && strings.TrimSpace(m.assistantDraft) != "" {
@@ -297,12 +309,14 @@ func (m *Model) startRun(input string) tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancelCurrent = cancel
 	m.running = true
+	m.runStartedAt = time.Now()
+	m.runElapsedMS = 0
 	m.interrupting = false
 	m.lastRunHadFinal = false
 	m.runErrorReported = false
 	m.assistantDraft = ""
 	m.markViewportDirty()
-	return func() tea.Msg {
+	runCmd := func() tea.Msg {
 		var err error
 		defer func() {
 			if recovered := recover(); recovered != nil {
@@ -312,6 +326,7 @@ func (m *Model) startRun(input string) tea.Cmd {
 		err = m.runFunc(ctx, input)
 		return runFinishedMsg{Err: err}
 	}
+	return tea.Batch(runCmd, m.nextRunTimerTick())
 }
 
 func (m *Model) interruptRun() {
@@ -369,4 +384,13 @@ func (m *Model) updateInput(msg tea.Msg) tea.Cmd {
 		m.markLayoutDirty()
 	}
 	return cmd
+}
+
+func (m *Model) nextRunTimerTick() tea.Cmd {
+	if !m.running {
+		return nil
+	}
+	return tea.Tick(200*time.Millisecond, func(at time.Time) tea.Msg {
+		return runTimerTickMsg{At: at}
+	})
 }

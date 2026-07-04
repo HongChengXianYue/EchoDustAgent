@@ -17,6 +17,8 @@ agent:
   max_steps: 30
   # 单轮 assistant 回复中最多允许多少个非 update_todos 工具并行调用。
   max_parallel_tool_calls: 10
+  # 是否输出每个 step 的耗时事件；默认关闭，仅在排查循环或性能问题时开启。
+  step_timing_enabled: false
   # 到达初始预算时，是否根据工具成功、TODO 状态和循环检测自动续跑。
   adaptive_max_steps_enabled: true
   # 单次请求最多自动扩展多少次；设为 0 等价于不扩展。

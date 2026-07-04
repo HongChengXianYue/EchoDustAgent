@@ -84,14 +84,42 @@ func (m *Model) renderInputBox() string {
 }
 
 func (m *Model) renderFooter() string {
-	summary := m.footerSummary(max(12, m.width-2))
-	if summary == "" {
+	width := max(20, m.width)
+	left := ""
+	if m.shouldRenderLiveRunTimer() {
+		left = "Total · " + formatDuration(m.runElapsedMS)
+	}
+	rightLimit := max(12, width-2)
+	if left != "" {
+		rightLimit = max(12, width-lipgloss.Width(left)-3)
+	}
+	right := m.footerSummary(rightLimit)
+	if left == "" && right == "" {
 		return ""
 	}
-	return lipgloss.NewStyle().
-		Width(max(20, m.width)).
-		Align(lipgloss.Right).
-		Render(m.mutedStyle.Render(summary))
+	if left == "" {
+		return lipgloss.NewStyle().
+			Width(width).
+			Align(lipgloss.Right).
+			Render(m.mutedStyle.Render(right))
+	}
+	if right == "" {
+		return left
+	}
+	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		combined := truncateSingleLine(left+" "+right, width)
+		return combined
+	}
+	return left + strings.Repeat(" ", gap) + m.mutedStyle.Render(right)
+}
+
+func (m *Model) shouldRenderLiveRunTimer() bool {
+	return m.running
+}
+
+func (m *Model) shouldRenderStatusBar(limit int) bool {
+	return m.shouldRenderLiveRunTimer() || m.footerSummary(limit) != ""
 }
 
 func (m *Model) renderSuggestions() string {

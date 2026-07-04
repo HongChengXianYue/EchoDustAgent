@@ -18,6 +18,7 @@ llm:
 agent:
   max_steps: 9
   max_parallel_tool_calls: 6
+  step_timing_enabled: true
   adaptive_max_steps_enabled: false
   max_step_extensions: 4
   step_extension_size: 3
@@ -92,6 +93,9 @@ ui:
 	}
 	if cfg.Agent.MaxParallelToolCalls != 6 {
 		t.Fatalf("max parallel tool calls = %d", cfg.Agent.MaxParallelToolCalls)
+	}
+	if !cfg.Agent.StepTimingEnabled {
+		t.Fatalf("step timing enabled = false, want true")
 	}
 	if cfg.Agent.AdaptiveMaxStepsEnabled {
 		t.Fatalf("agent adaptive max steps enabled = true, want false")
@@ -253,6 +257,7 @@ func TestLoadFromEnvOverridesConfigDefaults(t *testing.T) {
 	t.Setenv("AGENT_MODEL", "env-model")
 	t.Setenv("AGENT_WIRE_API", "responses")
 	t.Setenv("AGENT_MAX_STEPS", "12")
+	t.Setenv("AGENT_STEP_TIMING_ENABLED", "true")
 
 	cfg, err := LoadFromEnv()
 	if err != nil {
@@ -272,5 +277,8 @@ func TestLoadFromEnvOverridesConfigDefaults(t *testing.T) {
 	}
 	if cfg.Agent.MaxSteps != 12 {
 		t.Fatalf("max steps = %d", cfg.Agent.MaxSteps)
+	}
+	if !cfg.Agent.StepTimingEnabled {
+		t.Fatalf("step timing enabled = false, want true")
 	}
 }

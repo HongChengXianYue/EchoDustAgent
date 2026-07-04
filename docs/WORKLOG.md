@@ -921,3 +921,43 @@
   - 更新测试覆盖：根级 registry 加载、根级 registry 与局部覆盖合并、仅 `SKILL.md` 目录兜底注册、根级 `skill.json` 别名兼容。
 - 验证：`gofmt -w internal/skill/skill.go internal/skill/registry.go internal/skill/skill_test.go internal/agent/agent_test.go` 通过；`go test ./internal/skill ./internal/agent` 通过；全量验证见本次最终回复。
 - 备注：这次刻意没有在启动期解析 `SKILL.md` 内容来推断描述，以避免破坏“用到时才加载”这条设计约束；如果后续确实需要更好的无元数据召回质量，建议优先增强根级 registry，而不是回到启动期读取 skill 正文。
+
+## 2026-07-05 - Agent.Run 计时系统：step 级 + run 级
+
+- 摘要：修复之前 `TypeStepTiming` 只接入 legacy UI（`internal/ui/`）而未接入 TUI（`internal/tui/`）的问题；新增 `TypeRunTiming` 事件展示 run 总耗时；将 step 循环体抽成 `executeStep` 方法，用 defer 保证每个 step 无论成功/失败都稳定产出一次 timing 事件；修复 `formatDuration` 可能输出 `1m60.0s` 的浮点边界问题；Step 编号改为 1-based 人类可读。
+- 主要模块：`internal/runtimeevent/runtimeevent.go`、`internal/agent/agent.go`、`internal/agent/agent_test.go`、`internal/tui/model_events.go`、`internal/tui/model_subagent.go`、`internal/tui/toolfmt.go`、`internal/ui/renderer_tools.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - `runtimeevent.go`：新增 `TypeRunTiming = "run_timing"` 常量。
+  - `agent.go`：`Run()` 开头 defer 发射 `TypeRunTiming`（run 总耗时）；step 循环体抽成 `executeStep()` 方法，内部用 defer 保证每次退出（含 `chatWithTools` error、`awaitOutstandingSubagents` error）都发射一次 `TypeStepTiming`。新增 `stepOutcomeKind`/`stepOutcome` 类型。
+  - `agent_test.go`：`TestRunEmitsToolAndFinalEvents` 和 `TestRunDeniesHighRiskToolWithoutExecuting` 的事件序列断言新增 `TypeStepTiming` 和 `TypeRunTiming`，并验证 duration 非负。
+  - `tui/model_events.go`：主视图 switch 新增 `TypeStepTiming`/`TypeRunTiming` 分支，作为 info block 追加到 transcript。
+  - `tui/model_subagent.go`：subagent 视图 `appendSubagentBlock` 同步新增 `TypeStepTiming`/`TypeRunTiming`。
+  - `tui/toolfmt.go`：`toolEventTitle` 新增 timing 展示（`Step N · 1.2s` / `Total · 3.5s`），Step 编号 `event.Step+1`；新增 `formatDuration`（从 legacy UI 复制并修复浮点边界）；`toolEventDetail` 对 timing 事件返回空字符串。
+  - `ui/renderer_tools.go`：legacy UI 同步修正 Step 编号为 1-based，新增 `TypeRunTiming` 展示，`formatDuration` 改用整数分钟除法避免 `1m60.0s`。
+- 验证：`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：计时策略最终选择 step 级 + run 级两者都有——TUI 中每个 step 结束显示 `Step N · duration`，run 结束时显示 `Total · duration`。`executeStep` 的 defer 模式确保即使 `chatWithTools` 或 `awaitOutstandingSubagents` 返回 error 也不会漏发 step timing。
+
+## 2026-07-05 - TUI 输入区实时总计时
+
+- 摘要：将运行中的总耗时从正文区块挪到 TUI 输入区右上角，改为在 agent 运行期间持续刷新显示；run 结束后输入区实时计时消失，正文末尾继续保留 `Total · duration` 最终耗时记录。同时修正了一条因 `executeStep` 重构导致过时的 code navigation 测试断言。
+- 主要模块：`internal/tui/model.go`、`internal/tui/model_layout.go`、`internal/tui/model_render.go`、`internal/tui/model_events.go`、`internal/tui/model_update.go`、`internal/tui/model_test.go`、`internal/tools/tools_test.go`。
+- 改动要点：
+  - 新增 TUI 本地 `runTimerTickMsg` 和运行态字段，在 `startRun()` 后以 `tea.Tick` 周期刷新输入区总耗时。
+  - 输入区布局改为“实时总计时行 + 输入框”组合，计时文本固定右对齐显示在输入区顶部。
+  - `TypeRunEnd` 后隐藏实时计时；`TypeRunTiming` 正文块仍保留最终总耗时。
+  - 新增测试覆盖运行中计时显示位置、结束后仅保留正文总耗时。
+  - 放宽 `internal/tools/tools_test.go` 中对 `chatWithTools` caller 的断言，兼容 `Run` 与 `executeStep` 两种结构。
+- 验证：`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：实时总计时使用本地 TUI 时钟刷新，最终正文里的 `Total · duration` 仍以 runtime event 的实际运行耗时为准。
+
+## 2026-07-05 - Step 耗时改为可配置开关
+
+- 摘要：将 `step timing` 从默认总是输出改为可配置开关，默认关闭；`run timing` 总耗时保持默认开启。新增 `agent.step_timing_enabled` 配置项和 `AGENT_STEP_TIMING_ENABLED` 环境变量，用于按需开启每一步耗时事件。
+- 主要模块：`internal/agent/options.go`、`internal/agent/agent.go`、`internal/agent/agent_test.go`、`internal/config/config.go`、`internal/config/yaml.go`、`internal/config/config_test.go`、`cmd/agent/main.go`。
+- 改动要点：
+  - `agent.Options` / `config.AgentConfig` 新增 `StepTimingEnabled`。
+  - 默认配置中 `step timing` 关闭，只有显式开启时才发出 `TypeStepTiming`。
+  - 新增 YAML 配置键 `agent.step_timing_enabled` 和环境变量 `AGENT_STEP_TIMING_ENABLED`。
+  - 更新 agent 测试：默认不再期待 `TypeStepTiming`，新增一条开启开关后会发出 step timing 的测试。
+- 验证：`gofmt -w` 通过；全量验证见本次最终回复。
+- 备注：当前 UI 行为变为“默认只展示总耗时；需要逐 step 耗时时再开启配置”。

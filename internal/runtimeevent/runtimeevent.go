@@ -29,6 +29,8 @@ const (
 	TypeTokenUsage       Type = "token_usage"
 	TypeStepBudgetExtend Type = "step_budget_extended"
 	TypeStepBudgetStop   Type = "step_budget_exhausted"
+	TypeStepTiming       Type = "step_timing"
+	TypeRunTiming        Type = "run_timing"
 )
 
 type TodoStatus = tools.TodoStatus

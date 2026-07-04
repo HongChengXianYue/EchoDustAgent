@@ -787,6 +787,7 @@ func TestRunEmitsToolAndFinalEvents(t *testing.T) {
 		runtimeevent.TypeToolResult,
 		runtimeevent.TypeRunEnd,
 		runtimeevent.TypeFinal,
+		runtimeevent.TypeRunTiming,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("events = %v, want %v", got, want)
@@ -807,6 +808,64 @@ func TestRunEmitsToolAndFinalEvents(t *testing.T) {
 	}
 	if renderer.events[5].Result == nil || renderer.events[5].Result.Output != "hello" {
 		t.Fatalf("tool result event = %#v", renderer.events[5])
+	}
+	// Run timing is emitted via defer after TypeFinal, so it's the last event.
+	lastIdx := len(renderer.events) - 1
+	if renderer.events[lastIdx].Type != runtimeevent.TypeRunTiming || renderer.events[lastIdx].DurationMS < 0 {
+		t.Fatalf("run timing event = %#v", renderer.events[lastIdx])
+	}
+}
+
+func TestRunEmitsStepTimingWhenEnabled(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			ToolCalls: []llm.ToolCall{
+				todoToolCall("todo_1", "Echo hello"),
+				{
+					ID:   "call_echo",
+					Type: "function",
+					Function: llm.ToolFunction{
+						Name:      "echo",
+						Arguments: `{"text":"hello"}`,
+					},
+				},
+			},
+		},
+		{Content: "finished"},
+	}}
+	registry := tools.NewRegistry()
+	registry.Register(&echoTool{})
+	renderer := &captureRenderer{}
+
+	options := DefaultOptions()
+	options.StepTimingEnabled = true
+	agent := NewWithWorkspaceAndOptions(client, registry, 3, "/tmp/work", options)
+	agent.SetRenderer(renderer)
+	if _, err := agent.Run(context.Background(), "say hello"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	stepTimingCount := 0
+	runTimingCount := 0
+	for _, event := range renderer.events {
+		switch event.Type {
+		case runtimeevent.TypeStepTiming:
+			stepTimingCount++
+			if event.DurationMS < 0 {
+				t.Fatalf("step timing event = %#v", event)
+			}
+		case runtimeevent.TypeRunTiming:
+			runTimingCount++
+			if event.DurationMS < 0 {
+				t.Fatalf("run timing event = %#v", event)
+			}
+		}
+	}
+	if stepTimingCount != 2 {
+		t.Fatalf("step timing count = %d, want 2", stepTimingCount)
+	}
+	if runTimingCount != 1 {
+		t.Fatalf("run timing count = %d, want 1", runTimingCount)
 	}
 }
 
@@ -935,6 +994,7 @@ func TestRunDeniesHighRiskToolWithoutExecuting(t *testing.T) {
 		runtimeevent.TypeToolResult,
 		runtimeevent.TypeRunEnd,
 		runtimeevent.TypeFinal,
+		runtimeevent.TypeRunTiming,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("events = %v, want %v", got, want)

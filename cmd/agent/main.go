@@ -313,6 +313,7 @@ func agentOptions(agentCfg config.AgentConfig, subagentsCfg config.SubagentsConf
 	}
 	return agent.Options{
 		MaxParallelToolCalls: agentCfg.MaxParallelToolCalls,
+		StepTimingEnabled:    agentCfg.StepTimingEnabled,
 		StepBudget: agent.StepBudgetOptions{
 			AdaptiveEnabled:  agentCfg.AdaptiveMaxStepsEnabled,
 			MaxExtensions:    agentCfg.MaxStepExtensions,

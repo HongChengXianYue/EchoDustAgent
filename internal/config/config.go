@@ -36,6 +36,7 @@ type LLMConfig struct {
 type AgentConfig struct {
 	MaxSteps                int
 	MaxParallelToolCalls    int
+	StepTimingEnabled       bool
 	AdaptiveMaxStepsEnabled bool
 	MaxStepExtensions       int
 	StepExtensionSize       int
@@ -148,6 +149,11 @@ func LoadFromEnv() (Config, error) {
 			cfg.Agent.AbsoluteMaxSteps = n
 		}
 	}
+	if raw := strings.TrimSpace(os.Getenv("AGENT_STEP_TIMING_ENABLED")); raw != "" {
+		if err := setBool("AGENT_STEP_TIMING_ENABLED", raw, &cfg.Agent.StepTimingEnabled); err != nil {
+			return Config{}, err
+		}
+	}
 	if err := validate(cfg); err != nil {
 		return Config{}, err
 	}
@@ -169,6 +175,7 @@ func Default() Config {
 		Agent: AgentConfig{
 			MaxSteps:                30,
 			MaxParallelToolCalls:    10,
+			StepTimingEnabled:       false,
 			AdaptiveMaxStepsEnabled: true,
 			MaxStepExtensions:       5,
 			StepExtensionSize:       10,

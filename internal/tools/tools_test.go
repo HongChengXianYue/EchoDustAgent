@@ -332,7 +332,8 @@ func TestGoCodeNavigationTools(t *testing.T) {
 		"line":   line,
 		"column": column,
 	}))
-	if execErr != nil || result.Status != "success" || !strings.Contains(result.Output, "caller[") || !strings.Contains(result.Output, "function Run") {
+	if execErr != nil || result.Status != "success" || !strings.Contains(result.Output, "caller[") ||
+		(!strings.Contains(result.Output, "function Run") && !strings.Contains(result.Output, "function executeStep")) {
 		t.Fatalf("find callers result = %#v err = %v", result, execErr)
 	}
 

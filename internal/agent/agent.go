@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"local-agent/internal/approval"
 	contextmgr "local-agent/internal/context"
@@ -172,6 +173,12 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 	a.activateSkills(input)
 	defer a.pruneTransientToolHistory()
 
+	// Run-level timing: emit total duration when Run exits.
+	runStartedAt := time.Now()
+	defer func() {
+		a.emit(runtimeevent.Event{Type: runtimeevent.TypeRunTiming, DurationMS: time.Since(runStartedAt).Milliseconds()})
+	}()
+
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
 	a.pruneStaleToolResults()
 	a.maybeCompact(runCtx)
@@ -184,61 +191,26 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 	for step := 0; step < budget.limit; step++ {
 		a.collectCompletedSubagentResults()
 		lastStep = step
-		resp, err := a.chatWithTools(runCtx, step)
-		if err != nil {
-			logs.Errorf("agent chat failed: step=%d err=%v", step, err)
-			a.logTokenUsage()
-			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeError, Error: err.Error()})
-			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeRunEnd})
-			return "", err
-		}
-		assistantMessage := llm.Message{
-			Role:      "assistant",
-			Content:   resp.Content,
-			ToolCalls: resp.ToolCalls,
-		}
-		a.messages = append(a.messages, assistantMessage)
-		assistantMessageIndex := len(a.messages) - 1
 
-		if len(resp.ToolCalls) == 0 {
-			// A no-tool assistant turn normally means the run is ready to finish.
-			// For async delegate_task, join any unfinished subagents first so the
-			// next turn can synthesize their conclusions into the final answer.
-			waited, err := a.awaitOutstandingSubagents(runCtx)
-			if err != nil {
-				logs.Errorf("await subagents failed: step=%d err=%v", step, err)
-				a.logTokenUsage()
-				a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeError, Error: err.Error()})
-				a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeRunEnd})
-				return "", err
-			}
-			if waited {
-				a.messages = append(a.messages[:assistantMessageIndex], a.messages[assistantMessageIndex+1:]...)
-				continue
-			}
-			final := strings.TrimSpace(resp.Content)
+		// executeStep runs one iteration of the ReAct loop and returns the outcome.
+		// Step timing is emitted via defer to ensure it fires on all paths.
+		outcome := a.executeStep(runCtx, step, &progressHistory, &budget)
+
+		switch outcome.kind {
+		case stepOutcomeError:
+			a.logTokenUsage()
+			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeError, Error: outcome.err.Error()})
+			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeRunEnd})
+			return "", outcome.err
+		case stepOutcomeFinal:
 			a.logTokenUsage()
 			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeRunEnd})
-			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeFinal, Message: final})
-			return final, nil
-		}
-		if strings.TrimSpace(resp.Content) != "" {
-			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeAssistantMessage, Message: strings.TrimSpace(resp.Content)})
-		}
-		todosBefore := a.todoTool.Items()
-		executedCalls := a.executeToolCalls(runCtx, step, resp.ToolCalls)
-		for _, executed := range executedCalls {
-			a.messages = append(a.messages, llm.Message{
-				Role:       "tool",
-				ToolCallID: executed.call.ID,
-				Content:    executed.result.JSON(),
-			})
-		}
-		a.collectCompletedSubagentResults()
-		progressHistory.record(stepProgressFromExecuted(resp.ToolCalls, executedCalls, todosBefore, a.todoTool.Items()))
-		if !a.maybeExtendStepBudget(runCtx, step, &budget, progressHistory) {
-			lastStep = step
-			break
+			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeFinal, Message: outcome.final})
+			return outcome.final, nil
+		case stepOutcomeContinue:
+			if !a.maybeExtendStepBudget(runCtx, step, &budget, progressHistory) {
+				break
+			}
 		}
 	}
 	err := fmt.Errorf("agent stopped after %d steps without a final response", budget.limit)
@@ -247,6 +219,87 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeError, Error: err.Error()})
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeRunEnd})
 	return "", err
+}
+
+// stepOutcomeKind classifies the result of a single ReAct step.
+type stepOutcomeKind int
+
+const (
+	// stepOutcomeContinue means the step executed tools and the loop should continue.
+	stepOutcomeContinue stepOutcomeKind = iota
+	// stepOutcomeFinal means the agent produced a final answer.
+	stepOutcomeFinal
+	// stepOutcomeError means the step failed with an error.
+	stepOutcomeError
+)
+
+// stepOutcome holds the result of executing one ReAct step.
+type stepOutcome struct {
+	kind  stepOutcomeKind
+	final string
+	err   error
+}
+
+// executeStep runs one iteration of the ReAct loop with timing guaranteed via defer.
+// It returns the outcome (continue, final, or error) without emitting timing events
+// itself — the deferred closure handles that uniformly.
+func (a *Agent) executeStep(ctx context.Context, step int, progressHistory *stepProgressHistory, budget *stepBudget) stepOutcome {
+	stepStartedAt := time.Now()
+	// Defer ensures step timing is emitted on every exit path, including errors.
+	defer func() {
+		if a.options.StepTimingEnabled {
+			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeStepTiming, DurationMS: time.Since(stepStartedAt).Milliseconds()})
+		}
+	}()
+
+	resp, err := a.chatWithTools(ctx, step)
+	if err != nil {
+		logs.Errorf("agent chat failed: step=%d err=%v", step, err)
+		return stepOutcome{kind: stepOutcomeError, err: err}
+	}
+
+	assistantMessage := llm.Message{
+		Role:      "assistant",
+		Content:   resp.Content,
+		ToolCalls: resp.ToolCalls,
+	}
+	a.messages = append(a.messages, assistantMessage)
+	assistantMessageIndex := len(a.messages) - 1
+
+	if len(resp.ToolCalls) == 0 {
+		// A no-tool assistant turn normally means the run is ready to finish.
+		// For async delegate_task, join any unfinished subagents first so the
+		// next turn can synthesize their conclusions into the final answer.
+		waited, err := a.awaitOutstandingSubagents(ctx)
+		if err != nil {
+			logs.Errorf("await subagents failed: step=%d err=%v", step, err)
+			return stepOutcome{kind: stepOutcomeError, err: err}
+		}
+		if waited {
+			// Remove the assistant message we just added and let the loop continue.
+			a.messages = append(a.messages[:assistantMessageIndex], a.messages[assistantMessageIndex+1:]...)
+			return stepOutcome{kind: stepOutcomeContinue}
+		}
+		final := strings.TrimSpace(resp.Content)
+		return stepOutcome{kind: stepOutcomeFinal, final: final}
+	}
+
+	if strings.TrimSpace(resp.Content) != "" {
+		a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeAssistantMessage, Message: strings.TrimSpace(resp.Content)})
+	}
+
+	todosBefore := a.todoTool.Items()
+	executedCalls := a.executeToolCalls(ctx, step, resp.ToolCalls)
+	for _, executed := range executedCalls {
+		a.messages = append(a.messages, llm.Message{
+			Role:       "tool",
+			ToolCallID: executed.call.ID,
+			Content:    executed.result.JSON(),
+		})
+	}
+	a.collectCompletedSubagentResults()
+	progressHistory.record(stepProgressFromExecuted(resp.ToolCalls, executedCalls, todosBefore, a.todoTool.Items()))
+	return stepOutcome{kind: stepOutcomeContinue}
 }
 
 func (a *Agent) chatWithTools(ctx context.Context, step int) (*llm.ChatResponse, error) {

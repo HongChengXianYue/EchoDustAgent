@@ -93,6 +93,8 @@ func applyConfigValue(cfg *Config, key string, value string) error {
 		return setPositiveInt(key, value, &cfg.Agent.MaxSteps)
 	case "agent.max_parallel_tool_calls":
 		return setPositiveInt(key, value, &cfg.Agent.MaxParallelToolCalls)
+	case "agent.step_timing_enabled":
+		return setBool(key, value, &cfg.Agent.StepTimingEnabled)
 	case "agent.adaptive_max_steps_enabled":
 		return setBool(key, value, &cfg.Agent.AdaptiveMaxStepsEnabled)
 	case "agent.max_step_extensions":

@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"os"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -27,6 +28,10 @@ type runtimeEventMsg struct {
 
 type runFinishedMsg struct {
 	Err error
+}
+
+type runTimerTickMsg struct {
+	At time.Time
 }
 
 type approvalPromptMsg struct {
@@ -127,6 +132,8 @@ type Model struct {
 	runErrorReported      bool
 	lastTool              string
 	tokens                tokenState
+	runStartedAt          time.Time
+	runElapsedMS          int64
 
 	markdownRenderer  *glamour.TermRenderer
 	markdownWrapWidth int

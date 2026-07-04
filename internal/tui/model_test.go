@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -338,6 +339,67 @@ func TestTokenFooterRendersAboveInputBox(t *testing.T) {
 	}
 	if strings.LastIndex(view, "Tokens 34.1k (p32.7k c1.4k, cache 800, hit 2.4%)") > strings.LastIndex(view, "Ask the agent") {
 		t.Fatalf("token footer should render above the input box:\n%s", view)
+	}
+}
+
+func TestLiveRunTimerRendersInLeftStatusBar(t *testing.T) {
+	model := newSizedTestModel()
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeRunStart}})
+	model.runStartedAt = time.Now().Add(-20600 * time.Millisecond)
+	model.runElapsedMS = 20600
+
+	view := model.View()
+	if !containsAll(view, "Total · 20.6s", "Ask the agent") {
+		t.Fatalf("live run timer missing from input area:\n%s", view)
+	}
+	if strings.LastIndex(view, "Total · 20.6s") > strings.LastIndex(view, "Ask the agent") {
+		t.Fatalf("live run timer should render above the input box:\n%s", view)
+	}
+}
+
+func TestLiveRunTimerSharesStatusBarWithTokenSummary(t *testing.T) {
+	model := newSizedTestModel()
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeRunStart}})
+	model.runStartedAt = time.Now().Add(-20600 * time.Millisecond)
+	model.runElapsedMS = 20600
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
+		Type:             runtimeevent.TypeTokenUsage,
+		PromptTokens:     32665,
+		CompletionTokens: 1443,
+		CumulativeTotal:  34108,
+		CachedTokens:     800,
+	}})
+
+	view := model.View()
+	var statusLine string
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "Total · 20.6s") {
+			statusLine = line
+			break
+		}
+	}
+	if statusLine == "" || !strings.Contains(statusLine, "Tokens 34.1k (p32.7k c1.4k, cache 800, hit 2.4%)") {
+		t.Fatalf("expected timer and token summary to share one status line:\n%s", view)
+	}
+	if strings.Index(statusLine, "Total · 20.6s") > strings.Index(statusLine, "Tokens 34.1k (p32.7k c1.4k, cache 800, hit 2.4%)") {
+		t.Fatalf("expected timer on the left and tokens on the right:\n%s", view)
+	}
+}
+
+func TestRunEndHidesLiveTimerButKeepsFinalTotalBlock(t *testing.T) {
+	model := newSizedTestModel()
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeRunStart}})
+	model.runStartedAt = time.Now().Add(-20600 * time.Millisecond)
+	model.runElapsedMS = 20600
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeRunEnd}})
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeRunTiming, DurationMS: 20600}})
+
+	view := model.View()
+	if strings.Count(view, "Total · 20.6s") != 1 {
+		t.Fatalf("expected only the final transcript total after run end:\n%s", view)
+	}
+	if strings.LastIndex(view, "Total · 20.6s") > strings.LastIndex(view, "Ask the agent") {
+		t.Fatalf("final total should stay in the transcript, not the input box, after run end:\n%s", view)
 	}
 }
 

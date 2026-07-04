@@ -99,6 +99,7 @@ The agent reads `config.yaml`, starts the interactive TUI in TTY sessions, and f
 | `AGENT_MODEL` | 覆盖 `llm.model` / Override `llm.model` | No |
 | `AGENT_WIRE_API` | 覆盖 `llm.wire_api`，可选 `chat_completions` 或 `responses` / Override `llm.wire_api` (`chat_completions` or `responses`) | No |
 | `AGENT_MAX_STEPS` | 覆盖 `agent.max_steps` / Override `agent.max_steps` | No |
+| `AGENT_STEP_TIMING_ENABLED` | 覆盖 `agent.step_timing_enabled`，开启逐 step 耗时事件 / Override `agent.step_timing_enabled` to emit per-step timing events | No |
 
 `AGENT_API_KEY` 故意只从环境变量读取，不写入 `config.yaml`。
 

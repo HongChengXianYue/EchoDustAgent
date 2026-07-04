@@ -32,7 +32,7 @@ func (m *Model) syncLayout() {
 		headerHeight := lipgloss.Height(m.renderHeader())
 		inputHeight := 1 + m.inputBoxStyle.GetVerticalFrameSize() + suggestionCount
 		footerHeight := 0
-		if m.footerSummary(max(12, m.width-2)) != "" {
+		if m.shouldRenderStatusBar(max(12, m.width-2)) {
 			footerHeight = 1
 		}
 		panelHeight := m.computeSubagentHeight(headerHeight, inputHeight)

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strings"
+	"time"
 
 	"local-agent/internal/runtimeevent"
 	"local-agent/internal/tools"
@@ -18,6 +19,10 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 	case runtimeevent.TypeRunStart:
 		m.resumePicker = nil
 		m.running = true
+		if m.runStartedAt.IsZero() {
+			m.runStartedAt = time.Now()
+		}
+		m.runElapsedMS = 0
 		m.runStartBlock = len(m.blocks)
 		m.interrupting = false
 		m.lastRunHadFinal = false
@@ -29,8 +34,12 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 		m.markViewportDirty()
 	case runtimeevent.TypeRunEnd:
 		m.running = false
+		if !m.runStartedAt.IsZero() {
+			m.runElapsedMS = time.Since(m.runStartedAt).Milliseconds()
+		}
 		m.interrupting = false
 		m.hideSubagentPanel()
+		m.markLayoutDirty()
 		m.markViewportDirty()
 	case runtimeevent.TypeUserMessage:
 		if strings.TrimSpace(event.Message) != "" {
@@ -62,12 +71,17 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 		runtimeevent.TypeCompactionSkip,
 		runtimeevent.TypeStepBudgetExtend,
 		runtimeevent.TypeStepBudgetStop,
+		runtimeevent.TypeStepTiming,
+		runtimeevent.TypeRunTiming,
 		runtimeevent.TypeError:
 		if event.Tool != "" {
 			m.lastTool = event.Tool
 		}
 		if event.Type == runtimeevent.TypeError {
 			m.runErrorReported = true
+		}
+		if event.Type == runtimeevent.TypeRunTiming {
+			m.runElapsedMS = event.DurationMS
 		}
 		if event.Type == runtimeevent.TypeToolResult && event.Result != nil && event.Result.Status == "success" && hasRenderableDiffChanges(*event.Result) {
 			m.appendDiffBlocks(*event.Result)
