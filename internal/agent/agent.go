@@ -11,6 +11,7 @@ import (
 	"local-agent/internal/llm"
 	"local-agent/internal/logs"
 	"local-agent/internal/runtimeevent"
+	"local-agent/internal/skill"
 	"local-agent/internal/tools"
 )
 
@@ -39,6 +40,10 @@ type Agent struct {
 	options         Options
 	subagentLimiter chan struct{}
 	subagentTool    *delegateTaskTool
+	skillTool       *invokeSkillTool
+	skillRegistry   *skill.Registry
+	activeSkills    map[string]skill.Candidate
+	skillContext    string
 
 	// Token consumption tracking. Protected by tokenMu because streaming
 	// callbacks may arrive on a different goroutine.
@@ -92,6 +97,10 @@ func newAgent(client llm.Client, registry *tools.Registry, maxSteps int, workspa
 	if options.Subagents.Enabled {
 		agent.subagentLimiter = make(chan struct{}, options.Subagents.MaxConcurrent)
 		agent.subagentTool = &delegateTaskTool{agent: agent}
+	}
+	if options.Skills.Enabled && options.Skills.Registry != nil && !options.Skills.Registry.Empty() {
+		agent.skillRegistry = options.Skills.Registry
+		agent.skillTool = &invokeSkillTool{agent: agent}
 	}
 	return agent
 }
@@ -160,6 +169,7 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 	a.todoTool.Reset()
 	a.initializeAutoTodo()
 	a.resetSubagentIndexes()
+	a.activateSkills(input)
 	defer a.pruneTransientToolHistory()
 
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeRunStart})
@@ -248,9 +258,9 @@ func (a *Agent) chatWithTools(ctx context.Context, step int) (*llm.ChatResponse,
 	// Fall back to non-streaming when a previous streaming call returned no
 	// usage data. Some providers (e.g. Bailian qwen) omit usage in SSE chunks.
 	if !ok || a.streamingDisabled {
-		resp, err = a.client.ChatWithTools(ctx, a.messages, tools)
+		resp, err = a.client.ChatWithTools(ctx, a.conversationMessages(), tools)
 	} else {
-		resp, err = streamingClient.ChatWithToolsStream(ctx, a.messages, tools, func(delta llm.StreamDelta) error {
+		resp, err = streamingClient.ChatWithToolsStream(ctx, a.conversationMessages(), tools, func(delta llm.StreamDelta) error {
 			if strings.TrimSpace(delta.Content) == "" {
 				return nil
 			}
@@ -281,6 +291,48 @@ func (a *Agent) chatWithTools(ctx context.Context, step int) (*llm.ChatResponse,
 		logs.Infof("streaming returned no usage, falling back to non-streaming")
 	}
 	return resp, err
+}
+
+func (a *Agent) activateSkills(input string) {
+	a.activeSkills = nil
+	a.skillContext = ""
+	if a.skillRegistry == nil || !a.options.Skills.Enabled {
+		return
+	}
+	candidates := a.skillRegistry.Retrieve(input, a.options.Skills.TopK, a.options.Skills.MinScore)
+	if len(candidates) == 0 {
+		return
+	}
+	a.activeSkills = make(map[string]skill.Candidate, len(candidates))
+	lines := []string{
+		"# Optional Skills",
+		"The runtime retrieved optional skills for this user request. These skills are metadata-only right now; the full SKILL.md is loaded only if you call invoke_skill.",
+		"Only call invoke_skill when one of these skills materially fits the task. If none fit, ignore this section.",
+		"",
+		"Available skills for this run:",
+	}
+	for _, candidate := range candidates {
+		a.activeSkills[strings.ToLower(candidate.Skill.Name)] = candidate
+		lines = append(lines,
+			fmt.Sprintf("- %s (score=%d, source=%s)", candidate.Skill.Name, candidate.Score, candidate.Skill.Source),
+			"  Description: "+candidate.Skill.Description,
+			"  Input schema: "+candidate.Skill.InputSchemaSummary(),
+			"  Permissions: "+candidate.Skill.PermissionSummary(),
+			"  Trigger scenarios: "+candidate.Skill.TriggerSummary(),
+		)
+	}
+	a.skillContext = strings.Join(lines, "\n")
+}
+
+func (a *Agent) conversationMessages() []llm.Message {
+	if strings.TrimSpace(a.skillContext) == "" || len(a.messages) == 0 {
+		return a.messages
+	}
+	out := make([]llm.Message, 0, len(a.messages)+1)
+	out = append(out, a.messages[0])
+	out = append(out, llm.Message{Role: "system", Content: a.skillContext})
+	out = append(out, a.messages[1:]...)
+	return out
 }
 
 func (a *Agent) Messages() []llm.Message {

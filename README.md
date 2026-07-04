@@ -5,9 +5,9 @@
 [![UI](https://img.shields.io/badge/UI-Bubble%20Tea%20TUI-1f6feb)]()
 [![Protocol](https://img.shields.io/badge/LLM-OpenAI%20Compatible-0a7f5a)]()
 
-面向终端的 Go 语言 Coding Agent，默认提供 Bubble Tea TUI、原生 function calling、工作区工具、审批流、持久记忆、MCP 集成和只读 subagent。
+面向终端的 Go 语言 Coding Agent，默认提供 Bubble Tea TUI、原生 function calling、工作区工具、审批流、持久记忆、MCP 集成、按需加载 skill 和只读 subagent。
 
-A terminal-first coding agent written in Go with a Bubble Tea TUI, native function calling, workspace tools, approval flows, persistent memory, MCP integration, and read-only subagents.
+A terminal-first coding agent written in Go with a Bubble Tea TUI, native function calling, workspace tools, approval flows, persistent memory, MCP integration, lazy-loaded skills, and read-only subagents.
 
 ---
 
@@ -21,6 +21,8 @@ A terminal-first coding agent written in Go with a Bubble Tea TUI, native functi
   File edits and `git_diff` render as inline diffs in the main TUI with line numbers, full-row add/remove coloring, and multi-language syntax highlighting.
 - 支持 `delegate_task` 只读子代理、MCP 动态工具发现、Markdown 持久记忆和 `/resume` 会话恢复。
   Supports read-only `delegate_task` subagents, dynamically discovered MCP tools, Markdown-backed persistent memory, and `/resume` session restore.
+- 支持按请求检索 top-k skill，并通过 `invoke_skill` 在真正需要时才加载 `SKILL.md`。
+  Supports request-scoped top-k skill retrieval and loads `SKILL.md` only when `invoke_skill` is actually called.
 
 ---
 
@@ -47,6 +49,9 @@ A terminal-first coding agent written in Go with a Bubble Tea TUI, native functi
 - `MCP Support / MCP 支持`
   通过 stdio 连接 MCP server，并把远端工具注册为 `mcp__<server>__<tool>`。
   Connects to MCP servers over stdio and exposes their tools as `mcp__<server>__<tool>`.
+- `Lazy Skills / 按需技能加载`
+  启动时只注册 skill manifest 元数据；每次用户请求再检索候选 skill，把 top-k 摘要注入上下文，并在模型调用 `invoke_skill` 时才真正读取 `SKILL.md` 执行。
+  Only skill manifests are registered at startup; each user request retrieves candidate skills, injects top-k summaries into context, and reads `SKILL.md` only when the model calls `invoke_skill`.
 
 ---
 
@@ -114,6 +119,8 @@ The agent reads `config.yaml`, starts the interactive TUI in TTY sessions, and f
     user-level and project-level memory
   - MCP server 声明
     MCP server declarations
+  - skill manifest 元数据（不是完整 skill 正文）
+    skill manifest metadata (not the full skill bodies)
   - 会话持久化配置（用于 `/resume`）
     session persistence configuration (used by `/resume`)
 
@@ -121,16 +128,16 @@ The agent reads `config.yaml`, starts the interactive TUI in TTY sessions, and f
 
 ## 内置工具 | Built-in Tools
 
-当前包含 21 个内置工具，以及运行时自动发现的 MCP 工具。
+当前包含 22 个内置工具，以及运行时自动发现的 MCP 工具。
 
-There are currently 21 built-in tools, plus MCP tools discovered at runtime.
+There are currently 22 built-in tools, plus MCP tools discovered at runtime.
 
 | 类别 Category | 工具 Tools |
 |---|---|
 | 文件 I/O File I/O | `list_files`, `find_files`, `read_file`, `read_file_range`, `write_file`, `replace_in_file` |
 | 搜索与代码关系 Search & code graph helpers | `search_files`, `find_symbol`, `find_references`, `find_callers`, `find_callees` |
 | Shell 与补丁 Shell & patching | `run_command`, `apply_patch`, `git_status`, `git_diff`, `git_log` |
-| 委托 Delegation | `delegate_task` |
+| 委托 Delegation | `delegate_task`, `invoke_skill` |
 | 记忆 Memory | `memory`, `remember`, `forget` |
 | UI 控制 UI control | `update_todos` |
 | MCP | `mcp__<server>__<tool>` |
@@ -242,6 +249,70 @@ Good use cases:
 
 ---
 
+## Skills | 技能系统
+
+Skill 用于把可选能力注册成“元数据先行、正文按需加载”的能力包。
+
+Skills package optional capabilities into metadata-first, body-on-demand units.
+
+```text
+startup
+  └── register skill.json metadata only
+
+per user request
+  ├── retrieve top-k matching skills
+  ├── inject summaries into model context
+  └── expose invoke_skill
+
+invoke_skill
+  ├── validate input against input_schema
+  ├── load SKILL.md lazily
+  ├── restrict tools by permissions.tools
+  └── run in an isolated internal agent
+```
+
+一个 skill 目录至少包含：
+
+Each skill directory must contain at least:
+
+```text
+skills/<skill-name>/
+├── skill.json
+└── SKILL.md
+```
+
+`skill.json` 示例：
+
+Example `skill.json`:
+
+```json
+{
+  "name": "reviewer",
+  "description": "Review code changes for bugs and regressions.",
+  "summary": "Focused code review skill for risky diffs.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "focus": { "type": "string" }
+    },
+    "additionalProperties": false
+  },
+  "permissions": {
+    "tools": ["read_file", "search_files", "git_diff"]
+  },
+  "triggers": ["code review", "review diff", "bug risk"]
+}
+```
+
+默认会同时扫描：
+
+By default the agent scans both:
+
+- `~/.echo-dust-code/skills`
+- `<workspace>/skills`
+
+---
+
 ## 记忆系统 | Memory System
 
 默认记忆目录结构如下：
@@ -280,6 +351,7 @@ Runtime behavior is mainly controlled by `config.yaml`.
 | `llm` | 基础地址、模型、协议形态、请求超时、多工具返回开关。 Base URL, model, wire API, request timeout, parallel tool return mode. |
 | `agent` | 主 agent 的初始步数预算、自适应扩展、绝对上限。 Main agent step budget, adaptive extensions, absolute limits. |
 | `subagents` | 子代理开关、并发数、步数预算、回传大小限制。 Subagent enablement, concurrency, step budget, and result size cap. |
+| `skills` | skill 注册根目录、top-k 检索数量和最低匹配分。 Skill roots, top-k retrieval count, and minimum match score. |
 | `memory` | 记忆系统开关与用户目录。 Memory enablement and user directory. |
 | `mcp` | MCP 目录、启动超时、请求超时。 MCP directory, startup timeout, and request timeout. |
 | `session` | `/resume` 所依赖的 session 持久化。 Session persistence used by `/resume`. |
@@ -302,6 +374,7 @@ cmd/agent/main.go
      ├── internal/mcp/         # MCP stdio integration
      ├── internal/memory/      # Persistent Markdown memory
      ├── internal/runtimeevent/# UI event protocol
+     ├── internal/skill/       # Skill manifest registry + retrieval
      ├── internal/tools/       # Built-in workspace tools
      ├── internal/tui/         # Maintained Bubble Tea TUI
      └── internal/ui/          # Legacy / non-TTY fallback renderer
@@ -314,6 +387,7 @@ Agent.Run(ctx, input)
   ├── pruneTransientToolHistory()
   ├── pruneStaleToolResults()
   ├── maybeCompact()
+  ├── activateSkills()
   └── chatWithTools() → execute → loop until final answer or step limit
 ```
 
@@ -342,9 +416,11 @@ echo-dust-code/
 │   ├── memory/
 │   ├── runtimeevent/
 │   ├── session/
+│   ├── skill/
 │   ├── tools/
 │   ├── tui/
 │   └── ui/
+├── skills/
 ├── config.yaml
 ├── go.mod
 └── README.md

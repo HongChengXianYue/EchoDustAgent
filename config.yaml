@@ -45,6 +45,19 @@ subagents:
   # 子代理最终结论最多回传多少字节，超过后截断。
   result_max_bytes: 16888
 
+# Skill 配置。启动时只加载 manifest 元数据；真正调用 invoke_skill 时才读取 SKILL.md。
+skills:
+  # 是否启用技能注册、按请求检索 top-k 技能，以及 invoke_skill 原生工具。
+  enabled: true
+  # 用户级 skill 根目录；支持 ~。目录下任意包含 skill.json + SKILL.md 的子目录都会被注册。
+  user_dir: ~/.echo-dust-code/skills
+  # 项目级 skill 根目录；相对路径按当前 workspace 解析。
+  project_dir: skills
+  # 每次用户请求最多向模型暴露多少个候选 skill。
+  top_k: 3
+  # 候选检索的最低分数；越高越保守。
+  min_score: 20
+
 # 持久记忆配置。文档记忆会在启动时加载一次并拼入 system prompt。
 memory:
   # 是否启用 memory / remember / forget 工具和启动时记忆加载。

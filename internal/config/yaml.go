@@ -117,6 +117,16 @@ func applyConfigValue(cfg *Config, key string, value string) error {
 		return setPositiveInt(key, value, &cfg.Subagents.AbsoluteMaxSteps)
 	case "subagents.result_max_bytes":
 		return setPositiveInt(key, value, &cfg.Subagents.ResultMaxBytes)
+	case "skills.enabled":
+		return setBool(key, value, &cfg.Skills.Enabled)
+	case "skills.user_dir":
+		cfg.Skills.UserDir = value
+	case "skills.project_dir":
+		cfg.Skills.ProjectDir = value
+	case "skills.top_k":
+		return setPositiveInt(key, value, &cfg.Skills.TopK)
+	case "skills.min_score":
+		return setNonNegativeInt(key, value, &cfg.Skills.MinScore)
 	case "memory.enabled":
 		return setBool(key, value, &cfg.Memory.Enabled)
 	case "memory.user_dir":

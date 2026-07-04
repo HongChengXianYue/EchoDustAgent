@@ -32,6 +32,10 @@ func AnalyzeWrite(tool string, args json.RawMessage, workspace string, category 
 		return analyzePathArg(args, workspace)
 	case "apply_patch":
 		return analyzePatchTargets(args, workspace)
+	case "invoke_skill":
+		// invoke_skill may perform arbitrary workspace writes through its
+		// restricted child agent, so serialize it against other writes.
+		return workspaceUnknownWrite(workspace)
 	case "run_command":
 		return analyzeCommandWrites(CommandFromArgs(args), workspace, category)
 	case "remember", "forget":

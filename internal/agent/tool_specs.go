@@ -7,10 +7,13 @@ import (
 
 func (a *Agent) functionTools() []llm.FunctionTool {
 	specs := a.registry.Specs()
-	out := make([]llm.FunctionTool, 0, len(specs)+2)
+	out := make([]llm.FunctionTool, 0, len(specs)+3)
 	out = append(out, functionToolFromTool(a.todoTool))
 	if a.subagentTool != nil {
 		out = append(out, functionToolFromTool(a.subagentTool))
+	}
+	if skillTool := a.skillFunctionTool(); skillTool != nil {
+		out = append(out, *skillTool)
 	}
 	for _, spec := range specs {
 		out = append(out, llm.FunctionTool{
@@ -25,6 +28,9 @@ func (a *Agent) functionTools() []llm.FunctionTool {
 func (a *Agent) lookupTool(name string) (tools.Tool, bool) {
 	if tools.IsDelegateTaskTool(name) && a.subagentTool != nil {
 		return a.subagentTool, true
+	}
+	if tools.IsInvokeSkillTool(name) && a.skillTool != nil {
+		return a.skillTool, true
 	}
 	return a.registry.Get(name)
 }

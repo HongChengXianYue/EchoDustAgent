@@ -31,6 +31,12 @@ subagents:
   step_extension_size: 2
   absolute_max_steps: 11
   result_max_bytes: 6789
+skills:
+  enabled: true
+  user_dir: /tmp/echo-dust-code-skills-user
+  project_dir: .project-skills
+  top_k: 5
+  min_score: 7
 memory:
   enabled: false
   user_dir: /tmp/echo-dust-code-memory
@@ -110,6 +116,18 @@ ui:
 	}
 	if cfg.Subagents.ResultMaxBytes != 6789 {
 		t.Fatalf("subagents result max bytes = %d", cfg.Subagents.ResultMaxBytes)
+	}
+	if !cfg.Skills.Enabled {
+		t.Fatalf("skills enabled = false, want true")
+	}
+	if cfg.Skills.UserDir != "/tmp/echo-dust-code-skills-user" {
+		t.Fatalf("skills user dir = %q", cfg.Skills.UserDir)
+	}
+	if cfg.Skills.ProjectDir != ".project-skills" {
+		t.Fatalf("skills project dir = %q", cfg.Skills.ProjectDir)
+	}
+	if cfg.Skills.TopK != 5 || cfg.Skills.MinScore != 7 {
+		t.Fatalf("skills config = %#v", cfg.Skills)
 	}
 	if cfg.Memory.Enabled {
 		t.Fatalf("memory enabled = true, want false")
@@ -215,6 +233,17 @@ func TestLoadFileRejectsInvalidWireAPI(t *testing.T) {
 
 	if _, err := LoadFile(path); err == nil {
 		t.Fatalf("LoadFile() error = nil, want invalid wire api error")
+	}
+}
+
+func TestLoadFileRejectsSkillsWithoutRootsWhenEnabled(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("skills:\n  enabled: true\n  user_dir: \"\"\n  project_dir: \"\"\n"), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if _, err := LoadFile(path); err == nil {
+		t.Fatalf("LoadFile() error = nil, want skills root validation error")
 	}
 }
 

@@ -1,11 +1,15 @@
 package agent
 
-import contextmgr "local-agent/internal/context"
+import (
+	contextmgr "local-agent/internal/context"
+	"local-agent/internal/skill"
+)
 
 type Options struct {
 	MaxParallelToolCalls int
 	StepBudget           StepBudgetOptions
 	Subagents            SubagentOptions
+	Skills               SkillOptions
 	SystemPromptSuffix   string
 	Context              ContextOptions
 }
@@ -23,6 +27,13 @@ type SubagentOptions struct {
 	MaxSteps       int
 	StepBudget     StepBudgetOptions
 	ResultMaxBytes int
+}
+
+type SkillOptions struct {
+	Enabled  bool
+	TopK     int
+	MinScore int
+	Registry *skill.Registry
 }
 
 type ContextOptions = contextmgr.Options
@@ -47,6 +58,11 @@ func DefaultOptions() Options {
 				ExtensionSize:    5,
 				AbsoluteMaxSteps: 45,
 			},
+		},
+		Skills: SkillOptions{
+			Enabled:  true,
+			TopK:     3,
+			MinScore: 20,
 		},
 		Context: ContextOptions{
 			WindowTokens:             128000,
@@ -77,6 +93,12 @@ func normalizeOptions(options Options) Options {
 	options.Subagents.StepBudget = normalizeStepBudgetOptions(options.Subagents.StepBudget, defaults.Subagents.StepBudget)
 	if options.Subagents.ResultMaxBytes <= 0 {
 		options.Subagents.ResultMaxBytes = defaults.Subagents.ResultMaxBytes
+	}
+	if options.Skills.TopK <= 0 {
+		options.Skills.TopK = defaults.Skills.TopK
+	}
+	if options.Skills.MinScore < 0 {
+		options.Skills.MinScore = defaults.Skills.MinScore
 	}
 	if options.Context.WindowTokens <= 0 {
 		options.Context.WindowTokens = defaults.Context.WindowTokens

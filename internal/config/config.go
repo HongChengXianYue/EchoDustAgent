@@ -16,6 +16,7 @@ type Config struct {
 	LLM       LLMConfig
 	Agent     AgentConfig
 	Subagents SubagentsConfig
+	Skills    SkillsConfig
 	Memory    MemoryConfig
 	MCP       MCPConfig
 	Session   SessionConfig
@@ -50,6 +51,14 @@ type SubagentsConfig struct {
 	StepExtensionSize       int
 	AbsoluteMaxSteps        int
 	ResultMaxBytes          int
+}
+
+type SkillsConfig struct {
+	Enabled    bool
+	UserDir    string
+	ProjectDir string
+	TopK       int
+	MinScore   int
 }
 
 type MemoryConfig struct {
@@ -175,6 +184,13 @@ func Default() Config {
 			AbsoluteMaxSteps:        45,
 			ResultMaxBytes:          16888,
 		},
+		Skills: SkillsConfig{
+			Enabled:    true,
+			UserDir:    "~/.echo-dust-code/skills",
+			ProjectDir: "skills",
+			TopK:       3,
+			MinScore:   20,
+		},
 		Memory: MemoryConfig{
 			Enabled: true,
 			UserDir: "~/.echo-dust-code",
@@ -267,6 +283,7 @@ func validate(cfg Config) error {
 		"subagents.step_extension_size":         cfg.Subagents.StepExtensionSize,
 		"subagents.absolute_max_steps":          cfg.Subagents.AbsoluteMaxSteps,
 		"subagents.result_max_bytes":            cfg.Subagents.ResultMaxBytes,
+		"skills.top_k":                          cfg.Skills.TopK,
 		"mcp.start_timeout_seconds":             cfg.MCP.StartTimeoutSeconds,
 		"mcp.request_timeout_seconds":           cfg.MCP.RequestTimeoutSeconds,
 		"context.window_tokens":                 cfg.Context.WindowTokens,
@@ -320,6 +337,7 @@ func validate(cfg Config) error {
 	for key, value := range map[string]int{
 		"agent.max_step_extensions":     cfg.Agent.MaxStepExtensions,
 		"subagents.max_step_extensions": cfg.Subagents.MaxStepExtensions,
+		"skills.min_score":              cfg.Skills.MinScore,
 	} {
 		if value < 0 {
 			return fmt.Errorf("%s must be >= 0", key)
@@ -339,6 +357,9 @@ func validate(cfg Config) error {
 	}
 	if cfg.MCP.Enabled && strings.TrimSpace(cfg.MCP.Dir) == "" {
 		return fmt.Errorf("mcp.dir is required when mcp.enabled is true")
+	}
+	if cfg.Skills.Enabled && strings.TrimSpace(cfg.Skills.UserDir) == "" && strings.TrimSpace(cfg.Skills.ProjectDir) == "" {
+		return fmt.Errorf("one of skills.user_dir or skills.project_dir is required when skills.enabled is true")
 	}
 	if cfg.Session.Enabled && strings.TrimSpace(cfg.Session.Dir) == "" {
 		return fmt.Errorf("session.dir is required when session.enabled is true")

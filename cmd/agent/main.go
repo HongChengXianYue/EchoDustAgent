@@ -22,6 +22,7 @@ import (
 	"local-agent/internal/mcp"
 	"local-agent/internal/memory"
 	"local-agent/internal/session"
+	"local-agent/internal/skill"
 	"local-agent/internal/tools"
 	"local-agent/internal/tui"
 	"local-agent/internal/ui"
@@ -55,6 +56,17 @@ func main() {
 		registry.Register(memory.NewRememberTool(loadedMemory.Store))
 		registry.Register(memory.NewForgetTool(loadedMemory.Store))
 	}
+	var skillRegistry *skill.Registry
+	if cfg.Skills.Enabled {
+		skillRegistry, err = skill.LoadRegistry(skill.Options{
+			CWD:        workdir,
+			UserDir:    cfg.Skills.UserDir,
+			ProjectDir: cfg.Skills.ProjectDir,
+		})
+		if err != nil {
+			logs.Errorf("skill registry loaded with warnings: %v", err)
+		}
+	}
 	var mcpManager *mcp.Manager
 	if cfg.MCP.Enabled {
 		mcpManager, err = mcp.Load(context.Background(), mcp.Options{
@@ -74,7 +86,7 @@ func main() {
 		WireAPI:           cfg.LLM.WireAPI,
 		ParallelToolCalls: cfg.LLM.ParallelToolCalls,
 	})
-	codingAgent := agent.NewWithWorkspaceAndOptions(client, registry, cfg.Agent.MaxSteps, workdir, agentOptions(cfg.Agent, cfg.Subagents, cfg.Context, loadedMemory))
+	codingAgent := agent.NewWithWorkspaceAndOptions(client, registry, cfg.Agent.MaxSteps, workdir, agentOptions(cfg.Agent, cfg.Subagents, cfg.Skills, cfg.Context, loadedMemory, skillRegistry))
 
 	startupInfo := ui.StartupInfo{
 		Workdir:    workdir,
@@ -294,7 +306,7 @@ func uiOptions(cfg config.UIConfig) ui.Options {
 	}
 }
 
-func agentOptions(agentCfg config.AgentConfig, subagentsCfg config.SubagentsConfig, contextCfg config.ContextConfig, loadedMemory *memory.Set) agent.Options {
+func agentOptions(agentCfg config.AgentConfig, subagentsCfg config.SubagentsConfig, skillsCfg config.SkillsConfig, contextCfg config.ContextConfig, loadedMemory *memory.Set, skillRegistry *skill.Registry) agent.Options {
 	memoryBlock := ""
 	if loadedMemory != nil {
 		memoryBlock = loadedMemory.Block()
@@ -330,6 +342,12 @@ func agentOptions(agentCfg config.AgentConfig, subagentsCfg config.SubagentsConf
 				AbsoluteMaxSteps: subagentsCfg.AbsoluteMaxSteps,
 			},
 			ResultMaxBytes: subagentsCfg.ResultMaxBytes,
+		},
+		Skills: agent.SkillOptions{
+			Enabled:  skillsCfg.Enabled,
+			TopK:     skillsCfg.TopK,
+			MinScore: skillsCfg.MinScore,
+			Registry: skillRegistry,
 		},
 	}
 }

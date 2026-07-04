@@ -894,3 +894,17 @@
 - 主要模块：`README.md`、`docs/WORKLOG.md`。
 - 验证：未运行 Go 测试；本次仅修改文档。
 - 备注：移除了旧 README 中不再准确的 “2 个直接依赖”“旧 UI 主描述”“过时统计数字” 等内容，避免继续把历史状态当成当前实现对外展示。
+
+## 2026-07-04 - 接入按需加载 Skill Registry 与 invoke_skill
+
+- 摘要：实现一套 metadata-first 的 skill 接入链路。现在启动时只扫描并注册 `skill.json` 元数据；每次用户请求会基于输入检索 top-k skill，把技能摘要、输入 schema、权限和触发场景临时注入模型上下文，并只在模型真正调用 `invoke_skill` 时才读取对应 `SKILL.md`，再用受限工具集启动隔离的内部 agent 执行 skill。
+- 主要模块：`internal/skill`、`internal/agent/skill.go`、`internal/agent/agent.go`、`internal/agent/options.go`、`internal/agent/tool_specs.go`、`internal/config`、`cmd/agent/main.go`、`internal/approval`、`config.yaml`、`README.md`、`docs/WORKLOG.md`。
+- 改动要点：
+  - 新增 `internal/skill` 包，负责 skill manifest 加载、用户级/项目级目录扫描、top-k 检索、输入 schema 校验和懒加载 `SKILL.md`。
+  - 新增原生工具 `invoke_skill`，仅在当前请求检索到候选 skill 时暴露给模型；参数里的 `name` 会动态限定到当前激活 skill 列表。
+  - skill 执行路径复用内部 agent，但默认禁用 `delegate_task` 和 skill 递归调用，并按 `permissions.tools` 构造受限工具 registry。
+  - 主 agent 在 `Run()` 开始时为当前请求激活 skill 候选，并通过瞬时 system message 注入上下文，不写回会话历史，避免跨请求泄漏。
+  - `invoke_skill` 在调度层被视为未知写目标的工作区级锁，避免 skill 内部写操作与同轮其它写工具并发踩踏。
+  - 配置新增 `skills.enabled`、`skills.user_dir`、`skills.project_dir`、`skills.top_k`、`skills.min_score`，README 也补充了 skill 目录结构和 `skill.json` 示例。
+- 验证：`gofmt -w cmd/agent/main.go internal/agent/agent.go internal/agent/options.go internal/agent/skill.go internal/agent/tool_specs.go internal/agent/agent_test.go internal/approval/classifier.go internal/approval/write_targets.go internal/config/config.go internal/config/config_test.go internal/config/yaml.go internal/skill/skill.go internal/skill/registry.go internal/skill/schema.go internal/skill/skill_test.go internal/tools/todo.go` 通过；`go test ./internal/skill ./internal/config ./internal/agent` 通过；`go vet ./internal/skill ./internal/config ./internal/agent ./cmd/agent` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：当前 skill 检索是轻量关键字/短语匹配，不是向量检索；`permissions` 在 v1 里只实现了 `permissions.tools` 白名单，底层审批仍由现有工具审批链负责，后续如果需要更细粒度的 capability/approval 语义，可以在此基础上继续扩展。

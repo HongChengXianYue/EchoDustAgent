@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +15,7 @@ import (
 	contextmgr "local-agent/internal/context"
 	"local-agent/internal/llm"
 	"local-agent/internal/runtimeevent"
+	"local-agent/internal/skill"
 	"local-agent/internal/tools"
 )
 
@@ -119,6 +122,16 @@ type delegateScriptClient struct {
 	tools                            [][]llm.FunctionTool
 }
 
+type skillScriptClient struct {
+	mu          sync.Mutex
+	parentCalls int
+	childCalls  int
+	parentFinal string
+	childFinal  string
+	messages    [][]llm.Message
+	tools       [][]llm.FunctionTool
+}
+
 type lockingCaptureRenderer struct {
 	mu     sync.Mutex
 	events []runtimeevent.Event
@@ -194,6 +207,35 @@ func (c *delegateScriptClient) ChatWithTools(ctx context.Context, messages []llm
 		return &llm.ChatResponse{ToolCalls: followup}, nil
 	}
 	return &llm.ChatResponse{Content: "waiting on delegated work"}, nil
+}
+
+func (c *skillScriptClient) ChatWithTools(ctx context.Context, messages []llm.Message, specs []llm.FunctionTool) (*llm.ChatResponse, error) {
+	c.mu.Lock()
+	c.messages = append(c.messages, append([]llm.Message(nil), messages...))
+	c.tools = append(c.tools, append([]llm.FunctionTool(nil), specs...))
+	c.mu.Unlock()
+
+	if len(messages) > 0 && strings.Contains(messages[0].Content, `You are executing the on-demand skill "reviewer".`) {
+		c.mu.Lock()
+		c.childCalls++
+		childFinal := c.childFinal
+		c.mu.Unlock()
+		return &llm.ChatResponse{Content: childFinal}, nil
+	}
+
+	c.mu.Lock()
+	c.parentCalls++
+	call := c.parentCalls
+	parentFinal := c.parentFinal
+	c.mu.Unlock()
+
+	if call == 1 {
+		return &llm.ChatResponse{ToolCalls: []llm.ToolCall{
+			todoToolCall("todo_skill", "Use reviewer skill"),
+			testToolCall("skill_1", tools.InvokeSkillToolName, `{"name":"reviewer","input":{"focus":"bugs"}}`),
+		}}, nil
+	}
+	return &llm.ChatResponse{Content: parentFinal}, nil
 }
 
 func (t *echoTool) Name() string {
@@ -1676,6 +1718,104 @@ func messageSnapshotContains(snapshot []llm.Message, text string) bool {
 	return false
 }
 
+func TestRunInjectsSkillContextAndExposesInvokeSkill(t *testing.T) {
+	workdir := t.TempDir()
+	skillRegistry := createTestSkillRegistry(t, workdir, testSkillSpec{
+		Name:        "reviewer",
+		Description: "Review code changes for bugs and regressions.",
+		Triggers:    []string{"code review", "review diff"},
+		InputSchema: `{"type":"object","properties":{"focus":{"type":"string"}},"additionalProperties":false}`,
+		Tools:       []string{"read_file"},
+		Body:        "Inspect the requested files and report the biggest risks.",
+	})
+	client := &skillScriptClient{
+		parentFinal: "done",
+		childFinal:  "review completed",
+	}
+	registry := tools.NewRegistry()
+	registry.Register(&namedTool{name: "read_file"})
+	options := DefaultOptions()
+	options.Skills.Registry = skillRegistry
+	agent := NewWithWorkspaceAndOptions(client, registry, 4, workdir, options)
+
+	if _, err := agent.Run(context.Background(), "please review this diff for bugs"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(client.messages) < 2 {
+		t.Fatalf("message snapshots = %d, want >= 2", len(client.messages))
+	}
+	if !messageSnapshotContains(client.messages[0], "# Optional Skills") {
+		t.Fatalf("parent messages missing skill context: %#v", client.messages[0])
+	}
+	if !messageSnapshotContains(client.messages[0], "reviewer") {
+		t.Fatalf("parent messages missing reviewer metadata: %#v", client.messages[0])
+	}
+	if !toolSnapshotContains(client.tools[0], tools.InvokeSkillToolName) {
+		t.Fatalf("parent tools missing invoke_skill: %#v", client.tools[0])
+	}
+	if !toolSnapshotContains(client.tools[1], "read_file") {
+		t.Fatalf("skill child tools missing read_file: %#v", client.tools[1])
+	}
+	if toolSnapshotContains(client.tools[1], tools.InvokeSkillToolName) {
+		t.Fatalf("skill child tools unexpectedly exposed invoke_skill: %#v", client.tools[1])
+	}
+	if !messageSnapshotContains(client.messages[1], "Inspect the requested files and report the biggest risks.") {
+		t.Fatalf("skill body was not loaded into child prompt: %#v", client.messages[1])
+	}
+}
+
+func TestRunResetsSkillContextBetweenRequests(t *testing.T) {
+	workdir := t.TempDir()
+	skillRegistry := createTestSkillRegistry(t, workdir, testSkillSpec{
+		Name:        "reviewer",
+		Description: "Review code changes for bugs and regressions.",
+		Triggers:    []string{"code review"},
+		InputSchema: `{"type":"object","additionalProperties":true}`,
+		Body:        "Review things.",
+	})
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{Content: "done"},
+		{Content: "done"},
+	}}
+	options := DefaultOptions()
+	options.Skills.Registry = skillRegistry
+	agent := NewWithWorkspaceAndOptions(client, tools.NewRegistry(), 2, workdir, options)
+
+	if _, err := agent.Run(context.Background(), "please do a code review"); err != nil {
+		t.Fatalf("first Run() error = %v", err)
+	}
+	if _, err := agent.Run(context.Background(), "say hello"); err != nil {
+		t.Fatalf("second Run() error = %v", err)
+	}
+	if !messageSnapshotContains(client.messages[0], "# Optional Skills") {
+		t.Fatalf("first request missing skill context: %#v", client.messages[0])
+	}
+	if messageSnapshotContains(client.messages[1], "# Optional Skills") {
+		t.Fatalf("second request unexpectedly retained skill context: %#v", client.messages[1])
+	}
+}
+
+func TestRunSkillRejectsUnavailablePermissionTool(t *testing.T) {
+	workdir := t.TempDir()
+	skillRegistry := createTestSkillRegistry(t, workdir, testSkillSpec{
+		Name:        "reviewer",
+		Description: "Review code changes for bugs and regressions.",
+		Triggers:    []string{"code review"},
+		InputSchema: `{"type":"object","additionalProperties":true}`,
+		Tools:       []string{"read_file"},
+		Body:        "Review things.",
+	})
+	options := DefaultOptions()
+	options.Skills.Registry = skillRegistry
+	agent := NewWithWorkspaceAndOptions(&fakeClient{}, tools.NewRegistry(), 2, workdir, options)
+	agent.activateSkills("code review")
+
+	result := agent.runSkill(context.Background(), json.RawMessage(`{"name":"reviewer","input":{}}`))
+	if result.Status != "error" || !strings.Contains(result.Summary, `requires unavailable tool "read_file"`) {
+		t.Fatalf("runSkill result = %#v, want missing tool error", result)
+	}
+}
+
 func TestRunEmitsTokenUsageEventsWithCumulativeTotal(t *testing.T) {
 	// Three LLM rounds with distinct usage values.
 	client := &fakeClient{responses: []*llm.ChatResponse{
@@ -1875,4 +2015,65 @@ func containsEvent(events []runtimeevent.Event, eventType runtimeevent.Type) boo
 		}
 	}
 	return false
+}
+
+func toolSnapshotContains(snapshot []llm.FunctionTool, name string) bool {
+	for _, tool := range snapshot {
+		if tool.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+type testSkillSpec struct {
+	Name        string
+	Description string
+	InputSchema string
+	Triggers    []string
+	Tools       []string
+	Body        string
+}
+
+func createTestSkillRegistry(t *testing.T, workdir string, specs ...testSkillSpec) *skill.Registry {
+	t.Helper()
+	root := filepath.Join(workdir, "skills")
+	for _, spec := range specs {
+		dir := filepath.Join(root, spec.Name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir skill dir: %v", err)
+		}
+		schema := spec.InputSchema
+		if strings.TrimSpace(schema) == "" {
+			schema = `{"type":"object","additionalProperties":true}`
+		}
+		manifest := map[string]any{
+			"name":         spec.Name,
+			"description":  spec.Description,
+			"input_schema": json.RawMessage(schema),
+			"permissions": map[string]any{
+				"tools": spec.Tools,
+			},
+			"triggers": spec.Triggers,
+		}
+		data, err := json.MarshalIndent(manifest, "", "  ")
+		if err != nil {
+			t.Fatalf("marshal manifest: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "skill.json"), data, 0o644); err != nil {
+			t.Fatalf("write skill manifest: %v", err)
+		}
+		body := spec.Body
+		if body == "" {
+			body = "# Skill\n\nBody"
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644); err != nil {
+			t.Fatalf("write skill body: %v", err)
+		}
+	}
+	registry, err := skill.LoadRegistry(skill.Options{CWD: workdir, ProjectDir: "skills"})
+	if err != nil {
+		t.Fatalf("LoadRegistry() error = %v", err)
+	}
+	return registry
 }
