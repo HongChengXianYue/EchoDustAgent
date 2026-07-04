@@ -46,12 +46,12 @@ func (t *WriteFileTool) Execute(ctx context.Context, args json.RawMessage) (Resu
 	if err != nil {
 		return Error(err.Error()), nil
 	}
+	oldText := ""
 	oldContent, readErr := os.ReadFile(path)
 	action := "added"
-	removedLines := 0
 	if readErr == nil {
 		action = "edited"
-		removedLines = countLines(string(oldContent))
+		oldText = string(oldContent)
 	} else if !os.IsNotExist(readErr) {
 		return Error(readErr.Error()), nil
 	}
@@ -66,14 +66,8 @@ func (t *WriteFileTool) Execute(ctx context.Context, args json.RawMessage) (Resu
 		previewLines = DefaultOptions().FileChangePreviewLines
 	}
 	result := Success(fmt.Sprintf("wrote %s (%d bytes)", displayPath(t.Workdir, path), len(params.Content)), "")
-	result.Changes = []FileChange{
-		{
-			Path:         displayPath(t.Workdir, path),
-			Action:       action,
-			AddedLines:   countLines(params.Content),
-			RemovedLines: removedLines,
-			Preview:      addedContentPreview(params.Content, previewLines),
-		},
+	if change, ok := fileChangeFromText(displayPath(t.Workdir, path), oldText, params.Content, action, previewLines); ok {
+		result.Changes = []FileChange{change}
 	}
 	return result, nil
 }

@@ -40,6 +40,7 @@ func (t *GitStatusTool) Execute(ctx context.Context, args json.RawMessage) (Resu
 type GitDiffTool struct {
 	Workdir        string
 	OutputMaxBytes int
+	PreviewLines   int
 }
 
 func (t *GitDiffTool) Name() string {
@@ -90,11 +91,25 @@ func (t *GitDiffTool) Execute(ctx context.Context, args json.RawMessage) (Result
 	if maxBytes <= 0 {
 		maxBytes = DefaultOptions().CommandOutputMaxBytes
 	}
-	output = capOutput(output, maxBytes)
-	if strings.TrimSpace(output) == "" {
-		output = "(no diff)"
+	previewLines := t.PreviewLines
+	if previewLines <= 0 {
+		previewLines = DefaultOptions().FileChangePreviewLines
 	}
-	return Success("git diff completed", output), nil
+	cappedOutput := capOutput(output, maxBytes)
+	if strings.TrimSpace(cappedOutput) == "" {
+		return Success("git diff completed", "(no diff)"), nil
+	}
+	summary := "git diff completed"
+	if cappedOutput != output {
+		summary = fmt.Sprintf("git diff completed (truncated to %d bytes)", maxBytes)
+	}
+	diffText := strings.TrimSuffix(cappedOutput, "\n[truncated]")
+	if changes := parseUnifiedDiffChanges(diffText, previewLines); len(changes) > 0 {
+		result := Success(summary, "")
+		result.Changes = changes
+		return result, nil
+	}
+	return Success(summary, cappedOutput), nil
 }
 
 type GitLogTool struct {

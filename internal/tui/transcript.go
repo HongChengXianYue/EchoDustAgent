@@ -15,6 +15,7 @@ const (
 	blockError
 	blockToolCall
 	blockApprovalRequest
+	blockDiff
 )
 
 type transcriptBlock struct {

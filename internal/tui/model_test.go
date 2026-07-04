@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"local-agent/internal/approval"
 	"local-agent/internal/runtimeevent"
@@ -117,6 +118,124 @@ func TestToolCallsRenderButToolResultsStayHidden(t *testing.T) {
 	}
 	if strings.Contains(view, "README details") || strings.Contains(view, "Explored") {
 		t.Fatalf("tool result output should stay hidden:\n%s", view)
+	}
+}
+
+func TestEditToolResultsRenderDiffBlocks(t *testing.T) {
+	model := newSizedTestModel()
+	diff := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new"
+
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
+		Type: runtimeevent.TypeToolResult,
+		Tool: "write_file",
+		Result: &tools.Result{
+			Status: "success",
+			Changes: []tools.FileChange{
+				{
+					Path:         "hello.txt",
+					Action:       "edited",
+					AddedLines:   1,
+					RemovedLines: 1,
+					Diff:         diff,
+					Preview:      diff,
+				},
+			},
+		},
+	}})
+
+	view := model.View()
+	if !containsAll(view, "Diff hello.txt (+1 -1)", "    1 - old", "    1 + new") {
+		t.Fatalf("edit result should append diff block:\n%s", view)
+	}
+	if strings.Contains(view, "--- a/hello.txt") || strings.Contains(view, "+++ b/hello.txt") || strings.Contains(view, "@@ -1 +1 @@") {
+		t.Fatalf("diff block should hide raw patch headers:\n%s", view)
+	}
+}
+
+func TestGitDiffResultsRenderDiffBlocks(t *testing.T) {
+	model := newSizedTestModel()
+	diff := "diff --git a/hello.txt b/hello.txt\nindex 1111111..2222222 100644\n--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new"
+
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
+		Type: runtimeevent.TypeToolResult,
+		Tool: "git_diff",
+		Result: &tools.Result{
+			Status: "success",
+			Changes: []tools.FileChange{
+				{
+					Path:         "hello.txt",
+					Action:       "edited",
+					AddedLines:   1,
+					RemovedLines: 1,
+					Diff:         diff,
+					Preview:      diff,
+				},
+			},
+		},
+	}})
+
+	view := model.View()
+	if !containsAll(view, "Diff hello.txt (+1 -1)", "    1 - old", "    1 + new") {
+		t.Fatalf("git diff result should append diff block:\n%s", view)
+	}
+	if strings.Contains(view, "diff --git a/hello.txt b/hello.txt") || strings.Contains(view, "index 1111111..2222222 100644") {
+		t.Fatalf("git diff block should render as inline code rows:\n%s", view)
+	}
+}
+
+func TestDiffBlocksRenderLineNumbers(t *testing.T) {
+	model := newSizedTestModel()
+
+	rendered := model.renderBlock(transcriptBlock{
+		Kind:  blockDiff,
+		Title: "Diff hello.txt (+2 -1)",
+		Body:  "@@ -12,2 +12,3 @@\n keep\n-old\n+new\n+next",
+	}, 80)
+
+	if !containsAll(rendered, "   12   keep", "   13 - old", "   13 + new", "   14 + next") {
+		t.Fatalf("diff block should render line numbers:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "@@ -12,2 +12,3 @@") {
+		t.Fatalf("diff block should hide hunk headers:\n%s", rendered)
+	}
+}
+
+func TestDiffBlocksRenderWithColor(t *testing.T) {
+	model := newSizedTestModel()
+
+	metaStyle, _, _ := model.diffLineParts("@@ -1 +1 @@")
+	removeStyle, _, _ := model.diffLineParts("-old")
+	addStyle, _, _ := model.diffLineParts("+new")
+
+	if got := metaStyle.GetForeground(); got != lipgloss.Color("117") {
+		t.Fatalf("meta color = %#v, want 117", got)
+	}
+	if got := removeStyle.GetForeground(); got != lipgloss.Color("#F2B8BD") {
+		t.Fatalf("remove color = %#v, want #F2B8BD", got)
+	}
+	if got := removeStyle.GetBackground(); got != lipgloss.Color("#352327") {
+		t.Fatalf("remove background = %#v, want #352327", got)
+	}
+	if got := addStyle.GetForeground(); got != lipgloss.Color("#8BD5A0") {
+		t.Fatalf("add color = %#v, want #8BD5A0", got)
+	}
+	if got := addStyle.GetBackground(); got != lipgloss.Color("#183126") {
+		t.Fatalf("add background = %#v, want #183126", got)
+	}
+}
+
+func TestDiffAddedAndRemovedRowsFillAvailableWidth(t *testing.T) {
+	model := newSizedTestModel()
+	state := diffRenderState{oldLine: 4, newLine: 4, hasHunk: true}
+
+	removed := model.renderDiffLine("-old", 30, &state)
+	added := model.renderDiffLine("+new", 30, &state)
+
+	if got := lipgloss.Width(removed); got != 30 {
+		t.Fatalf("removed row width = %d, want 30", got)
+	}
+	if got := lipgloss.Width(added); got != 30 {
+		t.Fatalf("added row width = %d, want 30", got)
 	}
 }
 

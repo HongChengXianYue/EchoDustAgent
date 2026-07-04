@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"local-agent/internal/runtimeevent"
+	"local-agent/internal/tools"
 )
 
 func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
@@ -63,6 +64,9 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 		if event.Type == runtimeevent.TypeError {
 			m.runErrorReported = true
 		}
+		if event.Type == runtimeevent.TypeToolResult && event.Result != nil && event.Result.Status == "success" && hasRenderableDiffChanges(*event.Result) {
+			m.appendDiffBlocks(*event.Result)
+		}
 		title := toolEventTitle(event, m.options.ApprovalArgsPreviewChars)
 		if title == "" {
 			return
@@ -117,4 +121,27 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 
 func (m *Model) appendBlock(block transcriptBlock) {
 	m.blocks = append(m.blocks, block)
+}
+
+func (m *Model) appendDiffBlocks(result tools.Result) {
+	for _, change := range result.Changes {
+		body := diffBlockBody(change)
+		if strings.TrimSpace(body) == "" {
+			continue
+		}
+		m.appendBlock(transcriptBlock{
+			Kind:  blockDiff,
+			Title: diffBlockTitle(change),
+			Body:  body,
+		})
+	}
+}
+
+func hasRenderableDiffChanges(result tools.Result) bool {
+	for _, change := range result.Changes {
+		if strings.TrimSpace(diffBlockBody(change)) != "" {
+			return true
+		}
+	}
+	return false
 }

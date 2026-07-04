@@ -56,6 +56,26 @@ func TestSessionSnapshotRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSessionSnapshotPersistsDiffBlocks(t *testing.T) {
+	model := newSizedTestModel()
+	model.appendBlock(transcriptBlock{
+		Kind:  blockDiff,
+		Title: "Diff hello.txt (+1 -1)",
+		Body:  "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new",
+	})
+
+	snapshot := model.SessionSnapshot()
+	restored := newSizedTestModel()
+	restored.LoadSessionSnapshot(snapshot)
+
+	if len(restored.blocks) != 1 {
+		t.Fatalf("restored blocks = %#v", restored.blocks)
+	}
+	if restored.blocks[0].Kind != blockDiff || !strings.Contains(restored.blocks[0].Body, "+new") {
+		t.Fatalf("restored diff block = %#v", restored.blocks[0])
+	}
+}
+
 func TestLoadSessionSnapshotClearsStateAndAppendInfoBlock(t *testing.T) {
 	model := newSizedTestModel()
 	model.running = true

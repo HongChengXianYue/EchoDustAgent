@@ -845,3 +845,24 @@
   - 更新回归测试：简单读取任务应当直接执行且不产生 synthetic todo；显式 `update_todos` 的执行顺序和历史清理语义保持不变。
 - 验证：`gofmt -w internal/agent/agent.go internal/agent/tool_scheduler.go internal/agent/agent_test.go` 通过；`go test ./internal/agent ./internal/tui ./cmd/agent` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
 - 备注：这次没有加入“复杂任务识别后强制拦截并要求先建 todo”的硬策略；是否真正出现多条 todo，当前仍主要取决于模型是否按提示词主动调用 `update_todos`。
+
+## 2026-07-04 - TUI 实时 Diff 展示
+
+- 摘要：为 `write_file`、`replace_in_file` 和 `apply_patch` 统一生成真实 unified diff；主 TUI 在每次成功修改文件后立即插入 diff block，新增内容显示为绿色、删除内容显示为红色，并在 session resume 后保留这些 diff 记录。
+- 主要模块：`internal/tools`、`internal/tui`、`go.mod`。
+- 验证：`go test ./internal/tools` 通过；`go test ./internal/tui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：当前 transcript 中展示的是按 `FileChangePreviewLines` 截断后的 diff 预览，而 `tools.FileChange.Diff` 保留完整 diff，可继续复用于其他日志或导出场景。
+
+## 2026-07-04 - git_diff 结构化输出与 TUI 行号 Diff
+
+- 摘要：把现有 `git_diff` 工具从纯文本输出升级为结构化 unified diff 结果，并把主 TUI 的 diff block 渲染改成带 old/new 行号的 inline diff。现在无论是主动调用 `git_diff`，还是执行 `write_file`、`replace_in_file`、`apply_patch`，都能在 transcript 中看到红绿高亮且带行号的改动内容。
+- 主要模块：`internal/tools/git_tools.go`、`internal/tools/builtin.go`、`internal/tools/tools_test.go`、`internal/tui/model_events.go`、`internal/tui/model_layout.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
+- 验证：`gofmt -w internal/tools/git_tools.go internal/tools/builtin.go internal/tools/tools_test.go internal/tui/model_events.go internal/tui/model_layout.go internal/tui/model_test.go` 通过；`go test ./internal/tools` 通过；`go test ./internal/tui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：`git_diff` 在输出超出 `CommandOutputMaxBytes` 时仍受截断保护；此时 TUI 会尽量展示已保留下来的 diff 片段，并在 tool summary 中标明已截断。若后续需要更接近 GitHub 的整行背景色或左右双栏布局，可在当前行号渲染基础上继续扩展。
+
+## 2026-07-04 - TUI Diff 改为编辑器式 Inline 视图
+
+- 摘要：把主 TUI 的 diff block 从 raw patch 文本视图进一步收敛为更接近编辑器的 inline diff。现在默认隐藏 `diff --git`、`index`、`---/+++`、`@@` 等 patch 头部，只展示代码行本身；删除行显示红色背景，新增行显示绿色背景，并使用单列行号和 `+/-` 标记，更接近代码审阅场景而不是补丁文本阅读。
+- 主要模块：`internal/tui/model.go`、`internal/tui/model_layout.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
+- 验证：`gofmt -w internal/tui/model.go internal/tui/model_layout.go internal/tui/model_test.go` 通过；`go test ./internal/tui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：当前仍未做语法高亮，代码文本会沿用统一前景色，仅通过背景色和行号/标记表达 diff；若后续要完全贴近截图中的 IDE 风格，可以继续引入按语言分词的高亮层。

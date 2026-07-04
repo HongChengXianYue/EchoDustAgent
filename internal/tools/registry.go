@@ -25,6 +25,7 @@ type FileChange struct {
 	Action       string `json:"action,omitempty"`
 	AddedLines   int    `json:"added_lines,omitempty"`
 	RemovedLines int    `json:"removed_lines,omitempty"`
+	Diff         string `json:"diff,omitempty"`
 	Preview      string `json:"preview,omitempty"`
 }
 

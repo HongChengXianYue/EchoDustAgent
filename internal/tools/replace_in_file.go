@@ -72,14 +72,8 @@ func (t *ReplaceInFileTool) Execute(ctx context.Context, args json.RawMessage) (
 		previewLines = DefaultOptions().FileChangePreviewLines
 	}
 	result := Success(fmt.Sprintf("replaced %d occurrence(s) in %s", count, displayPath(t.Workdir, path)), "")
-	result.Changes = []FileChange{
-		{
-			Path:         displayPath(t.Workdir, path),
-			Action:       "edited",
-			AddedLines:   countLines(params.NewText) * count,
-			RemovedLines: countLines(params.OldText) * count,
-			Preview:      replacementPreview(params.OldText, params.NewText, previewLines),
-		},
+	if change, ok := fileChangeFromText(displayPath(t.Workdir, path), text, updated, "edited", previewLines); ok {
+		result.Changes = []FileChange{change}
 	}
 	return result, nil
 }

@@ -108,6 +108,8 @@ func snapshotKind(kind transcriptKind) string {
 		return "tool_call"
 	case blockApprovalRequest:
 		return "approval_request"
+	case blockDiff:
+		return "diff"
 	default:
 		return "info"
 	}
@@ -125,6 +127,8 @@ func transcriptKindFromSnapshot(kind string) transcriptKind {
 		return blockToolCall
 	case "approval_request":
 		return blockApprovalRequest
+	case "diff":
+		return blockDiff
 	default:
 		return blockInfo
 	}

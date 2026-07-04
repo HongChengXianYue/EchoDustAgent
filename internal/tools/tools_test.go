@@ -25,6 +25,12 @@ func TestFileToolsRoundTrip(t *testing.T) {
 	if len(result.Changes) != 1 || result.Changes[0].Action != "added" || result.Changes[0].AddedLines != 2 {
 		t.Fatalf("write changes = %#v, want added file metadata", result.Changes)
 	}
+	if !strings.Contains(result.Changes[0].Diff, "--- /dev/null") ||
+		!strings.Contains(result.Changes[0].Diff, "+++ b/notes/todo.txt") ||
+		!strings.Contains(result.Changes[0].Diff, "+alpha") ||
+		!strings.Contains(result.Changes[0].Diff, "+beta") {
+		t.Fatalf("write diff = %q, want unified diff for added file", result.Changes[0].Diff)
+	}
 
 	read := &ReadFileTool{Workdir: workdir}
 	result, err = read.Execute(ctx, mustJSON(t, map[string]any{"path": "notes/todo.txt"}))
@@ -53,6 +59,12 @@ func TestFileToolsRoundTrip(t *testing.T) {
 	}
 	if len(result.Changes) != 1 || result.Changes[0].Action != "edited" || result.Changes[0].AddedLines != 1 || result.Changes[0].RemovedLines != 1 {
 		t.Fatalf("replace changes = %#v, want edited file metadata", result.Changes)
+	}
+	if !strings.Contains(result.Changes[0].Diff, "--- a/notes/todo.txt") ||
+		!strings.Contains(result.Changes[0].Diff, "+++ b/notes/todo.txt") ||
+		!strings.Contains(result.Changes[0].Diff, "-beta") ||
+		!strings.Contains(result.Changes[0].Diff, "+gamma") {
+		t.Fatalf("replace diff = %q, want unified diff for replacement", result.Changes[0].Diff)
 	}
 
 	search := &SearchFilesTool{Workdir: workdir}
@@ -133,6 +145,12 @@ func TestApplyPatchTool(t *testing.T) {
 	if len(result.Changes) != 1 || result.Changes[0].Path != "file.txt" || result.Changes[0].AddedLines != 1 || result.Changes[0].RemovedLines != 1 {
 		t.Fatalf("patch changes = %#v, want file.txt (+1 -1)", result.Changes)
 	}
+	if !strings.Contains(result.Changes[0].Diff, "--- a/file.txt") ||
+		!strings.Contains(result.Changes[0].Diff, "+++ b/file.txt") ||
+		!strings.Contains(result.Changes[0].Diff, "-old") ||
+		!strings.Contains(result.Changes[0].Diff, "+new") {
+		t.Fatalf("patch diff = %q, want unified diff content", result.Changes[0].Diff)
+	}
 }
 
 func TestSchemaObjectOmitsRequiredWhenNoFieldsAreRequired(t *testing.T) {
@@ -196,6 +214,9 @@ func TestRegisterBuiltinsAppliesFileChangePreviewLines(t *testing.T) {
 	if len(result.Changes) != 1 {
 		t.Fatalf("changes = %#v, want one change", result.Changes)
 	}
+	if !strings.Contains(result.Changes[0].Preview, "--- /dev/null") || !strings.Contains(result.Changes[0].Preview, "+++ b/many.txt") {
+		t.Fatalf("preview = %q, want diff headers", result.Changes[0].Preview)
+	}
 	if strings.Contains(result.Changes[0].Preview, "two") {
 		t.Fatalf("preview = %q, want one configured content line", result.Changes[0].Preview)
 	}
@@ -243,10 +264,19 @@ func TestGitTools(t *testing.T) {
 		t.Fatalf("git status result = %#v err = %v", result, err)
 	}
 
-	diff := &GitDiffTool{Workdir: workdir, OutputMaxBytes: 8192}
+	diff := &GitDiffTool{Workdir: workdir, OutputMaxBytes: 8192, PreviewLines: 20}
 	result, err = diff.Execute(ctx, mustJSON(t, map[string]any{"path": "a.txt"}))
-	if err != nil || !strings.Contains(result.Output, "-alpha") || !strings.Contains(result.Output, "+beta") {
+	if err != nil || len(result.Changes) != 1 || result.Output != "" {
 		t.Fatalf("git diff result = %#v err = %v", result, err)
+	}
+	if result.Changes[0].Path != "a.txt" || result.Changes[0].AddedLines != 1 || result.Changes[0].RemovedLines != 1 {
+		t.Fatalf("git diff changes = %#v, want a.txt (+1 -1)", result.Changes)
+	}
+	if !strings.Contains(result.Changes[0].Diff, "--- a/a.txt") ||
+		!strings.Contains(result.Changes[0].Diff, "+++ b/a.txt") ||
+		!strings.Contains(result.Changes[0].Diff, "-alpha") ||
+		!strings.Contains(result.Changes[0].Diff, "+beta") {
+		t.Fatalf("git diff change = %#v, want unified diff content", result.Changes[0])
 	}
 
 	logTool := &GitLogTool{Workdir: workdir}

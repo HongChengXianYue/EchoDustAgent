@@ -30,6 +30,10 @@ func RegisterBuiltinsWithOptions(registry *Registry, workdir string, options Opt
 		PreviewLines:   options.FileChangePreviewLines,
 	})
 	registry.Register(&GitStatusTool{Workdir: workdir})
-	registry.Register(&GitDiffTool{Workdir: workdir, OutputMaxBytes: options.CommandOutputMaxBytes})
+	registry.Register(&GitDiffTool{
+		Workdir:        workdir,
+		OutputMaxBytes: options.CommandOutputMaxBytes,
+		PreviewLines:   options.FileChangePreviewLines,
+	})
 	registry.Register(&GitLogTool{Workdir: workdir})
 }

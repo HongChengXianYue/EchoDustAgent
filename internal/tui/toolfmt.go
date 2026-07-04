@@ -44,6 +44,17 @@ func fileChangeDetail(result tools.Result, previewLimit int) string {
 	return strings.TrimRight(out.String(), "\n")
 }
 
+func diffBlockTitle(change tools.FileChange) string {
+	return fmt.Sprintf("Diff %s (+%d -%d)", change.Path, change.AddedLines, change.RemovedLines)
+}
+
+func diffBlockBody(change tools.FileChange) string {
+	if strings.TrimSpace(change.Preview) != "" {
+		return strings.TrimRight(change.Preview, "\n")
+	}
+	return strings.TrimRight(change.Diff, "\n")
+}
+
 func changeVerb(change tools.FileChange) string {
 	switch strings.ToLower(change.Action) {
 	case "added", "add":

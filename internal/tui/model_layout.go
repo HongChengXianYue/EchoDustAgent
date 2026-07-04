@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/glamour"
@@ -187,6 +189,8 @@ func (m *Model) renderBlock(block transcriptBlock, width int) string {
 		return m.renderUserQuestionBlock(block.Body, width)
 	case blockAssistant:
 		return m.renderAssistantBodyBlock(block, width)
+	case blockDiff:
+		return m.renderDiffBlock(block, width)
 	}
 
 	title := block.Title
@@ -248,6 +252,253 @@ func (m *Model) renderAssistantBodyBlock(block transcriptBlock, width int) strin
 		}
 	}
 	return m.assistantBodyStyle.Render(wrapText(body, max(20, width)))
+}
+
+// Diff blocks render unified diffs as editor-like inline rows so file edits are
+// easier to scan than raw patch headers in the main transcript.
+func (m *Model) renderDiffBlock(block transcriptBlock, width int) string {
+	titleLine := m.titleStyle.Render(block.Title)
+	body := strings.TrimRight(block.Body, "\n")
+	if strings.TrimSpace(body) == "" {
+		return titleLine
+	}
+	lineWidth := max(18, width-2)
+	lines := strings.Split(body, "\n")
+	rendered := make([]string, 0, len(lines))
+	state := diffRenderState{}
+	for _, line := range lines {
+		renderedLine := m.renderDiffLine(line, lineWidth, &state)
+		if renderedLine == "" {
+			continue
+		}
+		rendered = append(rendered, renderedLine)
+	}
+	if len(rendered) == 0 {
+		return titleLine
+	}
+	return titleLine + "\n" + indentBlock(strings.Join(rendered, "\n"), "  ")
+}
+
+func (m *Model) renderDiffLine(line string, width int, state *diffRenderState) string {
+	style, prefix, content := m.diffLineParts(line)
+	switch {
+	case line == "…":
+		return renderDiffWrappedLine(style, "", content, width, false)
+	case prefix == "+" || prefix == "-" || prefix == " ":
+		return m.renderDiffBodyLine(style, prefix, content, width, state)
+	case strings.HasPrefix(line, "@@"):
+		if oldLine, newLine, ok := parseDiffHunkHeader(line); ok {
+			state.oldLine = oldLine
+			state.newLine = newLine
+			state.hasHunk = true
+			state.hunkCount++
+			if state.hunkCount > 1 {
+				return renderDiffWrappedLine(m.diffEllipsisStyle, "", "…", width, false)
+			}
+		}
+		return ""
+	case prefix != "":
+		return ""
+	default:
+		return renderDiffWrappedLine(style, "", content, width, false)
+	}
+}
+
+func (m *Model) diffLineParts(line string) (lipgloss.Style, string, string) {
+	switch {
+	case line == "…":
+		return m.diffEllipsisStyle, "", line
+	case strings.HasPrefix(line, "diff --git "):
+		return m.diffMetaStyle, "diff --git ", strings.TrimPrefix(line, "diff --git ")
+	case strings.HasPrefix(line, "index "):
+		return m.diffMetaStyle, "index ", strings.TrimPrefix(line, "index ")
+	case strings.HasPrefix(line, "new file mode "):
+		return m.diffMetaStyle, "new file mode ", strings.TrimPrefix(line, "new file mode ")
+	case strings.HasPrefix(line, "deleted file mode "):
+		return m.diffMetaStyle, "deleted file mode ", strings.TrimPrefix(line, "deleted file mode ")
+	case strings.HasPrefix(line, "old mode "):
+		return m.diffMetaStyle, "old mode ", strings.TrimPrefix(line, "old mode ")
+	case strings.HasPrefix(line, "new mode "):
+		return m.diffMetaStyle, "new mode ", strings.TrimPrefix(line, "new mode ")
+	case strings.HasPrefix(line, "similarity index "):
+		return m.diffMetaStyle, "similarity index ", strings.TrimPrefix(line, "similarity index ")
+	case strings.HasPrefix(line, "rename from "):
+		return m.diffMetaStyle, "rename from ", strings.TrimPrefix(line, "rename from ")
+	case strings.HasPrefix(line, "rename to "):
+		return m.diffMetaStyle, "rename to ", strings.TrimPrefix(line, "rename to ")
+	case strings.HasPrefix(line, "--- "):
+		return m.diffMetaStyle, "--- ", strings.TrimPrefix(line, "--- ")
+	case strings.HasPrefix(line, "+++ "):
+		return m.diffMetaStyle, "+++ ", strings.TrimPrefix(line, "+++ ")
+	case strings.HasPrefix(line, "@@ "):
+		return m.diffMetaStyle, "@@ ", strings.TrimPrefix(line, "@@ ")
+	case strings.HasPrefix(line, "@@"):
+		return m.diffMetaStyle, "@@", strings.TrimPrefix(line, "@@")
+	case strings.HasPrefix(line, "+"):
+		return m.diffAddStyle, "+", line[1:]
+	case strings.HasPrefix(line, "-"):
+		return m.diffRemoveStyle, "-", line[1:]
+	case strings.HasPrefix(line, " "):
+		return m.diffContextStyle, " ", line[1:]
+	default:
+		return m.diffContextStyle, "", line
+	}
+}
+
+func wrapDiffContent(text string, width int) []string {
+	if width <= 0 {
+		return []string{text}
+	}
+	runes := []rune(text)
+	if len(runes) == 0 {
+		return []string{""}
+	}
+	lines := make([]string, 0, 4)
+	var current strings.Builder
+	currentWidth := 0
+	for _, r := range runes {
+		runeText := string(r)
+		runeWidth := lipgloss.Width(runeText)
+		if runeWidth <= 0 {
+			runeWidth = 1
+		}
+		if currentWidth+runeWidth > width && current.Len() > 0 {
+			lines = append(lines, current.String())
+			current.Reset()
+			currentWidth = 0
+		}
+		current.WriteString(runeText)
+		currentWidth += runeWidth
+	}
+	if current.Len() > 0 {
+		lines = append(lines, current.String())
+	}
+	if len(lines) == 0 {
+		return []string{""}
+	}
+	return lines
+}
+
+const diffLineNumberWidth = 5
+
+type diffRenderState struct {
+	oldLine   int
+	newLine   int
+	hasHunk   bool
+	hunkCount int
+}
+
+func (m *Model) renderDiffBodyLine(style lipgloss.Style, marker string, content string, width int, state *diffRenderState) string {
+	lineNumber := state.consumeLineNumber(marker)
+	prefix := diffLinePrefix(lineNumber, marker)
+	return renderDiffWrappedLine(style, prefix, content, width, marker == "+" || marker == "-")
+}
+
+func renderDiffWrappedLine(style lipgloss.Style, prefix string, content string, width int, fillWidth bool) string {
+	if prefix == "" {
+		wrapped := wrapDiffContent(content, max(8, width))
+		for i := range wrapped {
+			if fillWidth {
+				wrapped[i] = style.Width(width).Render(wrapped[i])
+				continue
+			}
+			wrapped[i] = style.Render(wrapped[i])
+		}
+		return strings.Join(wrapped, "\n")
+	}
+	continuation := strings.Repeat(" ", lipgloss.Width(prefix))
+	wrapped := wrapDiffContent(content, max(4, width-lipgloss.Width(prefix)))
+	for i := range wrapped {
+		linePrefix := continuation
+		if i == 0 {
+			linePrefix = prefix
+		}
+		line := linePrefix + wrapped[i]
+		if fillWidth {
+			wrapped[i] = style.Width(width).Render(line)
+			continue
+		}
+		wrapped[i] = style.Render(line)
+	}
+	return strings.Join(wrapped, "\n")
+}
+
+func (s *diffRenderState) consumeLineNumber(marker string) string {
+	if s == nil || !s.hasHunk {
+		return ""
+	}
+	switch marker {
+	case " ":
+		line := strconv.Itoa(s.newLine)
+		s.oldLine++
+		s.newLine++
+		return line
+	case "-":
+		line := strconv.Itoa(s.oldLine)
+		s.oldLine++
+		return line
+	case "+":
+		line := strconv.Itoa(s.newLine)
+		s.newLine++
+		return line
+	default:
+		return ""
+	}
+}
+
+func diffLinePrefix(lineNumber string, marker string) string {
+	if marker == " " {
+		return formatDiffLineNumber(lineNumber) + "   "
+	}
+	return formatDiffLineNumber(lineNumber) + " " + marker + " "
+}
+
+func formatDiffLineNumber(line string) string {
+	if strings.TrimSpace(line) == "" {
+		return strings.Repeat(" ", diffLineNumberWidth)
+	}
+	return fmt.Sprintf("%*s", diffLineNumberWidth, line)
+}
+
+// Unified diff hunk headers define the old/new starting lines for the body
+// rows that follow, which lets the TUI annotate inline diffs with line numbers.
+func parseDiffHunkHeader(line string) (int, int, bool) {
+	if !strings.HasPrefix(line, "@@") {
+		return 0, 0, false
+	}
+	rest := strings.TrimPrefix(line, "@@")
+	end := strings.Index(rest, "@@")
+	if end < 0 {
+		return 0, 0, false
+	}
+	fields := strings.Fields(strings.TrimSpace(rest[:end]))
+	if len(fields) < 2 {
+		return 0, 0, false
+	}
+	oldLine, ok := parseDiffRangeStart(fields[0], '-')
+	if !ok {
+		return 0, 0, false
+	}
+	newLine, ok := parseDiffRangeStart(fields[1], '+')
+	if !ok {
+		return 0, 0, false
+	}
+	return oldLine, newLine, true
+}
+
+func parseDiffRangeStart(field string, marker byte) (int, bool) {
+	if len(field) < 2 || field[0] != marker {
+		return 0, false
+	}
+	text := field[1:]
+	if comma := strings.IndexByte(text, ','); comma >= 0 {
+		text = text[:comma]
+	}
+	line, err := strconv.Atoi(text)
+	if err != nil {
+		return 0, false
+	}
+	return line, true
 }
 
 func (m *Model) shouldAttachInlineApproval(index int, block transcriptBlock) bool {

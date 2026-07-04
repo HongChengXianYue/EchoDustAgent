@@ -143,6 +143,11 @@ type Model struct {
 	errorStyle            lipgloss.Style
 	toolCallTitleStyle    lipgloss.Style
 	toolCallDotStyle      lipgloss.Style
+	diffMetaStyle         lipgloss.Style
+	diffAddStyle          lipgloss.Style
+	diffRemoveStyle       lipgloss.Style
+	diffContextStyle      lipgloss.Style
+	diffEllipsisStyle     lipgloss.Style
 	approvalSelectedStyle lipgloss.Style
 	approvalHintStyle     lipgloss.Style
 	subagentTitleStyle    lipgloss.Style
@@ -200,6 +205,11 @@ func NewModel(options ui.Options, startup ui.StartupInfo, bridge *Bridge) *Model
 		errorStyle:            lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true),
 		toolCallTitleStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("229")).Bold(true),
 		toolCallDotStyle:      lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true),
+		diffMetaStyle:         lipgloss.NewStyle().Foreground(lipgloss.Color("117")),
+		diffAddStyle:          lipgloss.NewStyle().Foreground(lipgloss.Color("#8BD5A0")).Background(lipgloss.Color("#183126")),
+		diffRemoveStyle:       lipgloss.NewStyle().Foreground(lipgloss.Color("#F2B8BD")).Background(lipgloss.Color("#352327")),
+		diffContextStyle:      lipgloss.NewStyle().Foreground(lipgloss.Color("252")),
+		diffEllipsisStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("245")),
 		approvalSelectedStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("117")).Bold(true),
 		approvalHintStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("245")),
 		subagentTitleStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Bold(true),
