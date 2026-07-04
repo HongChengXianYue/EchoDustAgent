@@ -2038,6 +2038,7 @@ type testSkillSpec struct {
 func createTestSkillRegistry(t *testing.T, workdir string, specs ...testSkillSpec) *skill.Registry {
 	t.Helper()
 	root := filepath.Join(workdir, "skills")
+	registryEntries := make([]map[string]any, 0, len(specs))
 	for _, spec := range specs {
 		dir := filepath.Join(root, spec.Name)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -2047,7 +2048,8 @@ func createTestSkillRegistry(t *testing.T, workdir string, specs ...testSkillSpe
 		if strings.TrimSpace(schema) == "" {
 			schema = `{"type":"object","additionalProperties":true}`
 		}
-		manifest := map[string]any{
+		registryEntries = append(registryEntries, map[string]any{
+			"path":         spec.Name,
 			"name":         spec.Name,
 			"description":  spec.Description,
 			"input_schema": json.RawMessage(schema),
@@ -2055,14 +2057,7 @@ func createTestSkillRegistry(t *testing.T, workdir string, specs ...testSkillSpe
 				"tools": spec.Tools,
 			},
 			"triggers": spec.Triggers,
-		}
-		data, err := json.MarshalIndent(manifest, "", "  ")
-		if err != nil {
-			t.Fatalf("marshal manifest: %v", err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "skill.json"), data, 0o644); err != nil {
-			t.Fatalf("write skill manifest: %v", err)
-		}
+		})
 		body := spec.Body
 		if body == "" {
 			body = "# Skill\n\nBody"
@@ -2070,6 +2065,13 @@ func createTestSkillRegistry(t *testing.T, workdir string, specs ...testSkillSpe
 		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644); err != nil {
 			t.Fatalf("write skill body: %v", err)
 		}
+	}
+	registryData, err := json.MarshalIndent(map[string]any{"skills": registryEntries}, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal skill registry: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "registry.json"), registryData, 0o644); err != nil {
+		t.Fatalf("write skill registry: %v", err)
 	}
 	registry, err := skill.LoadRegistry(skill.Options{CWD: workdir, ProjectDir: "skills"})
 	if err != nil {

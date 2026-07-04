@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -22,6 +23,26 @@ type Registry struct {
 	order  []Skill
 }
 
+type registryFile struct {
+	Skills []registryEntry `json:"skills"`
+}
+
+type registryEntry struct {
+	Path string `json:"path,omitempty"`
+	Manifest
+}
+
+type skillCandidate struct {
+	root         string
+	source       Source
+	dir          string
+	relativePath string
+	bodyPath     string
+	manifestPath string
+	aggregated   Manifest
+	hasMetadata  bool
+}
+
 func LoadRegistry(options Options) (*Registry, error) {
 	registry := &Registry{skills: map[string]Skill{}}
 	cwd := absPath(strings.TrimSpace(options.CWD))
@@ -32,7 +53,7 @@ func LoadRegistry(options Options) (*Registry, error) {
 	registry.loadRoot(userDir, SourceUser, &loadErrs)
 	registry.loadRoot(projectDir, SourceProject, &loadErrs)
 	registry.rebuildOrder()
-	return registry, errors.Join(loadErrs...)
+	return registry, joinErrors(loadErrs)
 }
 
 func (r *Registry) Empty() bool {
@@ -104,6 +125,17 @@ func (r *Registry) loadRoot(root string, source Source, loadErrs *[]error) {
 		*loadErrs = append(*loadErrs, fmt.Errorf("skills root %s is not a directory", root))
 		return
 	}
+	candidates := map[string]*skillCandidate{}
+	registryEntries, registryPath, err := loadRootRegistryFile(root)
+	if err != nil {
+		*loadErrs = append(*loadErrs, err)
+	}
+	for _, entry := range registryEntries {
+		if mergeErr := mergeRegistryEntry(candidates, root, source, registryPath, entry); mergeErr != nil {
+			*loadErrs = append(*loadErrs, mergeErr)
+		}
+	}
+
 	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			*loadErrs = append(*loadErrs, fmt.Errorf("walk skills root %s: %w", root, err))
@@ -115,17 +147,37 @@ func (r *Registry) loadRoot(root string, source Source, loadErrs *[]error) {
 			}
 			return nil
 		}
-		if entry.Name() != "skill.json" {
+		if path == filepath.Join(root, "registry.json") || path == filepath.Join(root, "skill.json") {
 			return nil
 		}
-		skill, loadErr := loadSkill(path, source)
-		if loadErr != nil {
-			*loadErrs = append(*loadErrs, loadErr)
-			return nil
+		switch entry.Name() {
+		case "SKILL.md":
+			candidate := ensureCandidate(candidates, root, source, filepath.Dir(path))
+			candidate.bodyPath = path
+		case "skill.json":
+			manifest, manifestErr := decodeManifestFile(path)
+			if manifestErr != nil {
+				*loadErrs = append(*loadErrs, manifestErr)
+				return nil
+			}
+			candidate := ensureCandidate(candidates, root, source, filepath.Dir(path))
+			candidate.applyManifest(manifest, path)
 		}
-		r.skills[strings.ToLower(skill.Name)] = skill
 		return nil
 	})
+	keys := make([]string, 0, len(candidates))
+	for key := range candidates {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		skill, buildErr := candidates[key].build()
+		if buildErr != nil {
+			*loadErrs = append(*loadErrs, buildErr)
+			continue
+		}
+		r.skills[strings.ToLower(skill.Name)] = skill
+	}
 }
 
 func (r *Registry) rebuildOrder() {
@@ -264,4 +316,165 @@ func meaningfulTerm(term string) bool {
 		return true
 	}
 	return len(runes) == 1 && runes[0] > unicode.MaxASCII
+}
+
+func loadRootRegistryFile(root string) ([]registryEntry, string, error) {
+	for _, filename := range []string{"registry.json", "skill.json"} {
+		path := filepath.Join(root, filename)
+		entries, exists, err := decodeRootRegistryFile(path)
+		if !exists {
+			continue
+		}
+		return entries, path, err
+	}
+	return nil, "", nil
+}
+
+func decodeRootRegistryFile(path string) ([]registryEntry, bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, true, fmt.Errorf("read skill registry %s: %w", path, err)
+	}
+	var file registryFile
+	if err := json.Unmarshal(data, &file); err != nil {
+		return nil, true, fmt.Errorf("decode skill registry %s: %w", path, err)
+	}
+	if file.Skills == nil {
+		return nil, true, fmt.Errorf("invalid skill registry %s: top-level skills array is required", path)
+	}
+	for i := range file.Skills {
+		if err := sanitizeManifest(&file.Skills[i].Manifest); err != nil {
+			return nil, true, fmt.Errorf("invalid skill registry %s skill[%d]: %w", path, i, err)
+		}
+		file.Skills[i].Path = strings.TrimSpace(file.Skills[i].Path)
+	}
+	return file.Skills, true, nil
+}
+
+func mergeRegistryEntry(candidates map[string]*skillCandidate, root string, source Source, registryPath string, entry registryEntry) error {
+	location := strings.TrimSpace(entry.Path)
+	if location == "" {
+		location = entry.Name
+	}
+	if location == "" {
+		return fmt.Errorf("invalid skill registry %s: each skill needs path or name", registryPath)
+	}
+	dir, bodyPath, err := resolveSkillLocation(root, location)
+	if err != nil {
+		return fmt.Errorf("invalid skill registry %s entry %q: %w", registryPath, location, err)
+	}
+	candidate := ensureCandidate(candidates, root, source, dir)
+	if bodyPath != "" {
+		candidate.bodyPath = bodyPath
+	}
+	candidate.applyManifest(entry.Manifest, registryPath)
+	return nil
+}
+
+func ensureCandidate(candidates map[string]*skillCandidate, root string, source Source, dir string) *skillCandidate {
+	dir = filepath.Clean(dir)
+	candidate, ok := candidates[dir]
+	if ok {
+		return candidate
+	}
+	relative := dir
+	if rel, err := filepath.Rel(root, dir); err == nil {
+		relative = rel
+	}
+	candidate = &skillCandidate{
+		root:         root,
+		source:       source,
+		dir:          dir,
+		relativePath: strings.TrimSpace(relative),
+	}
+	candidates[dir] = candidate
+	return candidate
+}
+
+func (c *skillCandidate) applyManifest(manifest Manifest, metadataPath string) {
+	c.aggregated = mergeManifest(c.aggregated, manifest)
+	if strings.TrimSpace(metadataPath) != "" {
+		c.manifestPath = metadataPath
+	}
+	c.hasMetadata = true
+}
+
+func (c *skillCandidate) build() (Skill, error) {
+	if c == nil {
+		return Skill{}, fmt.Errorf("skill candidate is nil")
+	}
+	bodyPath := strings.TrimSpace(c.bodyPath)
+	if bodyPath == "" {
+		bodyPath = filepath.Join(c.dir, "SKILL.md")
+	}
+	if _, err := os.Stat(bodyPath); err != nil {
+		return Skill{}, fmt.Errorf("missing SKILL.md for %s: %w", c.dir, err)
+	}
+	manifest := defaultManifestForCandidate(c)
+	manifest = mergeManifest(manifest, c.aggregated)
+	if err := normalizeManifest(&manifest); err != nil {
+		return Skill{}, fmt.Errorf("invalid skill metadata for %s: %w", c.dir, err)
+	}
+	return Skill{
+		Manifest:     manifest,
+		Dir:          c.dir,
+		ManifestPath: c.manifestPath,
+		SkillPath:    bodyPath,
+		Source:       c.source,
+	}, nil
+}
+
+func defaultManifestForCandidate(candidate *skillCandidate) Manifest {
+	name := filepath.Base(candidate.dir)
+	if strings.TrimSpace(name) == "" || name == "." || name == string(filepath.Separator) {
+		name = "skill"
+	}
+	location := strings.TrimSpace(candidate.relativePath)
+	if location == "" {
+		location = filepath.Base(candidate.dir)
+	}
+	return Manifest{
+		Name:        name,
+		Description: fmt.Sprintf("Skill at %s. Add metadata in registry.json or skill.json for better retrieval.", location),
+	}
+}
+
+func resolveSkillLocation(root string, location string) (string, string, error) {
+	location = strings.TrimSpace(location)
+	if location == "" {
+		return "", "", fmt.Errorf("path is required")
+	}
+	if !filepath.IsAbs(location) {
+		location = filepath.Join(root, location)
+	}
+	location = filepath.Clean(location)
+	lower := strings.ToLower(location)
+	if strings.HasSuffix(lower, ".md") {
+		return filepath.Dir(location), location, nil
+	}
+	return location, filepath.Join(location, "SKILL.md"), nil
+}
+
+func joinErrors(errs []error) error {
+	filtered := make([]error, 0, len(errs))
+	for _, err := range errs {
+		if err != nil {
+			filtered = append(filtered, err)
+		}
+	}
+	switch len(filtered) {
+	case 0:
+		return nil
+	case 1:
+		return filtered[0]
+	default:
+		parts := make([]string, 0, len(filtered))
+		for _, err := range filtered {
+			parts = append(parts, err.Error())
+		}
+		return errors.New(strings.Join(parts, "; "))
+	}
 }

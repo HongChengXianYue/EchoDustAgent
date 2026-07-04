@@ -908,3 +908,16 @@
   - 配置新增 `skills.enabled`、`skills.user_dir`、`skills.project_dir`、`skills.top_k`、`skills.min_score`，README 也补充了 skill 目录结构和 `skill.json` 示例。
 - 验证：`gofmt -w cmd/agent/main.go internal/agent/agent.go internal/agent/options.go internal/agent/skill.go internal/agent/tool_specs.go internal/agent/agent_test.go internal/approval/classifier.go internal/approval/write_targets.go internal/config/config.go internal/config/config_test.go internal/config/yaml.go internal/skill/skill.go internal/skill/registry.go internal/skill/schema.go internal/skill/skill_test.go internal/tools/todo.go` 通过；`go test ./internal/skill ./internal/config ./internal/agent` 通过；`go vet ./internal/skill ./internal/config ./internal/agent ./cmd/agent` 通过；`go test ./...` 通过；`go vet ./...` 通过。
 - 备注：当前 skill 检索是轻量关键字/短语匹配，不是向量检索；`permissions` 在 v1 里只实现了 `permissions.tools` 白名单，底层审批仍由现有工具审批链负责，后续如果需要更细粒度的 capability/approval 语义，可以在此基础上继续扩展。
+
+## 2026-07-04 - Skill 元数据改为根级 registry.json 为主
+
+- 摘要：把上一版“每个 skill 目录都要带一个 `skill.json`”的约束改成“根级 `registry.json` 为主、目录内 `skill.json` 可选覆盖”。现在 `~/.echo-dust-code/skills/registry.json` 或 `<workspace>/skills/registry.json` 可以统一声明所有 skill 的名称、描述、输入 schema、权限和触发场景；目录内 `skill.json` 仍保留兼容，但只作为局部覆盖层。只有 `SKILL.md` 的 skill 目录也会被注册为最小元数据版本，以保持对旧 skill 目录的容忍度。
+- 主要模块：`internal/skill/registry.go`、`internal/skill/skill.go`、`internal/skill/skill_test.go`、`internal/agent/agent_test.go`、`README.md`、`config.yaml`、`docs/WORKLOG.md`。
+- 改动要点：
+  - 新增根级 `registry.json` 解析，格式为 top-level `skills` 数组，每个条目通过 `path` 指向 skill 目录或 `SKILL.md`。
+  - 保留根级 `skill.json` 作为兼容别名，便于已有目录约定平滑迁移到集中式配置。
+  - 目录内 `skill.json` 不再是必需文件，只在存在时覆盖根级 registry 中的对应字段。
+  - 对只有 `SKILL.md` 的目录，loader 会生成基于目录名的最小元数据占位，但不会在启动期读取 skill 正文，继续保持 `SKILL.md` 懒加载。
+  - 更新测试覆盖：根级 registry 加载、根级 registry 与局部覆盖合并、仅 `SKILL.md` 目录兜底注册、根级 `skill.json` 别名兼容。
+- 验证：`gofmt -w internal/skill/skill.go internal/skill/registry.go internal/skill/skill_test.go internal/agent/agent_test.go` 通过；`go test ./internal/skill ./internal/agent` 通过；全量验证见本次最终回复。
+- 备注：这次刻意没有在启动期解析 `SKILL.md` 内容来推断描述，以避免破坏“用到时才加载”这条设计约束；如果后续确实需要更好的无元数据召回质量，建议优先增强根级 registry，而不是回到启动期读取 skill 正文。

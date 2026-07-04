@@ -257,7 +257,7 @@ Skills package optional capabilities into metadata-first, body-on-demand units.
 
 ```text
 startup
-  └── register skill.json metadata only
+  └── register registry metadata only
 
 per user request
   ├── retrieve top-k matching skills
@@ -271,38 +271,52 @@ invoke_skill
   └── run in an isolated internal agent
 ```
 
-一个 skill 目录至少包含：
+推荐结构：
 
-Each skill directory must contain at least:
+Recommended layout:
 
 ```text
-skills/<skill-name>/
-├── skill.json
-└── SKILL.md
+skills/
+├── registry.json
+└── <skill-name>/
+   └── SKILL.md
 ```
 
-`skill.json` 示例：
+`registry.json` 示例：
 
-Example `skill.json`:
+Example `registry.json`:
 
 ```json
 {
-  "name": "reviewer",
-  "description": "Review code changes for bugs and regressions.",
-  "summary": "Focused code review skill for risky diffs.",
-  "input_schema": {
-    "type": "object",
-    "properties": {
-      "focus": { "type": "string" }
-    },
-    "additionalProperties": false
-  },
-  "permissions": {
-    "tools": ["read_file", "search_files", "git_diff"]
-  },
-  "triggers": ["code review", "review diff", "bug risk"]
+  "skills": [
+    {
+      "name": "reviewer",
+      "path": "reviewer",
+      "description": "Review code changes for bugs and regressions.",
+      "summary": "Focused code review skill for risky diffs.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "focus": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "permissions": {
+        "tools": ["read_file", "search_files", "git_diff"]
+      },
+      "triggers": ["code review", "review diff", "bug risk"]
+    }
+  ]
 }
 ```
+
+目录内 `skill.json` 仍然兼容，但现在是可选覆盖层，不再要求每个 skill 都单独带一份。
+
+Directory-local `skill.json` files are still supported, but they are now optional overrides instead of a per-skill requirement.
+
+如果某个 skill 目录只有 `SKILL.md`，系统也会按目录名注册一个最小元数据版本，但检索质量会明显依赖名字匹配；要获得更稳定的召回，仍建议在根级 `registry.json` 里补全描述、触发词和权限。
+
+If a skill directory only contains `SKILL.md`, the loader still registers a minimal path-based entry, but retrieval quality will mostly depend on name matching. For reliable recall, add description, triggers, and permissions in the root-level `registry.json`.
 
 默认会同时扫描：
 

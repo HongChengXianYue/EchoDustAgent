@@ -45,11 +45,11 @@ subagents:
   # 子代理最终结论最多回传多少字节，超过后截断。
   result_max_bytes: 16888
 
-# Skill 配置。启动时只加载 manifest 元数据；真正调用 invoke_skill 时才读取 SKILL.md。
+# Skill 配置。启动时只加载 registry/manifest 元数据；真正调用 invoke_skill 时才读取 SKILL.md。
 skills:
   # 是否启用技能注册、按请求检索 top-k 技能，以及 invoke_skill 原生工具。
   enabled: true
-  # 用户级 skill 根目录；支持 ~。目录下任意包含 skill.json + SKILL.md 的子目录都会被注册。
+  # 用户级 skill 根目录；支持 ~。优先读取根目录 registry.json；目录内 skill.json 仍可作为局部覆盖。
   user_dir: ~/.echo-dust-code/skills
   # 项目级 skill 根目录；相对路径按当前 workspace 解析。
   project_dir: skills

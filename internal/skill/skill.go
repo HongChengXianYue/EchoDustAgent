@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -42,44 +41,15 @@ type Candidate struct {
 	Score int
 }
 
-func loadSkill(manifestPath string, source Source) (Skill, error) {
-	data, err := os.ReadFile(manifestPath)
-	if err != nil {
-		return Skill{}, err
-	}
-	var manifest Manifest
-	if err := json.Unmarshal(data, &manifest); err != nil {
-		return Skill{}, fmt.Errorf("decode manifest %s: %w", manifestPath, err)
-	}
-	dir := filepath.Dir(manifestPath)
-	skillPath := filepath.Join(dir, "SKILL.md")
-	if _, err := os.Stat(skillPath); err != nil {
-		return Skill{}, fmt.Errorf("missing SKILL.md for %s: %w", manifestPath, err)
-	}
-	if err := normalizeManifest(&manifest); err != nil {
-		return Skill{}, fmt.Errorf("invalid manifest %s: %w", manifestPath, err)
-	}
-	return Skill{
-		Manifest:     manifest,
-		Dir:          dir,
-		ManifestPath: manifestPath,
-		SkillPath:    skillPath,
-		Source:       source,
-	}, nil
-}
-
 func normalizeManifest(manifest *Manifest) error {
 	if manifest == nil {
 		return fmt.Errorf("manifest is required")
 	}
-	manifest.Name = strings.TrimSpace(manifest.Name)
-	manifest.Description = strings.TrimSpace(manifest.Description)
-	manifest.Summary = strings.TrimSpace(manifest.Summary)
+	if err := sanitizeManifest(manifest); err != nil {
+		return err
+	}
 	if manifest.Name == "" {
 		return fmt.Errorf("name is required")
-	}
-	if strings.ContainsAny(manifest.Name, "\r\n\t") {
-		return fmt.Errorf("name must not contain control whitespace")
 	}
 	if manifest.Description == "" {
 		return fmt.Errorf("description is required")
@@ -90,12 +60,64 @@ func normalizeManifest(manifest *Manifest) error {
 	if len(bytesTrimSpace(manifest.InputSchema)) == 0 {
 		manifest.InputSchema = json.RawMessage(`{"type":"object","additionalProperties":true}`)
 	}
-	if err := validateSchemaDefinition(manifest.InputSchema); err != nil {
-		return fmt.Errorf("input_schema: %w", err)
+	return nil
+}
+
+func sanitizeManifest(manifest *Manifest) error {
+	if manifest == nil {
+		return fmt.Errorf("manifest is required")
+	}
+	manifest.Name = strings.TrimSpace(manifest.Name)
+	manifest.Description = strings.TrimSpace(manifest.Description)
+	manifest.Summary = strings.TrimSpace(manifest.Summary)
+	if strings.ContainsAny(manifest.Name, "\r\n\t") {
+		return fmt.Errorf("name must not contain control whitespace")
+	}
+	if len(bytesTrimSpace(manifest.InputSchema)) > 0 {
+		if err := validateSchemaDefinition(manifest.InputSchema); err != nil {
+			return fmt.Errorf("input_schema: %w", err)
+		}
 	}
 	manifest.Permissions.Tools = dedupeTrimmed(manifest.Permissions.Tools)
 	manifest.Triggers = dedupeTrimmed(manifest.Triggers)
 	return nil
+}
+
+func decodeManifestFile(path string) (Manifest, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Manifest{}, err
+	}
+	var manifest Manifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return Manifest{}, fmt.Errorf("decode manifest %s: %w", path, err)
+	}
+	if err := sanitizeManifest(&manifest); err != nil {
+		return Manifest{}, fmt.Errorf("invalid manifest %s: %w", path, err)
+	}
+	return manifest, nil
+}
+
+func mergeManifest(base Manifest, overlay Manifest) Manifest {
+	if strings.TrimSpace(overlay.Name) != "" {
+		base.Name = overlay.Name
+	}
+	if strings.TrimSpace(overlay.Description) != "" {
+		base.Description = overlay.Description
+	}
+	if strings.TrimSpace(overlay.Summary) != "" {
+		base.Summary = overlay.Summary
+	}
+	if len(bytesTrimSpace(overlay.InputSchema)) > 0 {
+		base.InputSchema = overlay.InputSchema
+	}
+	if len(overlay.Permissions.Tools) > 0 {
+		base.Permissions.Tools = append([]string(nil), overlay.Permissions.Tools...)
+	}
+	if len(overlay.Triggers) > 0 {
+		base.Triggers = append([]string(nil), overlay.Triggers...)
+	}
+	return base
 }
 
 func (s Skill) ReadBody() (string, error) {

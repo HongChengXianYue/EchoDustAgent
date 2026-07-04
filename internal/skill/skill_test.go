@@ -10,11 +10,15 @@ import (
 
 func TestLoadRegistryLoadsMetadataWithoutReadingSkillBody(t *testing.T) {
 	root := t.TempDir()
-	createSkill(t, root, "reviewer", Manifest{
-		Name:        "reviewer",
-		Description: "Review code changes for bugs and regressions.",
-		Triggers:    []string{"code review", "bug risk"},
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"focus":{"type":"string"}},"additionalProperties":false}`),
+	createSkillDir(t, root, "reviewer", "# Skill\n\nBody")
+	writeRootRegistry(t, root, registryEntry{
+		Path: "reviewer",
+		Manifest: Manifest{
+			Name:        "reviewer",
+			Description: "Review code changes for bugs and regressions.",
+			Triggers:    []string{"code review", "bug risk"},
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"focus":{"type":"string"}},"additionalProperties":false}`),
+		},
 	})
 	skillPath := filepath.Join(root, "reviewer", "SKILL.md")
 	if err := os.Chmod(skillPath, 0o000); err != nil {
@@ -43,16 +47,26 @@ func TestLoadRegistryLoadsMetadataWithoutReadingSkillBody(t *testing.T) {
 
 func TestRegistryRetrieveRanksByNameDescriptionAndTriggers(t *testing.T) {
 	root := t.TempDir()
-	createSkill(t, root, "reviewer", Manifest{
-		Name:        "reviewer",
-		Description: "Review code changes for bugs and regressions.",
-		Triggers:    []string{"code review", "review pull request"},
-	})
-	createSkill(t, root, "formatter", Manifest{
-		Name:        "formatter",
-		Description: "Format source files and normalize styling.",
-		Triggers:    []string{"format code"},
-	})
+	createSkillDir(t, root, "reviewer", "# Skill\n\nBody")
+	createSkillDir(t, root, "formatter", "# Skill\n\nBody")
+	writeRootRegistry(t, root,
+		registryEntry{
+			Path: "reviewer",
+			Manifest: Manifest{
+				Name:        "reviewer",
+				Description: "Review code changes for bugs and regressions.",
+				Triggers:    []string{"code review", "review pull request"},
+			},
+		},
+		registryEntry{
+			Path: "formatter",
+			Manifest: Manifest{
+				Name:        "formatter",
+				Description: "Format source files and normalize styling.",
+				Triggers:    []string{"format code"},
+			},
+		},
+	)
 
 	registry, err := LoadRegistry(Options{CWD: root, ProjectDir: "."})
 	if err != nil {
@@ -64,6 +78,90 @@ func TestRegistryRetrieveRanksByNameDescriptionAndTriggers(t *testing.T) {
 	}
 	if candidates[0].Skill.Name != "reviewer" {
 		t.Fatalf("top candidate = %q, want reviewer", candidates[0].Skill.Name)
+	}
+}
+
+func TestLoadRegistryMergesRootRegistryAndSkillOverride(t *testing.T) {
+	root := t.TempDir()
+	createSkillDir(t, root, "reviewer", "# Skill\n\nBody")
+	writeRootRegistry(t, root, registryEntry{
+		Path: "reviewer",
+		Manifest: Manifest{
+			Name:        "reviewer",
+			Description: "Registry description.",
+			Summary:     "Registry summary.",
+			Triggers:    []string{"code review"},
+		},
+	})
+	writeSkillManifest(t, filepath.Join(root, "reviewer"), Manifest{
+		Description: "Local description.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"focus":{"type":"string"}},"additionalProperties":false}`),
+		Permissions: Permissions{Tools: []string{"read_file", "git_diff"}},
+	})
+
+	registry, err := LoadRegistry(Options{CWD: root, ProjectDir: "."})
+	if err != nil {
+		t.Fatalf("LoadRegistry() error = %v", err)
+	}
+	skill, ok := registry.Get("reviewer")
+	if !ok {
+		t.Fatal("reviewer skill not found")
+	}
+	if skill.Description != "Local description." {
+		t.Fatalf("description = %q, want local override", skill.Description)
+	}
+	if skill.Summary != "Registry summary." {
+		t.Fatalf("summary = %q, want registry summary retained", skill.Summary)
+	}
+	if got := strings.Join(skill.Permissions.Tools, ","); got != "git_diff,read_file" {
+		t.Fatalf("permissions = %q, want git_diff,read_file", got)
+	}
+	if skill.ManifestPath != filepath.Join(root, "reviewer", "skill.json") {
+		t.Fatalf("manifest path = %q, want local skill.json", skill.ManifestPath)
+	}
+}
+
+func TestLoadRegistryFallsBackToBodyOnlySkill(t *testing.T) {
+	root := t.TempDir()
+	createSkillDir(t, root, "reviewer", "# Skill\n\nBody")
+
+	registry, err := LoadRegistry(Options{CWD: root, ProjectDir: "."})
+	if err != nil {
+		t.Fatalf("LoadRegistry() error = %v", err)
+	}
+	skill, ok := registry.Get("reviewer")
+	if !ok {
+		t.Fatal("reviewer skill not found")
+	}
+	if skill.Name != "reviewer" {
+		t.Fatalf("name = %q, want reviewer", skill.Name)
+	}
+	if !strings.Contains(skill.Description, "Add metadata in registry.json or skill.json") {
+		t.Fatalf("description = %q, want fallback metadata hint", skill.Description)
+	}
+}
+
+func TestLoadRegistrySupportsRootSkillJSONAlias(t *testing.T) {
+	root := t.TempDir()
+	createSkillDir(t, root, "reviewer", "# Skill\n\nBody")
+	writeRootSkillJSONAlias(t, root, registryEntry{
+		Path: "reviewer",
+		Manifest: Manifest{
+			Name:        "reviewer",
+			Description: "Alias registry description.",
+		},
+	})
+
+	registry, err := LoadRegistry(Options{CWD: root, ProjectDir: "."})
+	if err != nil {
+		t.Fatalf("LoadRegistry() error = %v", err)
+	}
+	skill, ok := registry.Get("reviewer")
+	if !ok {
+		t.Fatal("reviewer skill not found")
+	}
+	if skill.Description != "Alias registry description." {
+		t.Fatalf("description = %q, want alias registry description", skill.Description)
 	}
 }
 
@@ -88,12 +186,22 @@ func TestValidateInputEnforcesRequiredAndAdditionalProperties(t *testing.T) {
 	}
 }
 
-func createSkill(t *testing.T, root string, dir string, manifest Manifest) {
+func createSkillDir(t *testing.T, root string, dir string, body string) {
 	t.Helper()
 	skillDir := filepath.Join(root, dir)
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatalf("mkdir skill dir: %v", err)
 	}
+	if strings.TrimSpace(body) == "" {
+		body = "# Skill\n\nBody"
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write body: %v", err)
+	}
+}
+
+func writeSkillManifest(t *testing.T, skillDir string, manifest Manifest) {
+	t.Helper()
 	if len(manifest.InputSchema) == 0 {
 		manifest.InputSchema = json.RawMessage(`{"type":"object","additionalProperties":true}`)
 	}
@@ -104,7 +212,27 @@ func createSkill(t *testing.T, root string, dir string, manifest Manifest) {
 	if err := os.WriteFile(filepath.Join(skillDir, "skill.json"), data, 0o644); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Skill\n\nBody"), 0o644); err != nil {
-		t.Fatalf("write body: %v", err)
+}
+
+func writeRootRegistry(t *testing.T, root string, entries ...registryEntry) {
+	t.Helper()
+	writeRootRegistryFile(t, filepath.Join(root, "registry.json"), entries...)
+}
+
+func writeRootSkillJSONAlias(t *testing.T, root string, entries ...registryEntry) {
+	t.Helper()
+	writeRootRegistryFile(t, filepath.Join(root, "skill.json"), entries...)
+}
+
+func writeRootRegistryFile(t *testing.T, path string, entries ...registryEntry) {
+	t.Helper()
+	data, err := json.MarshalIndent(map[string]any{
+		"skills": entries,
+	}, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal registry: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write registry: %v", err)
 	}
 }
