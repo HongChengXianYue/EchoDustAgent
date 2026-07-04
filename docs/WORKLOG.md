@@ -887,3 +887,10 @@
 - 主要模块：`internal/tui/model_dirty.go`、`internal/tui/model.go`、`internal/tui/model_layout.go`、`internal/tui/model_events.go`、`internal/tui/model_subagent.go`、`internal/tui/model_update.go`、`internal/tui/resume_picker.go`、`internal/tui/session.go`、`internal/tui/model_test.go`、`docs/TUI_SCROLL_MEMORY_ISSUE.md`。
 - 验证：`gofmt -w internal/tui/model_dirty.go internal/tui/model.go internal/tui/model_layout.go internal/tui/model_events.go internal/tui/model_subagent.go internal/tui/model_update.go internal/tui/session.go internal/tui/resume_picker.go internal/tui/model_test.go` 通过；`go test ./internal/tui ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
 - 备注：这次主要消除了滚动路径上的高频全文重建与重复分配，显著缓解了卡顿和滚动失真；但 transcript 常驻内存仍会随会话增长，diff 语法高亮在内容真正重建时仍会继续执行，后续如有需要可继续做 transcript 虚拟化与 diff 渲染缓存。
+
+## 2026-07-04 - README 改为中英双语并同步 TUI 现状
+
+- 摘要：将根目录 `README.md` 从单语英文改为中英双语版本，并同步修正文档中已过时的项目描述。重点补充了当前默认维护的是 Bubble Tea TUI、`git_diff` 与文件写入的 inline diff 展示、`/resume` 会话恢复、subagent 行为、贡献约束，以及 `internal/tui` / `internal/ui` 的角色划分。
+- 主要模块：`README.md`、`docs/WORKLOG.md`。
+- 验证：未运行 Go 测试；本次仅修改文档。
+- 备注：移除了旧 README 中不再准确的 “2 个直接依赖”“旧 UI 主描述”“过时统计数字” 等内容，避免继续把历史状态当成当前实现对外展示。
