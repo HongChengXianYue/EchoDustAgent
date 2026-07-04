@@ -820,3 +820,28 @@
   - 新增 TUI 回归测试，分别覆盖“新快照不持久化 subagent”和“旧快照里的 subagent 会被忽略”。
 - 验证：`gofmt -w internal/tui/session.go internal/tui/session_test.go` 通过；`go test ./internal/tui ./cmd/agent ./internal/agent` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
 - 备注：这次只影响 `/resume` 的恢复展示；运行中的 subagent 面板、实时事件和 token 统计逻辑不变。
+
+## 2026-07-04 - 停止启动时自动加载 REASONIX.md / AGENTS.md / CLAUDE.md
+
+- 摘要：按用户要求移除项目/祖先作用域和用户全局作用域对 `REASONIX.md`、`AGENTS.md`、`CLAUDE.md` 的自动扫描与加载。启动后不再把这些文件注入到系统提示词中。
+- 主要模块：`internal/memory/doc.go`、`internal/memory/memory_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - `docNames` 清空（项目/祖先作用域不再扫描任何候选名）。
+  - `userDocNames` 移除三个文件名，仅保留 `ECHO-DUST-CODE.md` 与兼容别名 `LOCAL-AGENT.md`。
+  - `localNames`（`.claude/` 作用域的 `*.local.md` 变体）按字面未动，因为这些是不同文件名；如需也移除请告知。
+- `defaultDocName` 仍为 `AGENTS.md`：`DocPath(ScopeProject)` 仍返回该规范路径，仅供工具写作用，启动时不再自动读取。
+- 相应单元测试改为通过 `AGENTS.local.md` 验证 import 机制，并通过 user 作用域候选顺序验证 `DocPath` 偏好。
+- 验证：`go test ./...` 全部通过；`go vet ./...` 无告警。
+- 备注：如仍希望 `.claude/` 作用域也不加载 `*.local.md` 变体，或对 `DocPath` 的默认返回值有其它偏好，再告诉我做下一轮收敛。
+
+## 2026-07-04 - TODO 改为复杂任务的可选规划工具
+
+- 摘要：收敛主 Agent 的 TODO 机制。现在不再为每次 workspace 工具调用自动生成一条复述用户问题的默认 todo，也不再把“未先创建 todo”作为所有工具调用的硬门禁；改为通过系统提示词明确要求模型只在复杂、多步、跨文件、调试或代码修改任务中主动调用 `update_todos`，简单单步查询则可以直接执行。
+- 主要模块：`internal/agent/agent.go`、`internal/agent/tool_scheduler.go`、`internal/agent/agent_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - 主 Agent 系统提示词改为“复杂任务优先拉起 `update_todos`，简单读查类任务不需要 todo”。
+  - 删除主 Agent 在工具调用前自动注入 `Handle request: ...` 单条 todo 的逻辑，避免 TUI 中长期出现无信息增量的占位任务。
+  - 删除“所有 workspace tools 都必须先有 todo list”这条运行时硬阻断；`update_todos` 继续保留为原生 tool，但改成显式规划能力，而不是强制门禁。
+  - 更新回归测试：简单读取任务应当直接执行且不产生 synthetic todo；显式 `update_todos` 的执行顺序和历史清理语义保持不变。
+- 验证：`gofmt -w internal/agent/agent.go internal/agent/tool_scheduler.go internal/agent/agent_test.go` 通过；`go test ./internal/agent ./internal/tui ./cmd/agent` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
+- 备注：这次没有加入“复杂任务识别后强制拦截并要求先建 todo”的硬策略；是否真正出现多条 todo，当前仍主要取决于模型是否按提示词主动调用 `update_todos`。

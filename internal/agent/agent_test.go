@@ -447,8 +447,8 @@ func TestRunUsesPromptGuidanceInsteadOfHidingToolsForGreeting(t *testing.T) {
 		"# Final Answers",
 		"Do not inspect the workspace for greetings",
 		"Only call tools when the user asks for a concrete workspace action",
-		"default todo is initialized automatically",
-		"Use update_todos to refine or revise that plan",
+		"For multi-step coding, debugging, code-editing, or cross-file work",
+		"Simple single-step reads, lookups, or one-off commands do not need a todo list",
 		"multiple tool calls in one assistant turn",
 		"more than 10 non-update_todos tool calls",
 		"broad codebase analysis",
@@ -553,7 +553,7 @@ func TestRunExposesToolsForWorkspaceTask(t *testing.T) {
 	}
 }
 
-func TestRunAutoInitializesTodoBeforeWorkspaceTool(t *testing.T) {
+func TestRunSimpleWorkspaceToolDoesNotAutoInitializeTodo(t *testing.T) {
 	client := &fakeClient{responses: []*llm.ChatResponse{
 		{
 			ToolCalls: []llm.ToolCall{
@@ -573,16 +573,15 @@ func TestRunAutoInitializesTodoBeforeWorkspaceTool(t *testing.T) {
 		t.Fatalf("Run() error = %v", err)
 	}
 	if len(tool.calls) != 1 {
-		t.Fatalf("tool calls = %d, want 1 after auto todo init", len(tool.calls))
+		t.Fatalf("tool calls = %d, want 1", len(tool.calls))
 	}
-	if len(renderer.events) < 4 || renderer.events[2].Type != runtimeevent.TypeTodoUpdate || renderer.events[3].Type != runtimeevent.TypeToolCall {
-		t.Fatalf("events = %#v, want auto todo update before tool call", renderer.events)
+	for _, event := range renderer.events {
+		if event.Type == runtimeevent.TypeTodoUpdate {
+			t.Fatalf("simple read should not auto-create todo event: %#v", renderer.events)
+		}
 	}
-	if len(renderer.events[2].Todos) != 1 || !strings.Contains(renderer.events[2].Todos[0].Text, "Handle request: read README") {
-		t.Fatalf("auto todo event = %#v", renderer.events[2])
-	}
-	if messageSnapshotsContain(client.messages, "requires a todo list") {
-		t.Fatalf("auto todo init should avoid todo gate failure: %#v", client.messages)
+	if len(renderer.events) < 3 || renderer.events[2].Type != runtimeevent.TypeToolCall {
+		t.Fatalf("events = %#v, want tool call without synthetic todo", renderer.events)
 	}
 }
 

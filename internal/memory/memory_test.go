@@ -37,16 +37,15 @@ func TestLoadDiscoversDocsAndImports(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(project, "extra.md"), []byte("Imported rule."), 0o644); err != nil {
 		t.Fatalf("write import: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(project, "AGENTS.md"), []byte("Project rule.\n@extra.md"), 0o644); err != nil {
-		t.Fatalf("write AGENTS.md: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(project, "AGENTS.local.md"), []byte("Local rule."), 0o644); err != nil {
+	// Project/ancestor scope no longer auto-loads any filenames, so we exercise
+	// the import mechanism through the local-scope AGENTS.local.md entry point.
+	if err := os.WriteFile(filepath.Join(project, "AGENTS.local.md"), []byte("Local rule.\n@extra.md"), 0o644); err != nil {
 		t.Fatalf("write AGENTS.local.md: %v", err)
 	}
 
 	set := Load(Options{CWD: project})
 	block := set.Block()
-	for _, want := range []string{"Project rule.", "Imported rule.", "Local rule."} {
+	for _, want := range []string{"Local rule.", "Imported rule."} {
 		if !strings.Contains(block, want) {
 			t.Fatalf("memory block missing %q:\n%s", want, block)
 		}
@@ -88,14 +87,21 @@ func TestLoadStillDiscoversLegacyLocalAgentGlobalPrompt(t *testing.T) {
 }
 
 func TestDocPathPrefersExistingConvention(t *testing.T) {
-	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "CLAUDE.md"), []byte("Claude rule."), 0o644); err != nil {
-		t.Fatalf("write CLAUDE.md: %v", err)
+	userDir := t.TempDir()
+	// Both user-scope candidates exist; DocPath should pick the first one
+	// listed in userDocNames (ECHO-DUST-CODE.md before LOCAL-AGENT.md).
+	if err := os.WriteFile(filepath.Join(userDir, "ECHO-DUST-CODE.md"), []byte("Primary global rule."), 0o644); err != nil {
+		t.Fatalf("write ECHO-DUST-CODE.md: %v", err)
 	}
-	set := Load(Options{CWD: project})
-	if got := filepath.Base(set.DocPath(ScopeProject)); got != "CLAUDE.md" {
-		t.Fatalf("DocPath project = %s, want CLAUDE.md", got)
+	if err := os.WriteFile(filepath.Join(userDir, "LOCAL-AGENT.md"), []byte("Legacy global rule."), 0o644); err != nil {
+		t.Fatalf("write LOCAL-AGENT.md: %v", err)
 	}
+	set := Load(Options{CWD: t.TempDir(), UserDir: userDir})
+	if got := filepath.Base(set.DocPath(ScopeUser)); got != "ECHO-DUST-CODE.md" {
+		t.Fatalf("DocPath user = %s, want ECHO-DUST-CODE.md", got)
+	}
+	// Local scope has no matching file in this test; DocPath falls back to the
+	// canonical default filename.
 	if got := filepath.Base(set.DocPath(ScopeLocal)); got != "AGENTS.local.md" {
 		t.Fatalf("DocPath local = %s, want AGENTS.local.md", got)
 	}

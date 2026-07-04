@@ -120,19 +120,6 @@ func (a *Agent) prepareToolCall(ctx context.Context, step int, index int, call l
 	}
 	plan.tool = tool
 	plan.category = approval.Classify(call.Function.Name, plan.args)
-	if !a.todoTool.Ready() {
-		result := tools.Error("tool execution requires a todo list; call update_todos before workspace tools")
-		a.emit(runtimeevent.Event{
-			Step:     step,
-			Type:     runtimeevent.TypeToolResult,
-			Tool:     call.Function.Name,
-			Category: plan.category,
-			Args:     plan.args,
-			Result:   &result,
-		})
-		plan.result = &result
-		return plan
-	}
 	if tools.IsDelegateTaskTool(call.Function.Name) {
 		plan.subagentIndex = a.nextSubagentIndex()
 	}
@@ -168,11 +155,11 @@ func (a *Agent) prepareToolCall(ctx context.Context, step int, index int, call l
 
 func (a *Agent) executePreparedTool(ctx context.Context, step int, plan preparedToolCall) executedToolCall {
 	a.emit(runtimeevent.Event{
-		Step:     step,
-		Type:     runtimeevent.TypeToolCall,
-		Tool:     plan.call.Function.Name,
-		Category: plan.category,
-		Args:     plan.args,
+		Step:          step,
+		Type:          runtimeevent.TypeToolCall,
+		Tool:          plan.call.Function.Name,
+		Category:      plan.category,
+		Args:          plan.args,
 		SubagentIndex: plan.subagentIndex,
 	})
 
@@ -191,13 +178,13 @@ func (a *Agent) executePreparedTool(ctx context.Context, step int, plan prepared
 		result.Status = "success"
 	}
 	a.emit(runtimeevent.Event{
-		Step:       step,
-		Type:       runtimeevent.TypeToolResult,
-		Tool:       plan.call.Function.Name,
-		Category:   plan.category,
-		Args:       plan.args,
-		Result:     &result,
-		DurationMS: time.Since(startedAt).Milliseconds(),
+		Step:          step,
+		Type:          runtimeevent.TypeToolResult,
+		Tool:          plan.call.Function.Name,
+		Category:      plan.category,
+		Args:          plan.args,
+		Result:        &result,
+		DurationMS:    time.Since(startedAt).Milliseconds(),
 		SubagentIndex: plan.subagentIndex,
 	})
 	return executedToolCall{index: plan.index, call: plan.call, result: result}
