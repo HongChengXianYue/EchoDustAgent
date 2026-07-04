@@ -262,10 +262,10 @@ func (m *Model) renderDiffBlock(block transcriptBlock, width int) string {
 	if strings.TrimSpace(body) == "" {
 		return titleLine
 	}
-	lineWidth := max(18, width-2)
+	lineWidth := max(18, width)
 	lines := strings.Split(body, "\n")
 	rendered := make([]string, 0, len(lines))
-	state := diffRenderState{}
+	state := diffRenderState{highlighter: newDiffSyntaxHighlighter(body)}
 	for _, line := range lines {
 		renderedLine := m.renderDiffLine(line, lineWidth, &state)
 		if renderedLine == "" {
@@ -276,7 +276,7 @@ func (m *Model) renderDiffBlock(block transcriptBlock, width int) string {
 	if len(rendered) == 0 {
 		return titleLine
 	}
-	return titleLine + "\n" + indentBlock(strings.Join(rendered, "\n"), "  ")
+	return titleLine + "\n" + strings.Join(rendered, "\n")
 }
 
 func (m *Model) renderDiffLine(line string, width int, state *diffRenderState) string {
@@ -382,45 +382,35 @@ func wrapDiffContent(text string, width int) []string {
 const diffLineNumberWidth = 5
 
 type diffRenderState struct {
-	oldLine   int
-	newLine   int
-	hasHunk   bool
-	hunkCount int
+	oldLine     int
+	newLine     int
+	hasHunk     bool
+	hunkCount   int
+	highlighter *diffSyntaxHighlighter
 }
 
 func (m *Model) renderDiffBodyLine(style lipgloss.Style, marker string, content string, width int, state *diffRenderState) string {
 	lineNumber := state.consumeLineNumber(marker)
 	prefix := diffLinePrefix(lineNumber, marker)
-	return renderDiffWrappedLine(style, prefix, content, width, marker == "+" || marker == "-")
+	spans := []diffStyledSpan{{Text: content, Style: style}}
+	if state != nil && state.highlighter != nil {
+		spans = state.highlighter.highlight(content, style)
+	}
+	return renderDiffWrappedSpans(style, prefix, spans, width, marker == "+" || marker == "-")
 }
 
 func renderDiffWrappedLine(style lipgloss.Style, prefix string, content string, width int, fillWidth bool) string {
+	return renderDiffWrappedSpans(style, prefix, []diffStyledSpan{{Text: content, Style: style}}, width, fillWidth)
+}
+
+func renderDiffWrappedSpans(style lipgloss.Style, prefix string, spans []diffStyledSpan, width int, fillWidth bool) string {
 	if prefix == "" {
-		wrapped := wrapDiffContent(content, max(8, width))
-		for i := range wrapped {
-			if fillWidth {
-				wrapped[i] = style.Width(width).Render(wrapped[i])
-				continue
-			}
-			wrapped[i] = style.Render(wrapped[i])
-		}
-		return strings.Join(wrapped, "\n")
+		lines := wrapStyledDiffSpans(spans, max(8, width))
+		return strings.Join(renderWrappedDiffLines(style, lines, "", width, fillWidth), "\n")
 	}
 	continuation := strings.Repeat(" ", lipgloss.Width(prefix))
-	wrapped := wrapDiffContent(content, max(4, width-lipgloss.Width(prefix)))
-	for i := range wrapped {
-		linePrefix := continuation
-		if i == 0 {
-			linePrefix = prefix
-		}
-		line := linePrefix + wrapped[i]
-		if fillWidth {
-			wrapped[i] = style.Width(width).Render(line)
-			continue
-		}
-		wrapped[i] = style.Render(line)
-	}
-	return strings.Join(wrapped, "\n")
+	lines := wrapStyledDiffSpans(spans, max(4, width-lipgloss.Width(prefix)))
+	return strings.Join(renderWrappedDiffLines(style, lines, prefix, width, fillWidth, continuation), "\n")
 }
 
 func (s *diffRenderState) consumeLineNumber(marker string) string {
@@ -458,6 +448,76 @@ func formatDiffLineNumber(line string) string {
 		return strings.Repeat(" ", diffLineNumberWidth)
 	}
 	return fmt.Sprintf("%*s", diffLineNumberWidth, line)
+}
+
+func wrapStyledDiffSpans(spans []diffStyledSpan, width int) []diffWrappedLine {
+	if width <= 0 {
+		width = 1
+	}
+	if len(spans) == 0 {
+		return []diffWrappedLine{{}}
+	}
+
+	lines := make([]diffWrappedLine, 0, 4)
+	current := diffWrappedLine{segments: make([]string, 0, 16)}
+	flush := func(force bool) {
+		if !force && len(current.segments) == 0 && current.width == 0 {
+			return
+		}
+		lines = append(lines, current)
+		current = diffWrappedLine{segments: make([]string, 0, 16)}
+	}
+
+	for _, span := range spans {
+		for _, r := range []rune(span.Text) {
+			runeText := string(r)
+			runeWidth := lipgloss.Width(runeText)
+			if runeWidth <= 0 {
+				runeWidth = 1
+			}
+			if current.width+runeWidth > width && current.width > 0 {
+				flush(false)
+			}
+			current.segments = append(current.segments, span.Style.Render(runeText))
+			current.width += runeWidth
+		}
+	}
+	flush(len(lines) == 0 || len(current.segments) > 0 || current.width > 0)
+	if len(lines) == 0 {
+		return []diffWrappedLine{{}}
+	}
+	return lines
+}
+
+type diffWrappedLine struct {
+	segments []string
+	width    int
+}
+
+func renderWrappedDiffLines(style lipgloss.Style, lines []diffWrappedLine, prefix string, width int, fillWidth bool, continuation ...string) []string {
+	if len(lines) == 0 {
+		lines = []diffWrappedLine{{}}
+	}
+	rendered := make([]string, 0, len(lines))
+	continuationPrefix := prefix
+	if len(continuation) > 0 {
+		continuationPrefix = continuation[0]
+	}
+	prefixStyle := diffInheritedTextStyle(style)
+	paddingStyle := diffInheritedTextStyle(style).UnsetForeground()
+	for i, line := range lines {
+		linePrefix := prefix
+		if i > 0 {
+			linePrefix = continuationPrefix
+		}
+		renderedLine := prefixStyle.Render(linePrefix) + strings.Join(line.segments, "")
+		usedWidth := lipgloss.Width(linePrefix) + line.width
+		if fillWidth && usedWidth < width {
+			renderedLine += paddingStyle.Render(strings.Repeat(" ", width-usedWidth))
+		}
+		rendered = append(rendered, renderedLine)
+	}
+	return rendered
 }
 
 // Unified diff hunk headers define the old/new starting lines for the body

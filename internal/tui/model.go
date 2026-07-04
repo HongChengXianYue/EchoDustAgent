@@ -207,7 +207,7 @@ func NewModel(options ui.Options, startup ui.StartupInfo, bridge *Bridge) *Model
 		toolCallDotStyle:      lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true),
 		diffMetaStyle:         lipgloss.NewStyle().Foreground(lipgloss.Color("117")),
 		diffAddStyle:          lipgloss.NewStyle().Foreground(lipgloss.Color("#8BD5A0")).Background(lipgloss.Color("#183126")),
-		diffRemoveStyle:       lipgloss.NewStyle().Foreground(lipgloss.Color("#F2B8BD")).Background(lipgloss.Color("#352327")),
+		diffRemoveStyle:       lipgloss.NewStyle().Foreground(lipgloss.Color("#F2B8BD")).Background(lipgloss.Color("#4A221D")),
 		diffContextStyle:      lipgloss.NewStyle().Foreground(lipgloss.Color("252")),
 		diffEllipsisStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("245")),
 		approvalSelectedStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("117")).Bold(true),

@@ -866,3 +866,17 @@
 - 主要模块：`internal/tui/model.go`、`internal/tui/model_layout.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
 - 验证：`gofmt -w internal/tui/model.go internal/tui/model_layout.go internal/tui/model_test.go` 通过；`go test ./internal/tui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
 - 备注：当前仍未做语法高亮，代码文本会沿用统一前景色，仅通过背景色和行号/标记表达 diff；若后续要完全贴近截图中的 IDE 风格，可以继续引入按语言分词的高亮层。
+
+## 2026-07-04 - TUI Diff 接入多语言语法高亮
+
+- 摘要：在主 TUI 的 diff 渲染链中接入 `Chroma` 词法高亮。现在 diff block 会先根据 patch 路径匹配语言 lexer，在缺少路径时再尝试基于内容分析与轻量 heuristic 回退；代码行在保留新增/删除背景色与行号的同时，关键字、函数名、字符串、数字、注释等 token 也会使用统一主题配色显示。
+- 主要模块：`internal/tui/diff_syntax.go`、`internal/tui/model_layout.go`、`internal/tui/model_test.go`、`go.mod`、`docs/WORKLOG.md`。
+- 验证：`gofmt -w internal/tui/diff_syntax.go internal/tui/model_layout.go internal/tui/model_test.go` 通过；`go test ./internal/tui` 通过；`go test ./...` 通过；`go vet ./...` 通过；`go mod tidy` 通过。
+- 备注：当前高亮主题是统一的跨语言 token 颜色映射，不追求逐语言 1:1 复刻 IDE 官方主题；多数带扩展名的源码 diff 会通过文件路径准确命中 lexer，无扩展名场景目前仅补了 JSON 这类常见格式的 heuristic 回退。
+
+## 2026-07-04 - TUI Diff 调整整行铺色与删除色深度
+
+- 摘要：继续微调主 TUI 的 diff 视觉表现。删除行背景色加深到更接近审阅工具中的深红底色，同时移除 diff block 的左侧额外缩进，让新增/删除行的背景从可视区域左边缘开始连续铺满，形成更完整的横向色带。
+- 主要模块：`internal/tui/model.go`、`internal/tui/model_layout.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
+- 验证：`gofmt -w internal/tui/model.go internal/tui/model_layout.go internal/tui/model_test.go` 通过；`go test ./internal/tui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：当前行号仍保持右对齐，因此左侧可见的空白主要来自行号列本身，而不再是额外的 transcript 缩进；如果后续希望连行号列的前导空格也视觉更弱，可以再单独调整行号 gutter 的样式。

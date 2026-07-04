@@ -213,8 +213,8 @@ func TestDiffBlocksRenderWithColor(t *testing.T) {
 	if got := removeStyle.GetForeground(); got != lipgloss.Color("#F2B8BD") {
 		t.Fatalf("remove color = %#v, want #F2B8BD", got)
 	}
-	if got := removeStyle.GetBackground(); got != lipgloss.Color("#352327") {
-		t.Fatalf("remove background = %#v, want #352327", got)
+	if got := removeStyle.GetBackground(); got != lipgloss.Color("#4A221D") {
+		t.Fatalf("remove background = %#v, want #4A221D", got)
 	}
 	if got := addStyle.GetForeground(); got != lipgloss.Color("#8BD5A0") {
 		t.Fatalf("add color = %#v, want #8BD5A0", got)
@@ -236,6 +236,71 @@ func TestDiffAddedAndRemovedRowsFillAvailableWidth(t *testing.T) {
 	}
 	if got := lipgloss.Width(added); got != 30 {
 		t.Fatalf("added row width = %d, want 30", got)
+	}
+}
+
+func TestDiffBlockRowsDoNotKeepLeftIndentGap(t *testing.T) {
+	model := newSizedTestModel()
+
+	rendered := model.renderBlock(transcriptBlock{
+		Kind:  blockDiff,
+		Title: "Diff hello.txt (+1 -1)",
+		Body:  "@@ -1 +1 @@\n-old\n+new",
+	}, 40)
+
+	lines := strings.Split(rendered, "\n")
+	if len(lines) < 3 {
+		t.Fatalf("rendered diff too short:\n%s", rendered)
+	}
+	if got := lipgloss.Width(lines[1]); got != 40 {
+		t.Fatalf("removed row width = %d, want 40 without extra left indent:\n%s", got, rendered)
+	}
+	if got := lipgloss.Width(lines[2]); got != 40 {
+		t.Fatalf("added row width = %d, want 40 without extra left indent:\n%s", got, rendered)
+	}
+}
+
+func TestDiffSyntaxHighlighterUsesGoLexer(t *testing.T) {
+	highlighter := newDiffSyntaxHighlighter("--- a/file.go\n+++ b/file.go\n@@ -1 +1 @@\n+func demo() string { return \"hi\" }")
+	spans := highlighter.highlight("func demo() string { return \"hi\" }", lipgloss.NewStyle())
+
+	assertSpanStyle := func(text string, want lipgloss.TerminalColor) {
+		t.Helper()
+		for _, span := range spans {
+			if span.Text == text {
+				if got := span.Style.GetForeground(); got != want {
+					t.Fatalf("span %q foreground = %#v, want %#v", text, got, want)
+				}
+				return
+			}
+		}
+		t.Fatalf("span %q not found in %#v", text, spans)
+	}
+
+	assertSpanStyle("func", lipgloss.Color("#8AADF4"))
+	assertSpanStyle("demo", lipgloss.Color("#C6A0F6"))
+	assertSpanStyle("\"hi\"", lipgloss.Color("#A6DA95"))
+}
+
+func TestDiffSyntaxHighlighterFallsBackToFilenameAgnosticAnalysis(t *testing.T) {
+	highlighter := newDiffSyntaxHighlighter("@@ -1 +1 @@\n+{\"name\":\"echo\",\"count\":1}")
+	spans := highlighter.highlight("{\"name\":\"echo\",\"count\":1}", lipgloss.NewStyle())
+
+	foundString := false
+	foundNumber := false
+	for _, span := range spans {
+		switch {
+		case strings.Contains(span.Text, "\"echo\""):
+			foundString = span.Style.GetForeground() == lipgloss.Color("#A6DA95")
+		case strings.Contains(span.Text, "1"):
+			foundNumber = span.Style.GetForeground() == lipgloss.Color("#F5A97F")
+		}
+	}
+	if !foundString {
+		t.Fatalf("expected JSON string highlighting in %#v", spans)
+	}
+	if !foundNumber {
+		t.Fatalf("expected JSON number highlighting in %#v", spans)
 	}
 }
 
