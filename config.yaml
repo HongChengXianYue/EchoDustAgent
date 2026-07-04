@@ -63,6 +63,13 @@ mcp:
   # MCP tools/list 和 tools/call 单次请求超时。
   request_timeout_seconds: 60
 
+# 会话持久化配置。/resume 从这里读取和恢复当前 workspace 的历史 session。
+session:
+  # 是否启用 session 自动保存和 /resume。
+  enabled: true
+  # session 根目录；支持 ~。每个 workspace 会按 slug 分目录存放。
+  dir: ~/.echo-dust-code/session
+
 # 上下文维护。优先裁剪旧工具输出，接近窗口上限时再压缩旧历史。
 context:
   # 估算上下文窗口大小；当前用字符数近似 token，仅用于触发维护。

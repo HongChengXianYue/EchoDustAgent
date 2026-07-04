@@ -129,6 +129,10 @@ func applyConfigValue(cfg *Config, key string, value string) error {
 		return setPositiveInt(key, value, &cfg.MCP.StartTimeoutSeconds)
 	case "mcp.request_timeout_seconds":
 		return setPositiveInt(key, value, &cfg.MCP.RequestTimeoutSeconds)
+	case "session.enabled":
+		return setBool(key, value, &cfg.Session.Enabled)
+	case "session.dir":
+		cfg.Session.Dir = value
 	case "context.window_tokens":
 		return setPositiveInt(key, value, &cfg.Context.WindowTokens)
 	case "context.prune_tool_result_max_bytes":

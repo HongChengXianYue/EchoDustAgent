@@ -6,40 +6,60 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"local-agent/internal/ui"
 )
 
-// startupInfo 由 main() 填充，slash handler 读取。用包级变量避免每次
-// dispatch 都透传上下文；新增命令时 handler 可以直接读，不用改签名。
-var startupInfo ui.StartupInfo
-
-// errExit 是退出 sentinel error，handler 返回它表示用户请求退出。
-// dispatchSlash 检测到后通过 shouldExit 返回值通知 main 循环 return。
+// errExit is a sentinel error used by slash handlers to request process exit.
 var errExit = errors.New("exit")
 
-// slashHandler 是 /命令 的执行函数。args 是命令名之后的空白分隔参数
-// （已做过 strings.Fields 清洗），不会为 nil 但可能为空切片。
 type slashHandler func(args []string) (string, error)
 
-// slashCommand 注册表：key 是命令名（不含 /），value 含帮助文本和 handler。
-// 新命令只需在这里加一行，dispatchSlash 会自动识别。
-var slashCommands = map[string]struct {
+type slashCommand struct {
 	desc    string
 	handler slashHandler
-}{
-	"info":  {desc: "show startup details (workdir, model, mcp tools, log file)", handler: slashInfo},
-	"model": {desc: "show or switch the active LLM model", handler: slashModel},
-	"exit":  {desc: "exit the agent", handler: slashExit},
-	"quit":  {desc: "exit the agent", handler: slashExit},
 }
 
-// dispatchSlash 尝试把 input 作为 /命令 处理。
-// handled=true 表示 input 已被消费（无论成功/失败），调用者应跳过 agent 执行；
-// handled=false 表示 input 不是 /命令，应交给 agent 当普通输入。
-// shouldExit=true 表示用户请求退出（/exit 或 /quit），调用者应 return。
-func dispatchSlash(input string) (handled bool, shouldExit bool) {
-	output, handled, shouldExit := dispatchSlashText(input)
+type slashRouter struct {
+	startup   *ui.StartupInfo
+	sessions  *sessionRuntime
+	isRunning func() bool
+	commands  map[string]slashCommand
+}
+
+func newSlashRouter(startup *ui.StartupInfo, sessions *sessionRuntime, isRunning func() bool) *slashRouter {
+	router := &slashRouter{
+		startup:   startup,
+		sessions:  sessions,
+		isRunning: isRunning,
+		commands:  map[string]slashCommand{},
+	}
+	router.commands["info"] = slashCommand{
+		desc:    "show startup details (workdir, model, session id, mcp tools, log file)",
+		handler: router.slashInfo,
+	}
+	router.commands["model"] = slashCommand{
+		desc:    "show or switch the active LLM model",
+		handler: router.slashModel,
+	}
+	router.commands["resume"] = slashCommand{
+		desc:    "list or resume saved sessions for the current workspace",
+		handler: router.slashResume,
+	}
+	router.commands["exit"] = slashCommand{
+		desc:    "exit the agent",
+		handler: router.slashExit,
+	}
+	router.commands["quit"] = slashCommand{
+		desc:    "exit the agent",
+		handler: router.slashExit,
+	}
+	return router
+}
+
+func (r *slashRouter) Dispatch(input string) (handled bool, shouldExit bool) {
+	output, handled, shouldExit := r.DispatchText(input)
 	if !handled {
 		return false, false
 	}
@@ -49,14 +69,14 @@ func dispatchSlash(input string) (handled bool, shouldExit bool) {
 	return handled, shouldExit
 }
 
-func dispatchSlashText(input string) (output string, handled bool, shouldExit bool) {
+func (r *slashRouter) DispatchText(input string) (output string, handled bool, shouldExit bool) {
 	if !strings.HasPrefix(input, "/") {
 		return "", false, false
 	}
 	name, args := parseSlash(input)
-	cmd, ok := slashCommands[name]
+	cmd, ok := r.commands[name]
 	if !ok {
-		return fmt.Sprintf("unknown command: /%s\n%s", name, slashHelpText()), true, false
+		return fmt.Sprintf("unknown command: /%s\n%s", name, r.helpText()), true, false
 	}
 	output, err := cmd.handler(args)
 	if err != nil {
@@ -71,8 +91,111 @@ func dispatchSlashText(input string) (output string, handled bool, shouldExit bo
 	return output, true, false
 }
 
-// parseSlash 把 "/cmd arg1 arg2" 拆成 ("cmd", ["arg1", "arg2"])。
-// 命令名取第一个空白前的部分并 trim；剩余部分按空白切分为参数。
+func (r *slashRouter) CommandList() []ui.CommandSuggestion {
+	cmds := make([]ui.CommandSuggestion, 0, len(r.commands))
+	for name, cmd := range r.commands {
+		cmds = append(cmds, ui.CommandSuggestion{Name: name, Desc: cmd.desc})
+	}
+	sort.Slice(cmds, func(i, j int) bool {
+		return cmds[i].Name < cmds[j].Name
+	})
+	return cmds
+}
+
+func (r *slashRouter) helpText() string {
+	var out strings.Builder
+	out.WriteString("available commands:\n")
+	names := make([]string, 0, len(r.commands))
+	for name := range r.commands {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		fmt.Fprintf(&out, "  /%-8s %s\n", name, r.commands[name].desc)
+	}
+	return strings.TrimRight(out.String(), "\n")
+}
+
+func (r *slashRouter) slashInfo(_ []string) (string, error) {
+	var out strings.Builder
+	ui.RenderStartupDetails(&out, r.currentStartup())
+	return strings.TrimRight(out.String(), "\n"), nil
+}
+
+func (r *slashRouter) slashExit(_ []string) (string, error) {
+	return "", errExit
+}
+
+func (r *slashRouter) slashModel(args []string) (string, error) {
+	if len(args) == 0 {
+		return fmt.Sprintf("current model: %s", r.currentStartup().Model), nil
+	}
+	return "", fmt.Errorf("/model switch not yet implemented (requested: %s)", strings.Join(args, " "))
+}
+
+func (r *slashRouter) slashResume(args []string) (string, error) {
+	if r.sessions == nil || !r.sessions.Enabled() {
+		return "", fmt.Errorf("session persistence is disabled")
+	}
+	if r.isRunning != nil && r.isRunning() {
+		return "", fmt.Errorf("/resume is unavailable while the agent is running")
+	}
+	if len(args) == 0 {
+		return r.renderRecentSessions()
+	}
+	if len(args) > 1 {
+		return "", fmt.Errorf("usage: /resume [latest|session-id-prefix]")
+	}
+	meta, err := r.sessions.Resume(args[0])
+	if err != nil {
+		return "", err
+	}
+	return resumedSessionNotice(meta), nil
+}
+
+func (r *slashRouter) renderRecentSessions() (string, error) {
+	metas, err := r.sessions.Recent(10)
+	if err != nil {
+		return "", err
+	}
+	if len(metas) == 0 {
+		return "no saved sessions for the current workspace", nil
+	}
+	current := ""
+	if r.sessions != nil {
+		current = r.sessions.CurrentSessionID()
+	}
+	var out strings.Builder
+	out.WriteString("recent sessions:\n")
+	for _, meta := range metas {
+		prefix := " "
+		if meta.SessionID == current && current != "" {
+			prefix = "*"
+		}
+		fmt.Fprintf(&out, "%s %s  %s", prefix, meta.SessionID, meta.UpdatedAt.UTC().Format(time.RFC3339))
+		if title := strings.TrimSpace(meta.Title); title != "" {
+			fmt.Fprintf(&out, "  %s", title)
+		} else if preview := strings.TrimSpace(meta.LastUserPreview); preview != "" {
+			fmt.Fprintf(&out, "  %s", preview)
+		}
+		out.WriteString("\n")
+	}
+	out.WriteString("\nUse /resume latest or /resume <session-id>.")
+	return strings.TrimRight(out.String(), "\n"), nil
+}
+
+func (r *slashRouter) currentStartup() ui.StartupInfo {
+	if r.startup == nil {
+		return ui.StartupInfo{}
+	}
+	info := *r.startup
+	if r.sessions != nil {
+		info.SessionID = r.sessions.CurrentSessionID()
+	}
+	return info
+}
+
+// parseSlash splits "/cmd arg1 arg2" into ("cmd", ["arg1", "arg2"]).
 func parseSlash(input string) (name string, args []string) {
 	input = strings.TrimPrefix(input, "/")
 	parts := strings.SplitN(input, " ", 2)
@@ -81,56 +204,4 @@ func parseSlash(input string) (name string, args []string) {
 		return name, nil
 	}
 	return name, strings.Fields(parts[1])
-}
-
-// printSlashHelp 列出所有已注册命令，给用户一个可操作的提示。
-func printSlashHelp() {
-	fmt.Fprintln(os.Stderr, slashHelpText())
-}
-
-func slashHelpText() string {
-	var out strings.Builder
-	out.WriteString("available commands:\n")
-	names := make([]string, 0, len(slashCommands))
-	for name := range slashCommands {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		fmt.Fprintf(&out, "  /%-8s %s\n", name, slashCommands[name].desc)
-	}
-	return strings.TrimRight(out.String(), "\n")
-}
-
-func slashInfo(_ []string) (string, error) {
-	var out strings.Builder
-	ui.RenderStartupDetails(&out, startupInfo)
-	return strings.TrimRight(out.String(), "\n"), nil
-}
-
-// slashExit 返回 errExit sentinel error，dispatchSlash 检测到后通知 main 循环退出。
-func slashExit(_ []string) (string, error) {
-	return "", errExit
-}
-
-// slashModel 预留：无参数时打印当前模型；有参数时提示尚未实现。
-// 切换模型需要重建 llm.Client 并热替换到 codingAgent，涉及
-// agent 生命周期管理，等需求明确后再实现。
-func slashModel(args []string) (string, error) {
-	if len(args) == 0 {
-		return fmt.Sprintf("current model: %s", startupInfo.Model), nil
-	}
-	return "", fmt.Errorf("/model switch not yet implemented (requested: %s)", strings.Join(args, " "))
-}
-
-// SlashCommandList 返回按名称排序的 /命令 列表，供 UI 输入框做建议补全。
-func SlashCommandList() []ui.CommandSuggestion {
-	cmds := make([]ui.CommandSuggestion, 0, len(slashCommands))
-	for name, cmd := range slashCommands {
-		cmds = append(cmds, ui.CommandSuggestion{Name: name, Desc: cmd.desc})
-	}
-	sort.Slice(cmds, func(i, j int) bool {
-		return cmds[i].Name < cmds[j].Name
-	})
-	return cmds
 }

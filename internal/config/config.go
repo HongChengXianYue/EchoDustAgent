@@ -18,6 +18,7 @@ type Config struct {
 	Subagents SubagentsConfig
 	Memory    MemoryConfig
 	MCP       MCPConfig
+	Session   SessionConfig
 	Context   ContextConfig
 	Tools     ToolsConfig
 	UI        UIConfig
@@ -61,6 +62,11 @@ type MCPConfig struct {
 	Dir                   string
 	StartTimeoutSeconds   int
 	RequestTimeoutSeconds int
+}
+
+type SessionConfig struct {
+	Enabled bool
+	Dir     string
 }
 
 type ContextConfig struct {
@@ -145,29 +151,29 @@ func LoadFromEnv() (Config, error) {
 func Default() Config {
 	return Config{
 		LLM: LLMConfig{
-			BaseURL:               "https://api.openai.com/v1",
-			Model:                 "gpt-4.1-mini",
-			WireAPI:               "chat_completions",
-			RequestTimeoutSeconds: 120,
+			BaseURL:               "https://anyrouter.top/v1",
+			Model:                 "gpt-5.5",
+			WireAPI:               "responses",
+			RequestTimeoutSeconds: 300,
 			ParallelToolCalls:     true,
 		},
 		Agent: AgentConfig{
-			MaxSteps:                20,
+			MaxSteps:                30,
 			MaxParallelToolCalls:    10,
 			AdaptiveMaxStepsEnabled: true,
-			MaxStepExtensions:       3,
+			MaxStepExtensions:       5,
 			StepExtensionSize:       10,
 			AbsoluteMaxSteps:        80,
 		},
 		Subagents: SubagentsConfig{
 			Enabled:                 true,
-			MaxConcurrent:           2,
-			MaxSteps:                8,
+			MaxConcurrent:           5,
+			MaxSteps:                30,
 			AdaptiveMaxStepsEnabled: true,
 			MaxStepExtensions:       2,
 			StepExtensionSize:       5,
 			AbsoluteMaxSteps:        45,
-			ResultMaxBytes:          12 * 1024,
+			ResultMaxBytes:          16888,
 		},
 		Memory: MemoryConfig{
 			Enabled: true,
@@ -179,8 +185,12 @@ func Default() Config {
 			StartTimeoutSeconds:   10,
 			RequestTimeoutSeconds: 60,
 		},
+		Session: SessionConfig{
+			Enabled: true,
+			Dir:     "~/.echo-dust-code/session",
+		},
 		Context: ContextConfig{
-			WindowTokens:             128000,
+			WindowTokens:             256000,
 			PruneToolResultMaxBytes:  8192,
 			PruneKeepRecentMessages:  16,
 			CompactEnabled:           true,
@@ -204,9 +214,9 @@ func Default() Config {
 			FileChangePreviewLines:       20,
 		},
 		UI: UIConfig{
-			SeparatorWidth:             0, // 0 = 使用终端宽度
+			SeparatorWidth:             80,
 			LiveFrameMaxLines:          24,
-			LiveFrameMaxWidth:          0, // 0 = 使用终端宽度
+			LiveFrameMaxWidth:          100,
 			LiveFrameHeightMargin:      6,
 			MaxExpandedLiveToolEvents:  6,
 			FullLogDefaultWidth:        100,
@@ -215,7 +225,7 @@ func Default() Config {
 			FullLogMinHeight:           6,
 			FullLogPollMilliseconds:    30,
 			TogglePollMilliseconds:     40,
-			MarkdownWordWrap:           0, // 0 = 使用终端宽度
+			MarkdownWordWrap:           100,
 			ToolPreviewOutputChars:     2000,
 			ToolPreviewLongOutputChars: 4000,
 			FileChangePreviewChars:     800,
@@ -329,6 +339,9 @@ func validate(cfg Config) error {
 	}
 	if cfg.MCP.Enabled && strings.TrimSpace(cfg.MCP.Dir) == "" {
 		return fmt.Errorf("mcp.dir is required when mcp.enabled is true")
+	}
+	if cfg.Session.Enabled && strings.TrimSpace(cfg.Session.Dir) == "" {
+		return fmt.Errorf("session.dir is required when session.enabled is true")
 	}
 	switch strings.TrimSpace(cfg.LLM.WireAPI) {
 	case "chat_completions", "responses":

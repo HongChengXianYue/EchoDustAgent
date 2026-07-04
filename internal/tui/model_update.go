@@ -54,6 +54,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.assistantDraft = ""
 		}
 		m.syncLayout()
+		if msg.Err != nil && !errors.Is(msg.Err, context.Canceled) {
+			m.persistSessionSnapshot()
+		}
 		return m, nil
 	case SignalMsg:
 		if m.approval != nil {
@@ -80,6 +83,29 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.resumePickerActive() {
+		switch msg.String() {
+		case "esc":
+			m.cancelResumePicker()
+			m.syncLayout()
+			return m, nil
+		case "up", "k", "K":
+			m.moveResumeSelection(-1)
+			m.syncLayout()
+			return m, nil
+		case "down", "j", "J":
+			m.moveResumeSelection(1)
+			m.syncLayout()
+			return m, nil
+		case "enter":
+			output := m.confirmResumeSelection()
+			if strings.TrimSpace(output) != "" {
+				m.appendBlock(transcriptBlock{Kind: blockInfo, Title: "Slash", Body: output})
+			}
+			m.syncLayout()
+			return m, nil
+		}
+	}
 	switch msg.String() {
 	case "ctrl+c":
 		if m.running {
@@ -203,6 +229,19 @@ func (m *Model) submitInput() tea.Cmd {
 	input := strings.TrimSpace(m.input.Value())
 	if input == "" {
 		return nil
+	}
+	if input == "/resume" && !m.running {
+		if handled, output := m.openResumePicker(); handled {
+			m.addHistory(input)
+			m.input.Reset()
+			m.historyPos = len(m.history)
+			m.historyDraft = ""
+			if strings.TrimSpace(output) != "" {
+				m.appendBlock(transcriptBlock{Kind: blockInfo, Title: "Slash", Body: output})
+			}
+			m.syncLayout()
+			return nil
+		}
 	}
 	if m.slashFunc != nil && strings.HasPrefix(input, "/") {
 		output, handled, shouldExit := m.slashFunc(input)

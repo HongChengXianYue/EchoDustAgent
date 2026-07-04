@@ -15,6 +15,7 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 	}
 	switch event.Type {
 	case runtimeevent.TypeRunStart:
+		m.resumePicker = nil
 		m.running = true
 		m.runStartBlock = len(m.blocks)
 		m.interrupting = false
@@ -87,6 +88,9 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 				m.options.FileChangePreviewChars,
 			),
 		})
+		if event.Type == runtimeevent.TypeError {
+			m.persistSessionSnapshot()
+		}
 	case runtimeevent.TypeTokenUsage:
 		if event.Source == "subagent" {
 			return
@@ -107,6 +111,7 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 				Markdown: true,
 			})
 		}
+		m.persistSessionSnapshot()
 	}
 }
 

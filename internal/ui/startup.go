@@ -35,6 +35,7 @@ type StartupInfo struct {
 	MCPEnabled bool
 	MCPTools   int
 	LogFile    string
+	SessionID  string
 }
 
 func RenderStartupBanner(output io.Writer, info StartupInfo) {
@@ -90,8 +91,8 @@ func renderCompactStartup(output io.Writer, info StartupInfo) {
 	fmt.Fprintln(output)
 }
 
-// RenderStartupDetails 按需打印启动详情（workdir / model / mcp tools / log file
-// 等）。供 main 循环在用户输入 /info 时调用，启动时不自动输出。
+// RenderStartupDetails 按需打印启动详情（workdir / model / session id / mcp
+// tools / log file 等）。供 main 循环在用户输入 /info 时调用，启动时不自动输出。
 func RenderStartupDetails(output io.Writer, info StartupInfo) {
 	renderStartupDetails(output, info, "")
 }
@@ -112,6 +113,7 @@ func startupDetailLines(info StartupInfo) []string {
 		"workdir: " + info.Workdir,
 		"model: " + info.Model,
 		"wire api: " + info.WireAPI,
+		"session id: " + info.SessionID,
 	}
 	if info.MCPEnabled {
 		lines = append(lines, fmt.Sprintf("mcp tools: %d", info.MCPTools))

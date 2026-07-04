@@ -61,10 +61,11 @@ func TestStartupDetailsIncludesAllFields(t *testing.T) {
 		MCPEnabled: true,
 		MCPTools:   9,
 		LogFile:    "/tmp/log/agent.log",
+		SessionID:  "20260703T231530Z-a1b2",
 	})
 
 	text := out.String()
-	for _, want := range []string{"workdir:", "/tmp/project", "model:", "qwen3.7-plus", "wire api:", "responses", "mcp tools:", "9", "log file:"} {
+	for _, want := range []string{"workdir:", "/tmp/project", "model:", "qwen3.7-plus", "wire api:", "responses", "session id:", "20260703T231530Z-a1b2", "mcp tools:", "9", "log file:"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("details missing %q:\n%s", want, text)
 		}

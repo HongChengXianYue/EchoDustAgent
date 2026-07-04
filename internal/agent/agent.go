@@ -290,6 +290,59 @@ func (a *Agent) Messages() []llm.Message {
 	return out
 }
 
+// ConversationMessages returns the persisted conversation without the current
+// system prompt. Session restore always uses the prompt from the current
+// process. Any non-prompt system messages are downgraded to user-role context
+// so resumed sessions never reintroduce privileged system history mid-stream.
+func (a *Agent) ConversationMessages() []llm.Message {
+	if len(a.messages) <= 1 {
+		return nil
+	}
+	return cloneRestorableConversation(a.messages[1:])
+}
+
+// RestoreConversation resets the in-memory chat history to the current system
+// prompt plus a previously persisted conversation.
+func (a *Agent) RestoreConversation(messages []llm.Message) error {
+	if len(a.messages) == 0 || a.messages[0].Role != "system" {
+		return fmt.Errorf("agent is missing its system prompt")
+	}
+	restored := make([]llm.Message, 0, len(messages)+1)
+	restored = append(restored, a.messages[0])
+	restored = append(restored, cloneRestorableConversation(messages)...)
+	a.messages = restored
+	a.pruneTransientToolHistory()
+	a.todoTool.Reset()
+	a.autoTodoText = ""
+	a.resetSubagentIndexes()
+	a.tokenMu.Lock()
+	a.tokenUsage = tokenUsage{}
+	a.tokenMu.Unlock()
+	return nil
+}
+
+func cloneRestorableConversation(messages []llm.Message) []llm.Message {
+	if len(messages) == 0 {
+		return nil
+	}
+	out := make([]llm.Message, len(messages))
+	for i, message := range messages {
+		out[i] = cloneRestorableMessage(message)
+	}
+	return out
+}
+
+func cloneRestorableMessage(message llm.Message) llm.Message {
+	out := message
+	if len(message.ToolCalls) > 0 {
+		out.ToolCalls = append([]llm.ToolCall(nil), message.ToolCalls...)
+	}
+	if out.Role == "system" {
+		out.Role = "user"
+	}
+	return out
+}
+
 // addTokenUsage accumulates one LLM call's usage and returns the new cumulative total.
 func (a *Agent) addTokenUsage(usage *llm.TokenUsage) int {
 	a.tokenMu.Lock()

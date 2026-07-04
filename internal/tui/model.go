@@ -12,11 +12,14 @@ import (
 
 	"local-agent/internal/approval"
 	"local-agent/internal/runtimeevent"
+	"local-agent/internal/session"
 	"local-agent/internal/ui"
 )
 
 type RunFunc func(ctx context.Context, input string) error
 type SlashFunc func(input string) (output string, handled bool, shouldExit bool)
+type ResumeListFunc func() ([]session.Meta, error)
+type ResumeSelectFunc func(sessionID string) (string, error)
 
 type runtimeEventMsg struct {
 	Event runtimeevent.Event
@@ -60,6 +63,11 @@ type tokenState struct {
 	Cached     int
 }
 
+type resumePickerState struct {
+	Sessions []session.Meta
+	Selected int
+}
+
 type subagentSession struct {
 	Index     int
 	Task      string
@@ -79,6 +87,9 @@ type Model struct {
 	startup       ui.StartupInfo
 	runFunc       RunFunc
 	slashFunc     SlashFunc
+	resumeList    ResumeListFunc
+	resumeSelect  ResumeSelectFunc
+	snapshotSaver func(session.UISnapshot)
 	slashCommands []ui.CommandSuggestion
 	commandByName map[string]ui.CommandSuggestion
 
@@ -91,6 +102,7 @@ type Model struct {
 	blocks           []transcriptBlock
 	assistantDraft   string
 	approval         *approvalState
+	resumePicker     *resumePickerState
 	todos            []runtimeevent.TodoItem
 	subagents        map[int]*subagentSession
 	subagentOrder    []int
@@ -210,6 +222,15 @@ func (m *Model) SetRunFunc(runFunc RunFunc) {
 
 func (m *Model) SetSlashFunc(slashFunc SlashFunc) {
 	m.slashFunc = slashFunc
+}
+
+func (m *Model) SetResumePickerHandlers(list ResumeListFunc, selectFn ResumeSelectFunc) {
+	m.resumeList = list
+	m.resumeSelect = selectFn
+}
+
+func (m *Model) SetSessionSnapshotSaver(save func(session.UISnapshot)) {
+	m.snapshotSaver = save
 }
 
 func (m *Model) SetSlashCommands(commands []ui.CommandSuggestion) {

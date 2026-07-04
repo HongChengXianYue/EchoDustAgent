@@ -95,6 +95,9 @@ func (m *Model) renderFooter() string {
 }
 
 func (m *Model) renderSuggestions() string {
+	if m.resumePickerActive() {
+		return ""
+	}
 	matches := m.matchedSlashCommands()
 	if len(matches) == 0 {
 		return ""

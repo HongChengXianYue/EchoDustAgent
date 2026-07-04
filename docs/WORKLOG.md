@@ -758,3 +758,65 @@
   - 补充测试，明确要求同一 session 内第二次 workspace write 不再出现新的审批事件。
 - 验证：`gofmt -w internal/approval/types.go internal/approval/memory.go internal/approval/approval_test.go internal/agent/tool_approval.go internal/agent/agent_test.go` 通过；`go test ./internal/approval ./internal/agent` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
 - 备注：这次只压掉“缓存命中后的重复审批日志”；第一次真实审批，以及 loop 级 external write 的按轮审批行为没有变化。
+
+## 2026-07-03 - 新增 session 持久化与 `/resume`
+
+- 摘要：为当前 workspace 增加基于 JSON 的 session 持久化，并接入 `/resume`。现在每轮对话结束后会把会话保存到 `~/.echo-dust-code/session`，之后可以列出最近 session、恢复最新 session，或按 session id 前缀恢复指定会话。
+- 主要模块：`internal/session/session.go`、`cmd/agent/session_runtime.go`、`cmd/agent/slash.go`、`cmd/agent/main.go`、`internal/agent/agent.go`、`internal/tui/session.go`、`internal/config/config.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - 新增 `internal/session`，按 `projects/<workspace-slug>/<session-id>/meta.json + state.json` 保存会话；持久化内容包含 conversation history 和可选 TUI snapshot。
+  - `Agent` 新增 `ConversationMessages()` 和 `RestoreConversation()`，恢复时保留当前进程生成的 system prompt，只替换 system 之后的历史消息，并重置 token 统计。
+  - `TUI` 新增 session snapshot 导出/导入；恢复后会替换当前 transcript，并追加一条 resumed 提示块。
+  - slash 入口改成有状态 router，支持 `/resume`、当前 session id 展示，以及运行中拒绝恢复。
+  - 新增 `session.enabled` / `session.dir` 配置项；默认启用，目录默认 `~/.echo-dust-code/session`。
+- 验证：`gofmt -w cmd/agent/main.go cmd/agent/session_runtime.go cmd/agent/slash.go cmd/agent/slash_test.go internal/agent/agent.go internal/agent/session_test.go internal/config/config.go internal/config/config_test.go internal/config/yaml.go internal/session/session.go internal/session/session_test.go internal/tui/model.go internal/tui/model_events.go internal/tui/model_update.go internal/tui/session.go internal/tui/session_test.go internal/ui/startup.go internal/ui/startup_test.go` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 已知限制/后续风险：
+  - 当前只支持按 workspace 维度列出和恢复 session，不做跨项目全局搜索。
+  - classic UI 只恢复对话历史，不恢复旧 TUI transcript；TUI 才会加载 UI snapshot。
+  - 当前没有 `/new`、删除 session、重命名 session 等额外管理命令。
+
+## 2026-07-04 - `/resume` 在 TUI 中改为可选列表
+
+- 摘要：把 TUI 里的 `/resume` 从“输出一段最近 session 文本”改成“打开可导航的 session 选择列表”。现在在 TUI 中输入 `/resume` 后，可以直接用 `↑/↓` 或 `j/k` 选择目标 session，按 `Enter` 恢复，按 `Esc` 取消；classic UI 仍保持原来的文本列表行为。
+- 主要模块：`internal/tui/model.go`、`internal/tui/model_update.go`、`internal/tui/model_layout.go`、`internal/tui/model_render.go`、`internal/tui/resume_picker.go`、`internal/tui/session_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - TUI 新增 resume picker 状态和回调接口，不再把 `/resume` 无参路径直接交给 slash 文本输出。
+  - picker 会把最近 session 渲染到正文区，提供选择高亮和操作提示；slash 自动补全提示在 picker 打开时隐藏，避免视觉冲突。
+  - 运行中的 `/resume` 仍然不允许打开 picker，会继续走原 slash 错误路径。
+  - 选择确认后，仍然复用已有 session 恢复逻辑；也就是说，恢复后的 system prompt、历史会话和 TUI snapshot 语义没有变化，只是交互方式更直接。
+- 验证：`gofmt -w cmd/agent/main.go internal/tui/model.go internal/tui/model_events.go internal/tui/model_layout.go internal/tui/model_render.go internal/tui/model_update.go internal/tui/resume_picker.go internal/tui/session.go internal/tui/session_test.go` 通过；`go test ./internal/tui ./cmd/agent` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：当前 picker 只接在 TUI 的 `/resume` 无参场景；`/resume latest` 和 `/resume <id>` 仍走原来的命令路径，classic UI 也继续输出文本，不额外实现交互列表。
+
+## 2026-07-04 - `/resume` 不再恢复历史 tool 调用块
+
+- 摘要：收敛 session 恢复时的 TUI 内容。现在 resume 只恢复对话和必要信息块，不再把历史 `Tool ...` 调用块重新展示出来，避免恢复后的页面被旧工具操作噪音占满。
+- 主要模块：`internal/tui/session.go`、`internal/tui/session_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - session snapshot 导出时会过滤 `blockToolCall`，不再把 tool 调用块写入持久化 UI 快照。
+  - session 恢复时也会再次过滤一次；这样即使磁盘上已有旧 snapshot 带着 tool 调用块，恢复时也不会再显示出来。
+  - Agent 的真实消息历史没有改动；只收敛 TUI resume 展示层，不影响后续上下文连续性。
+- 验证：`gofmt -w internal/tui/session.go internal/tui/session_test.go` 通过；`go test ./internal/tui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：当前只过滤 `blockToolCall`；普通 assistant/user/error/info 块仍然会按原样恢复。
+
+## 2026-07-04 - `/resume` 兼容历史内部 system 消息
+
+- 摘要：修复 session 恢复失败问题。之前异步 `delegate_task` 完成后会把结论注入为内部 `system` message，session 保存时把这类消息原样落盘，但恢复时又严格拒绝任何历史 `system` message，导致 `/resume` 直接报 `restored conversation must not contain system messages`。现在保存和恢复都会把“首条 prompt 之外的 system 历史”降级为普通用户上下文，旧 session 也能继续恢复。
+- 主要模块：`internal/agent/agent.go`、`internal/agent/session_test.go`、`cmd/agent/slash_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - `ConversationMessages()` 改为统一走可恢复消息克隆逻辑，不再把中途插入的 `system` 历史原样写入 session。
+  - `RestoreConversation()` 改为兼容清洗旧存档；恢复时仍然只保留当前进程生成的首条 system prompt，其余历史 `system` message 会被转成普通 `user` 上下文。
+  - 新增 agent 级回归测试，覆盖保存与恢复时的 system-message 规范化。
+- 新增 `/resume` 集成测试，覆盖磁盘上已有旧格式 session 时的恢复行为。
+- 验证：`gofmt -w internal/agent/agent.go internal/agent/session_test.go cmd/agent/slash_test.go` 通过；`go test ./internal/agent ./cmd/agent ./internal/tui` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
+- 备注：这次只修复历史消息角色规范化，不改变 session 的目录结构、JSON 存储格式，也不恢复历史 tool 调用块。
+
+## 2026-07-04 - `/resume` 不再展示历史 subagent 信息
+
+- 摘要：继续收敛 session 恢复后的 TUI 展示。现在 resume 只恢复主对话 transcript 和主 agent token 快照，不再保存或恢复历史 subagent 列表、子代理输出块和对应的底部统计；即使旧 session 文件里已经带有 `subagents` 字段，恢复时也会主动忽略。
+- 主要模块：`internal/tui/session.go`、`internal/tui/session_test.go`、`docs/WORKLOG.md`。
+- 改动要点：
+  - `SessionSnapshot()` 不再把 `m.subagentOrder` / `m.subagents` 写入 session UI 快照。
+  - `LoadSessionSnapshot()` 在恢复主 transcript 前先清空 subagent 状态，并忽略旧快照里的 `snapshot.Subagents`，避免 resume 后重新打开 Subagents 面板。
+  - 新增 TUI 回归测试，分别覆盖“新快照不持久化 subagent”和“旧快照里的 subagent 会被忽略”。
+- 验证：`gofmt -w internal/tui/session.go internal/tui/session_test.go` 通过；`go test ./internal/tui ./cmd/agent ./internal/agent` 通过；`go test ./...` 通过；`go vet ./...` 通过；`git diff --check` 通过。
+- 备注：这次只影响 `/resume` 的恢复展示；运行中的 subagent 面板、实时事件和 token 统计逻辑不变。

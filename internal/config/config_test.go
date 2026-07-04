@@ -39,6 +39,9 @@ mcp:
   dir: /tmp/echo-dust-code-mcp
   start_timeout_seconds: 3
   request_timeout_seconds: 4
+session:
+  enabled: false
+  dir: /tmp/echo-dust-code-session
 context:
   window_tokens: 5000
   prune_tool_result_max_bytes: 64
@@ -122,6 +125,12 @@ ui:
 	}
 	if cfg.MCP.StartTimeoutSeconds != 3 || cfg.MCP.RequestTimeoutSeconds != 4 {
 		t.Fatalf("mcp timeouts = %#v", cfg.MCP)
+	}
+	if cfg.Session.Enabled {
+		t.Fatalf("session enabled = true, want false")
+	}
+	if cfg.Session.Dir != "/tmp/echo-dust-code-session" {
+		t.Fatalf("session dir = %q", cfg.Session.Dir)
 	}
 	if cfg.Context.WindowTokens != 5000 {
 		t.Fatalf("context window tokens = %d", cfg.Context.WindowTokens)

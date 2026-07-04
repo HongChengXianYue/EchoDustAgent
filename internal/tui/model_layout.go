@@ -79,6 +79,9 @@ func (m *Model) rebuildViewportContent() {
 	if todoBlock != "" {
 		parts = append(parts, todoBlock)
 	}
+	if picker := m.renderResumePicker(bodyWidth); strings.TrimSpace(picker) != "" {
+		parts = append(parts, picker)
+	}
 	// approvalPromptMsg and runtimeEventMsg are sent separately; if the prompt
 	// arrives first, keep the inline approval visible instead of waiting for the
 	// approval_request event block to catch up.

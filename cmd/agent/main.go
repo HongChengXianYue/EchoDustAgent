@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -20,6 +21,7 @@ import (
 	"local-agent/internal/logs"
 	"local-agent/internal/mcp"
 	"local-agent/internal/memory"
+	"local-agent/internal/session"
 	"local-agent/internal/tools"
 	"local-agent/internal/tui"
 	"local-agent/internal/ui"
@@ -74,7 +76,7 @@ func main() {
 	})
 	codingAgent := agent.NewWithWorkspaceAndOptions(client, registry, cfg.Agent.MaxSteps, workdir, agentOptions(cfg.Agent, cfg.Subagents, cfg.Context, loadedMemory))
 
-	startupInfo = ui.StartupInfo{
+	startupInfo := ui.StartupInfo{
 		Workdir:    workdir,
 		Model:      cfg.LLM.Model,
 		WireAPI:    cfg.LLM.WireAPI,
@@ -82,9 +84,27 @@ func main() {
 		MCPTools:   mcpToolCount(mcpManager),
 		LogFile:    logger.Path(),
 	}
+	sessions, err := newSessionRuntime(cfg.Session, workdir, codingAgent, &startupInfo)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	var runStateMu sync.Mutex
+	isRunning := false
+	setRunning := func(v bool) {
+		runStateMu.Lock()
+		isRunning = v
+		runStateMu.Unlock()
+	}
+	currentlyRunning := func() bool {
+		runStateMu.Lock()
+		defer runStateMu.Unlock()
+		return isRunning
+	}
+	slash := newSlashRouter(&startupInfo, sessions, currentlyRunning)
 
 	if isInteractiveTTY(os.Stdin) && isInteractiveTTY(os.Stdout) {
-		if err := runTUI(codingAgent, cfg.UI, startupInfo); err != nil {
+		if err := runTUI(codingAgent, cfg.UI, &startupInfo, slash, sessions, setRunning); err != nil {
 			logs.Errorf("tui exited with error: %v", err)
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -92,20 +112,35 @@ func main() {
 		return
 	}
 
-	runClassicUI(codingAgent, cfg.UI, startupInfo)
+	runClassicUI(codingAgent, cfg.UI, startupInfo, slash, sessions, setRunning)
 }
 
-func runTUI(codingAgent *agent.Agent, cfg config.UIConfig, startup ui.StartupInfo) (err error) {
+func runTUI(codingAgent *agent.Agent, cfg config.UIConfig, startup *ui.StartupInfo, slash *slashRouter, sessions *sessionRuntime, setRunning func(bool)) (err error) {
 	bridge := tui.NewBridge()
-	model := tui.NewModel(uiOptions(cfg), startup, bridge)
+	model := tui.NewModel(uiOptions(cfg), *startup, bridge)
 	model.SetRunFunc(func(ctx context.Context, input string) error {
+		setRunning(true)
+		defer setRunning(false)
 		_, err := codingAgent.Run(ctx, input)
 		return err
 	})
-	model.SetSlashFunc(dispatchSlashText)
-	model.SetSlashCommands(SlashCommandList())
+	model.SetSlashFunc(slash.DispatchText)
+	model.SetSlashCommands(slash.CommandList())
+	model.SetResumePickerHandlers(
+		func() ([]session.Meta, error) { return sessions.Recent(10) },
+		func(sessionID string) (string, error) {
+			_, err := sessions.Resume(sessionID)
+			return "", err
+		},
+	)
+	model.SetSessionSnapshotSaver(func(snapshot session.UISnapshot) {
+		if err := sessions.SaveUISnapshot(snapshot); err != nil {
+			logs.Errorf("save session snapshot failed: %v", err)
+		}
+	})
 	codingAgent.SetRenderer(model)
 	codingAgent.SetApprover(approval.NewMemoryApprover(tui.NewBubbleApprover(bridge)))
+	sessions.SetUI(model)
 
 	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	bridge.SetProgram(program)
@@ -130,7 +165,7 @@ func runTUI(codingAgent *agent.Agent, cfg config.UIConfig, startup ui.StartupInf
 	return err
 }
 
-func runClassicUI(codingAgent *agent.Agent, cfg config.UIConfig, startup ui.StartupInfo) {
+func runClassicUI(codingAgent *agent.Agent, cfg config.UIConfig, startup ui.StartupInfo, slash *slashRouter, sessions *sessionRuntime, setRunning func(bool)) {
 	renderer := ui.NewInteractiveBlockRendererWithOptions(os.Stdin, os.Stdout, uiOptions(cfg))
 	codingAgent.SetRenderer(renderer)
 	codingAgent.SetApprover(approval.NewMemoryApprover(approval.NewTerminalApprover(os.Stdin, os.Stdout)))
@@ -164,7 +199,7 @@ func runClassicUI(codingAgent *agent.Agent, cfg config.UIConfig, startup ui.Star
 	}()
 
 	prompt := ui.NewPrompt(os.Stdin, os.Stdout)
-	prompt.SetCommands(SlashCommandList())
+	prompt.SetCommands(slash.CommandList())
 	for {
 		line, ok := prompt.ReadLine("› ")
 		if !ok {
@@ -174,7 +209,7 @@ func runClassicUI(codingAgent *agent.Agent, cfg config.UIConfig, startup ui.Star
 		if input == "" {
 			continue
 		}
-		if handled, shouldExit := dispatchSlash(input); handled {
+		if handled, shouldExit := slash.Dispatch(input); handled {
 			if shouldExit {
 				return
 			}
@@ -186,16 +221,25 @@ func runClassicUI(codingAgent *agent.Agent, cfg config.UIConfig, startup ui.Star
 		running = true
 		cancelCurrent = cancel
 		runMu.Unlock()
+		setRunning(true)
 
 		if _, err := codingAgent.Run(runCtx, input); err != nil {
 			logs.Errorf("agent run failed: input=%q err=%v", input, err)
-			fmt.Fprintln(os.Stderr, "run failed:", err)
+			if !errors.Is(err, context.Canceled) {
+				fmt.Fprintln(os.Stderr, "run failed:", err)
+			}
+		}
+		if runErr := runCtx.Err(); runErr == nil || !errors.Is(runErr, context.Canceled) {
+			if err := sessions.SaveConversationOnly(); err != nil {
+				logs.Errorf("save session failed: %v", err)
+			}
 		}
 		cancel()
 		runMu.Lock()
 		running = false
 		cancelCurrent = nil
 		runMu.Unlock()
+		setRunning(false)
 	}
 }
 
