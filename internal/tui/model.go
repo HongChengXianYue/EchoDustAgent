@@ -99,31 +99,34 @@ type Model struct {
 	input    textinput.Model
 	viewport viewport.Model
 
-	blocks           []transcriptBlock
-	assistantDraft   string
-	approval         *approvalState
-	resumePicker     *resumePickerState
-	todos            []runtimeevent.TodoItem
-	subagents        map[int]*subagentSession
-	subagentOrder    []int
-	subagentTaskMap  map[string]int
-	nextSubagentID   int
-	showSubagents    bool
-	selectedSubagent int
-	viewingSubagent  bool
-	subagentViewport viewport.Model
-	subagentHeight   int
-	history          []string
-	historyPos       int
-	historyDraft     string
-	running          bool
-	runStartBlock    int
-	interrupting     bool
-	cancelCurrent    context.CancelFunc
-	lastRunHadFinal  bool
-	runErrorReported bool
-	lastTool         string
-	tokens           tokenState
+	blocks                []transcriptBlock
+	assistantDraft        string
+	approval              *approvalState
+	resumePicker          *resumePickerState
+	todos                 []runtimeevent.TodoItem
+	subagents             map[int]*subagentSession
+	subagentOrder         []int
+	subagentTaskMap       map[string]int
+	nextSubagentID        int
+	showSubagents         bool
+	selectedSubagent      int
+	viewingSubagent       bool
+	subagentViewport      viewport.Model
+	subagentHeight        int
+	history               []string
+	historyPos            int
+	historyDraft          string
+	layoutDirty           bool
+	viewportDirty         bool
+	subagentViewportDirty bool
+	running               bool
+	runStartBlock         int
+	interrupting          bool
+	cancelCurrent         context.CancelFunc
+	lastRunHadFinal       bool
+	runErrorReported      bool
+	lastTool              string
+	tokens                tokenState
 
 	markdownRenderer  *glamour.TermRenderer
 	markdownWrapWidth int
@@ -216,6 +219,9 @@ func NewModel(options ui.Options, startup ui.StartupInfo, bridge *Bridge) *Model
 		subagentSelectedStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true),
 		subagentOpenStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true),
 		subagentIdleStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("245")),
+		layoutDirty:           true,
+		viewportDirty:         true,
+		subagentViewportDirty: true,
 	}
 	model.input.Focus()
 	model.historyPos = 0

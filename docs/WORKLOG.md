@@ -880,3 +880,10 @@
 - 主要模块：`internal/tui/model.go`、`internal/tui/model_layout.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
 - 验证：`gofmt -w internal/tui/model.go internal/tui/model_layout.go internal/tui/model_test.go` 通过；`go test ./internal/tui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
 - 备注：当前行号仍保持右对齐，因此左侧可见的空白主要来自行号列本身，而不再是额外的 transcript 缩进；如果后续希望连行号列的前导空格也视觉更弱，可以再单独调整行号 gutter 的样式。
+
+## 2026-07-04 - TUI 滚动卡顿与“内存泄漏”问题修复
+
+- 摘要：修复主 TUI 在滚轮滚动时无条件重建整份 transcript 的问题。现在 `syncLayout()` 会基于布局、主 viewport 和 subagent viewport 三类脏标记按需重建，滚轮滚动只更新 `YOffset`，不再触发整页 diff 重渲染和全文 `SetContent`。同时新增专门文档记录这次被感知为“内存泄漏”的根因、修复边界与后续建议。
+- 主要模块：`internal/tui/model_dirty.go`、`internal/tui/model.go`、`internal/tui/model_layout.go`、`internal/tui/model_events.go`、`internal/tui/model_subagent.go`、`internal/tui/model_update.go`、`internal/tui/resume_picker.go`、`internal/tui/session.go`、`internal/tui/model_test.go`、`docs/TUI_SCROLL_MEMORY_ISSUE.md`。
+- 验证：`gofmt -w internal/tui/model_dirty.go internal/tui/model.go internal/tui/model_layout.go internal/tui/model_events.go internal/tui/model_subagent.go internal/tui/model_update.go internal/tui/session.go internal/tui/resume_picker.go internal/tui/model_test.go` 通过；`go test ./internal/tui ./internal/ui` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：这次主要消除了滚动路径上的高频全文重建与重复分配，显著缓解了卡顿和滚动失真；但 transcript 常驻内存仍会随会话增长，diff 语法高亮在内容真正重建时仍会继续执行，后续如有需要可继续做 transcript 虚拟化与 diff 渲染缓存。

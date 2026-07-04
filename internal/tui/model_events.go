@@ -25,10 +25,13 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 		m.assistantDraft = ""
 		m.todos = nil
 		m.tokens = tokenState{}
+		m.markLayoutDirty()
+		m.markViewportDirty()
 	case runtimeevent.TypeRunEnd:
 		m.running = false
 		m.interrupting = false
 		m.hideSubagentPanel()
+		m.markViewportDirty()
 	case runtimeevent.TypeUserMessage:
 		if strings.TrimSpace(event.Message) != "" {
 			m.appendBlock(transcriptBlock{Kind: blockUser, Title: "You", Body: event.Message})
@@ -36,6 +39,7 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 	case runtimeevent.TypeAssistantDelta:
 		if strings.TrimSpace(event.Delta) != "" {
 			m.assistantDraft += event.Delta
+			m.markViewportDirty()
 		}
 	case runtimeevent.TypeAssistantMessage:
 		if strings.TrimSpace(event.Message) != "" {
@@ -47,6 +51,7 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 		}
 	case runtimeevent.TypeTodoUpdate:
 		m.todos = append([]runtimeevent.TodoItem(nil), event.Todos...)
+		m.markViewportDirty()
 	case runtimeevent.TypeToolCall,
 		runtimeevent.TypeToolResult,
 		runtimeevent.TypeApprovalRequest,
@@ -103,9 +108,11 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 		m.tokens.Completion += event.CompletionTokens
 		m.tokens.Cached += event.CachedTokens
 		m.tokens.Total = event.CumulativeTotal
+		m.markLayoutDirty()
 	case runtimeevent.TypeFinal:
 		m.lastRunHadFinal = true
 		m.assistantDraft = ""
+		m.markViewportDirty()
 		m.hideSubagentPanel()
 		if strings.TrimSpace(event.Message) != "" {
 			m.appendBlock(transcriptBlock{
@@ -121,6 +128,7 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 
 func (m *Model) appendBlock(block transcriptBlock) {
 	m.blocks = append(m.blocks, block)
+	m.markViewportDirty()
 }
 
 func (m *Model) appendDiffBlocks(result tools.Result) {

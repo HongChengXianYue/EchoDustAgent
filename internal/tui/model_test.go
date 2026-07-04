@@ -525,6 +525,61 @@ func TestMouseWheelScrollsViewport(t *testing.T) {
 	}
 }
 
+func TestMouseWheelDoesNotDirtyViewportContent(t *testing.T) {
+	model := newSizedTestModel()
+	model.Update(tea.WindowSizeMsg{Width: 60, Height: 12})
+	for i := 0; i < 24; i++ {
+		model.appendBlock(transcriptBlock{
+			Kind:  blockInfo,
+			Title: "Event",
+			Body:  "line",
+		})
+	}
+	model.syncLayout()
+	_ = model.View()
+	if model.layoutDirty || model.viewportDirty || model.subagentViewportDirty {
+		t.Fatalf("expected clean layout before scroll, got layout=%v viewport=%v subagent=%v", model.layoutDirty, model.viewportDirty, model.subagentViewportDirty)
+	}
+
+	model.viewport.GotoTop()
+	model.Update(tea.MouseMsg{
+		X:      1,
+		Y:      1,
+		Button: tea.MouseButtonWheelDown,
+		Action: tea.MouseActionPress,
+		Type:   tea.MouseWheelDown,
+	})
+
+	if model.layoutDirty || model.viewportDirty || model.subagentViewportDirty {
+		t.Fatalf("scroll should not rebuild transcript, got layout=%v viewport=%v subagent=%v", model.layoutDirty, model.viewportDirty, model.subagentViewportDirty)
+	}
+	_ = model.View()
+	if model.layoutDirty || model.viewportDirty || model.subagentViewportDirty {
+		t.Fatalf("view after scroll should stay clean, got layout=%v viewport=%v subagent=%v", model.layoutDirty, model.viewportDirty, model.subagentViewportDirty)
+	}
+}
+
+func TestTypingSlashCommandMarksLayoutDirtyAndRendersSuggestions(t *testing.T) {
+	model := newSizedTestModel()
+	_ = model.View()
+	if model.layoutDirty || model.viewportDirty || model.subagentViewportDirty {
+		t.Fatalf("expected clean layout before typing, got layout=%v viewport=%v subagent=%v", model.layoutDirty, model.viewportDirty, model.subagentViewportDirty)
+	}
+
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	if !model.layoutDirty {
+		t.Fatal("typing slash should mark layout dirty so suggestions can resize the transcript viewport")
+	}
+
+	view := model.View()
+	if !containsAll(view, "/info", "/quit") {
+		t.Fatalf("expected slash suggestions after typing '/':\n%s", view)
+	}
+	if model.layoutDirty || model.viewportDirty || model.subagentViewportDirty {
+		t.Fatalf("expected clean layout after rendering suggestions, got layout=%v viewport=%v subagent=%v", model.layoutDirty, model.viewportDirty, model.subagentViewportDirty)
+	}
+}
+
 func TestApprovalPromptSelectsFirstOptionOnEnter(t *testing.T) {
 	model := newSizedTestModel()
 	response := make(chan approval.Decision, 1)

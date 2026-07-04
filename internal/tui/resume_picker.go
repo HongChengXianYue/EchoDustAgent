@@ -21,11 +21,13 @@ func (m *Model) openResumePicker() (bool, string) {
 	m.resumePicker = &resumePickerState{
 		Sessions: sessions,
 	}
+	m.markViewportDirty()
 	return true, ""
 }
 
 func (m *Model) cancelResumePicker() {
 	m.resumePicker = nil
+	m.markViewportDirty()
 }
 
 func (m *Model) moveResumeSelection(delta int) {
@@ -34,6 +36,7 @@ func (m *Model) moveResumeSelection(delta int) {
 	}
 	count := len(m.resumePicker.Sessions)
 	m.resumePicker.Selected = (m.resumePicker.Selected + delta + count) % count
+	m.markViewportDirty()
 }
 
 func (m *Model) confirmResumeSelection() string {
@@ -46,6 +49,7 @@ func (m *Model) confirmResumeSelection() string {
 	}
 	selected := m.resumePicker.Sessions[m.resumePicker.Selected]
 	m.resumePicker = nil
+	m.markViewportDirty()
 	output, err := m.resumeSelect(selected.SessionID)
 	if err != nil {
 		if strings.TrimSpace(output) != "" {
@@ -98,6 +102,7 @@ func (m *Model) resumePickerActive() bool {
 
 func (m *Model) hideResumePicker() {
 	m.resumePicker = nil
+	m.markViewportDirty()
 }
 
 func renderResumePickerHeader(selected bool, id string, updated string) string {

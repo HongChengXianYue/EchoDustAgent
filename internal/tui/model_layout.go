@@ -17,43 +17,72 @@ func (m *Model) syncLayout() {
 	if m.width <= 0 || m.height <= 0 {
 		return
 	}
-	suggestionCount := len(m.matchedSlashCommands())
-	if suggestionCount > 5 {
-		suggestionCount = 5
+	if !m.layoutDirty && !m.viewportDirty && !m.subagentViewportDirty {
+		return
 	}
-	headerHeight := lipgloss.Height(m.renderHeader())
-	inputHeight := 1 + m.inputBoxStyle.GetVerticalFrameSize() + suggestionCount
-	footerHeight := 0
-	if m.footerSummary(max(12, m.width-2)) != "" {
-		footerHeight = 1
-	}
-	panelHeight := m.computeSubagentHeight(headerHeight, inputHeight)
-	m.subagentHeight = panelHeight
+	if m.layoutDirty {
+		mainAtBottom := m.viewport.AtBottom()
+		subagentAtBottom := m.subagentViewport.AtBottom()
+		prevViewportHeight := m.viewport.Height
+		prevSubagentHeight := m.subagentViewport.Height
+		suggestionCount := len(m.matchedSlashCommands())
+		if suggestionCount > 5 {
+			suggestionCount = 5
+		}
+		headerHeight := lipgloss.Height(m.renderHeader())
+		inputHeight := 1 + m.inputBoxStyle.GetVerticalFrameSize() + suggestionCount
+		footerHeight := 0
+		if m.footerSummary(max(12, m.width-2)) != "" {
+			footerHeight = 1
+		}
+		panelHeight := m.computeSubagentHeight(headerHeight, inputHeight)
+		m.subagentHeight = panelHeight
 
-	innerWidth := max(20, m.width-m.contentStyle.GetHorizontalFrameSize())
-	viewportHeight := m.height - headerHeight - inputHeight - panelHeight - footerHeight
-	if viewportHeight < 5 {
-		viewportHeight = 5
-	}
+		innerWidth := max(20, m.width-m.contentStyle.GetHorizontalFrameSize())
+		viewportHeight := m.height - headerHeight - inputHeight - panelHeight - footerHeight
+		if viewportHeight < 5 {
+			viewportHeight = 5
+		}
+		viewportWidth := max(20, innerWidth-contentLeftInset)
+		if m.viewport.Width != viewportWidth {
+			m.viewportDirty = true
+		}
+		m.viewport.Width = viewportWidth
+		m.viewport.Height = viewportHeight
 
-	m.viewport.Width = max(20, innerWidth-contentLeftInset)
-	m.viewport.Height = viewportHeight
-	inputInnerWidth := max(10, m.width-m.inputBoxStyle.GetHorizontalFrameSize())
-	m.input.Width = max(10, inputInnerWidth-lipgloss.Width(m.input.Prompt)-1)
-	subagentInnerWidth := max(20, m.width-m.subagentBoxStyle.GetHorizontalFrameSize())
-	subagentInnerHeight := max(1, panelHeight-m.subagentBoxStyle.GetVerticalFrameSize())
-	if m.viewingSubagent {
-		subagentInnerHeight = max(2, subagentInnerHeight)
-	}
-	m.subagentViewport.Width = subagentInnerWidth
-	if m.viewingSubagent {
-		m.subagentViewport.Height = max(1, subagentInnerHeight-1)
-	} else {
-		m.subagentViewport.Height = max(1, subagentInnerHeight)
-	}
+		inputInnerWidth := max(10, m.width-m.inputBoxStyle.GetHorizontalFrameSize())
+		m.input.Width = max(10, inputInnerWidth-lipgloss.Width(m.input.Prompt)-1)
 
-	m.rebuildViewportContent()
-	m.rebuildSubagentViewportContent()
+		subagentInnerWidth := max(20, m.width-m.subagentBoxStyle.GetHorizontalFrameSize())
+		subagentInnerHeight := max(1, panelHeight-m.subagentBoxStyle.GetVerticalFrameSize())
+		if m.viewingSubagent {
+			subagentInnerHeight = max(2, subagentInnerHeight)
+		}
+		if m.subagentViewport.Width != subagentInnerWidth {
+			m.subagentViewportDirty = true
+		}
+		m.subagentViewport.Width = subagentInnerWidth
+		if m.viewingSubagent {
+			m.subagentViewport.Height = max(1, subagentInnerHeight-1)
+		} else {
+			m.subagentViewport.Height = max(1, subagentInnerHeight)
+		}
+		if !m.viewportDirty && mainAtBottom && prevViewportHeight != m.viewport.Height {
+			m.viewport.GotoBottom()
+		}
+		if !m.subagentViewportDirty && subagentAtBottom && prevSubagentHeight != m.subagentViewport.Height {
+			m.subagentViewport.GotoBottom()
+		}
+		m.layoutDirty = false
+	}
+	if m.viewportDirty {
+		m.rebuildViewportContent()
+		m.viewportDirty = false
+	}
+	if m.subagentViewportDirty {
+		m.rebuildSubagentViewportContent()
+		m.subagentViewportDirty = false
+	}
 }
 
 func (m *Model) rebuildViewportContent() {

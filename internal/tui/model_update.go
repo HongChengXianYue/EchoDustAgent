@@ -16,6 +16,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.markLayoutDirty()
 		m.syncLayout()
 		return m, nil
 	case runtimeEventMsg:
@@ -28,6 +29,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Options:  approval.DecisionOptions(msg.Request),
 			Response: msg.Response,
 		}
+		m.markViewportDirty()
 		m.syncLayout()
 		m.viewport.GotoBottom()
 		return m, nil
@@ -36,6 +38,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.running = false
 		m.interrupting = false
 		m.hideSubagentPanel()
+		m.markViewportDirty()
 		if msg.Err != nil && !errors.Is(msg.Err, context.Canceled) && !m.runErrorReported {
 			if !m.lastRunHadFinal && strings.TrimSpace(m.assistantDraft) != "" {
 				m.appendBlock(transcriptBlock{
@@ -52,6 +55,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.Err != nil {
 			m.assistantDraft = ""
+			m.markViewportDirty()
 		}
 		m.syncLayout()
 		if msg.Err != nil && !errors.Is(msg.Err, context.Canceled) {
@@ -77,9 +81,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateKey(msg)
 	}
 
-	var cmd tea.Cmd
-	m.input, cmd = m.input.Update(msg)
-	return m, cmd
+	return m, m.updateInput(msg)
 }
 
 func (m *Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -116,6 +118,7 @@ func (m *Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		if m.viewingSubagent {
 			m.viewingSubagent = false
+			m.markLayoutDirty()
 			m.syncLayout()
 			return m, nil
 		}
@@ -130,6 +133,8 @@ func (m *Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		if m.shouldOpenSelectedSubagent() {
 			m.viewingSubagent = true
+			m.markLayoutDirty()
+			m.markSubagentViewportDirty()
 			m.syncLayout()
 			return m, nil
 		}
@@ -158,9 +163,7 @@ func (m *Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	var cmd tea.Cmd
-	m.input, cmd = m.input.Update(msg)
-	return m, cmd
+	return m, m.updateInput(msg)
 }
 
 func (m *Model) updateApproval(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -178,10 +181,12 @@ func (m *Model) updateApproval(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "left", "up", "k", "K":
 		if m.approval != nil && len(m.approval.Options) > 0 {
 			m.approval.Selected = (m.approval.Selected - 1 + len(m.approval.Options)) % len(m.approval.Options)
+			m.markViewportDirty()
 		}
 	case "right", "down", "j", "J", "tab":
 		if m.approval != nil && len(m.approval.Options) > 0 {
 			m.approval.Selected = (m.approval.Selected + 1) % len(m.approval.Options)
+			m.markViewportDirty()
 		}
 	case "a", "A", "y", "Y":
 		if decision, ok := m.quickApprovalDecision(approval.DecisionAllow, approval.DecisionAlways); ok {
@@ -219,6 +224,7 @@ func (m *Model) resolveApproval(decision approval.Decision) {
 	}
 	response := m.approval.Response
 	m.approval = nil
+	m.markViewportDirty()
 	if response != nil {
 		response <- decision
 		close(response)
@@ -234,6 +240,7 @@ func (m *Model) submitInput() tea.Cmd {
 		if handled, output := m.openResumePicker(); handled {
 			m.addHistory(input)
 			m.input.Reset()
+			m.markLayoutDirty()
 			m.historyPos = len(m.history)
 			m.historyDraft = ""
 			if strings.TrimSpace(output) != "" {
@@ -248,6 +255,7 @@ func (m *Model) submitInput() tea.Cmd {
 		if handled {
 			m.addHistory(input)
 			m.input.Reset()
+			m.markLayoutDirty()
 			m.historyPos = len(m.history)
 			m.historyDraft = ""
 			if strings.TrimSpace(output) != "" {
@@ -274,6 +282,7 @@ func (m *Model) submitInput() tea.Cmd {
 	}
 	m.addHistory(input)
 	m.input.Reset()
+	m.markLayoutDirty()
 	m.historyPos = len(m.history)
 	m.historyDraft = ""
 	return m.startRun(input)
@@ -292,6 +301,7 @@ func (m *Model) startRun(input string) tea.Cmd {
 	m.lastRunHadFinal = false
 	m.runErrorReported = false
 	m.assistantDraft = ""
+	m.markViewportDirty()
 	return func() tea.Msg {
 		var err error
 		defer func() {
@@ -331,6 +341,7 @@ func (m *Model) historyUp() bool {
 	}
 	m.historyPos--
 	m.input.SetValue(m.history[m.historyPos])
+	m.markLayoutDirty()
 	return true
 }
 
@@ -341,8 +352,21 @@ func (m *Model) historyDown() bool {
 	m.historyPos++
 	if m.historyPos == len(m.history) {
 		m.input.SetValue(m.historyDraft)
+		m.markLayoutDirty()
 		return true
 	}
 	m.input.SetValue(m.history[m.historyPos])
+	m.markLayoutDirty()
 	return true
+}
+
+func (m *Model) updateInput(msg tea.Msg) tea.Cmd {
+	beforeValue := m.input.Value()
+	beforeSuggestionCount := len(m.matchedSlashCommands())
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	if beforeValue != m.input.Value() || beforeSuggestionCount != len(m.matchedSlashCommands()) {
+		m.markLayoutDirty()
+	}
+	return cmd
 }

@@ -52,9 +52,11 @@ func (m *Model) selectPreviousSubagent() bool {
 	pos := m.selectedSubagentPosition()
 	if pos <= 0 {
 		m.selectedSubagent = m.subagentOrder[0]
+		m.markSubagentViewportDirty()
 		return true
 	}
 	m.selectedSubagent = m.subagentOrder[pos-1]
+	m.markSubagentViewportDirty()
 	return true
 }
 
@@ -65,13 +67,16 @@ func (m *Model) selectNextSubagent() bool {
 	pos := m.selectedSubagentPosition()
 	if pos < 0 {
 		m.selectedSubagent = m.subagentOrder[0]
+		m.markSubagentViewportDirty()
 		return true
 	}
 	if pos >= len(m.subagentOrder)-1 {
 		m.selectedSubagent = m.subagentOrder[len(m.subagentOrder)-1]
+		m.markSubagentViewportDirty()
 		return true
 	}
 	m.selectedSubagent = m.subagentOrder[pos+1]
+	m.markSubagentViewportDirty()
 	return true
 }
 
@@ -324,11 +329,13 @@ func (m *Model) resetSubagents() {
 	m.viewingSubagent = false
 	m.subagentViewport.SetContent("")
 	m.subagentViewport.GotoTop()
+	m.markAllDirty()
 }
 
 func (m *Model) hideSubagentPanel() {
 	m.showSubagents = false
 	m.viewingSubagent = false
+	m.markLayoutDirty()
 }
 
 // captureSubagentEvent keeps delegated work out of the main transcript so the
@@ -338,6 +345,7 @@ func (m *Model) captureSubagentEvent(event runtimeevent.Event) bool {
 		return false
 	}
 	m.showSubagents = true
+	m.markLayoutDirty()
 	session := m.ensureSubagentSession(event)
 	if session == nil {
 		return true
@@ -459,6 +467,7 @@ func (m *Model) appendSubagentBlock(session *subagentSession, event runtimeevent
 			Body:  message,
 		})
 		session.LastTitle = "Agent"
+		m.markSubagentViewportDirty()
 	case runtimeevent.TypeToolCall,
 		runtimeevent.TypeToolResult,
 		runtimeevent.TypeApprovalRequest,
@@ -493,5 +502,6 @@ func (m *Model) appendSubagentBlock(session *subagentSession, event runtimeevent
 			),
 		})
 		session.LastTitle = title
+		m.markSubagentViewportDirty()
 	}
 }
