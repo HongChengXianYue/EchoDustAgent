@@ -500,28 +500,35 @@ func TestRunUsesPromptGuidanceInsteadOfHidingToolsForGreeting(t *testing.T) {
 		"# Final Answers",
 		"Do not inspect the workspace for greetings",
 		"Only call tools when the user asks for a concrete workspace action",
-		"For multi-step coding, debugging, code-editing, or cross-file work",
+		"For multi-step coding, debugging, editing, or cross-file work",
 		"Simple single-step reads, lookups, or one-off commands do not need a todo list",
 		"multiple tool calls in one assistant turn",
 		"more than 10 non-update_todos tool calls",
 		"claiming a feature or behavior is missing",
-		"stale documentation or missing tests",
-		"distinguish true implementation gaps from incorrect behavior",
+		"stale docs, missing tests",
+		"Classify implementation problems precisely",
+		"concrete trigger path end-to-end",
+		"without a reachable user path is incomplete",
+		"verify both entry and exit paths",
+		"actual event loop, command router, or UI state transitions",
 		"git status --short -uall",
 		"git diff --check",
+		"required implementation files are tracked by git",
+		"scratch or backup artifacts such as .orig, .bak",
 		"success path, conflict or already-exists path",
-		"first hypothesis is feature missing",
+		"first try to disprove that hypothesis",
+		"Prefer the smallest complete fix",
+		"simpler configurable or directly wired solution",
 		"broad codebase analysis",
-		"delegate one or more focused research tasks",
-		"split it into multiple delegate_task calls",
+		"delegate before personally inspecting many files",
+		"split it into focused delegate_task calls",
 		"delegating multiple tasks in parallel",
-		"Do not personally inspect many files",
 		"Use workspace-relative paths",
 		"Do not cd into guessed absolute paths",
 		"use find_files first",
 		"Use list_files only when the user asks to inspect one specific directory level",
 		"under the current directory or under the workspace as recursive",
-		"Markdown is allowed for final summaries",
+		"Markdown is allowed when it improves readability",
 		"avoid decorative emoji",
 		"do not run a full diff unless the user asks",
 		"Final answers must be self-contained",
@@ -574,7 +581,7 @@ func TestNewWithWorkspaceAndOptionsAppendsSystemPromptSuffix(t *testing.T) {
 		t.Fatalf("missing captured messages: %#v", client.messages)
 	}
 	systemPrompt := client.messages[0][0].Content
-	if !strings.Contains(systemPrompt, "You are a general-purpose local agent.") {
+	if !strings.Contains(systemPrompt, "You are a general-purpose local coding agent.") {
 		t.Fatalf("system prompt lost base content:\n%s", systemPrompt)
 	}
 	if !strings.Contains(systemPrompt, "# Memory\n\nProject rule.") {
