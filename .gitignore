@@ -4,6 +4,12 @@
 # Local agent runtime state (logs, MCP server config)
 .local-agent/
 .echo-dust-code/
+.echodust-bin/
+node_modules/
+.npm-cache/
+.tmp-home/
+dist/
+*.tgz
 
 # IDE / tool config (Cursor, CodeGraph)
 .cursor/

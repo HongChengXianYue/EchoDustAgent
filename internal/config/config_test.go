@@ -260,6 +260,8 @@ func TestLoadFileRejectsSkillsWithoutRootsWhenEnabled(t *testing.T) {
 }
 
 func TestLoadFromEnvOverridesConfigDefaults(t *testing.T) {
+	t.Chdir(t.TempDir())
+	setHomeEnv(t, t.TempDir())
 	t.Setenv("AGENT_API_KEY", "test-key")
 	t.Setenv("AGENT_BASE_URL", "https://env.example/v1")
 	t.Setenv("AGENT_MODEL", "env-model")
@@ -297,4 +299,92 @@ func TestLoadFromEnvOverridesConfigDefaults(t *testing.T) {
 	if !cfg.Agent.StepTimingEnabled {
 		t.Fatalf("step timing enabled = false, want true")
 	}
+}
+
+func TestLoadFromEnvUsesExplicitConfigFile(t *testing.T) {
+	workspace := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "custom.yaml")
+	if err := os.WriteFile(configPath, []byte("llm:\n  model: explicit-model\n"), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	t.Chdir(workspace)
+	t.Setenv("AGENT_API_KEY", "test-key")
+	t.Setenv("AGENT_CONFIG_FILE", configPath)
+
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("LoadFromEnv() error = %v", err)
+	}
+	if cfg.LLM.Model != "explicit-model" {
+		t.Fatalf("model = %q, want explicit-model", cfg.LLM.Model)
+	}
+}
+
+func TestLoadFromEnvFallsBackToUserConfig(t *testing.T) {
+	workspace := t.TempDir()
+	home := t.TempDir()
+	configPath := filepath.Join(home, ".echo-dust-code", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte("llm:\n  model: user-home-model\n"), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	t.Chdir(workspace)
+	setHomeEnv(t, home)
+	t.Setenv("AGENT_API_KEY", "test-key")
+
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("LoadFromEnv() error = %v", err)
+	}
+	if cfg.LLM.Model != "user-home-model" {
+		t.Fatalf("model = %q, want user-home-model", cfg.LLM.Model)
+	}
+}
+
+func TestLoadFromEnvPrefersWorkspaceConfigOverUserConfig(t *testing.T) {
+	workspace := t.TempDir()
+	home := t.TempDir()
+	workspaceConfig := filepath.Join(workspace, "config.yaml")
+	if err := os.WriteFile(workspaceConfig, []byte("llm:\n  model: workspace-model\n"), 0644); err != nil {
+		t.Fatalf("write workspace config: %v", err)
+	}
+	homeConfig := filepath.Join(home, ".echo-dust-code", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(homeConfig), 0755); err != nil {
+		t.Fatalf("mkdir home config dir: %v", err)
+	}
+	if err := os.WriteFile(homeConfig, []byte("llm:\n  model: user-home-model\n"), 0644); err != nil {
+		t.Fatalf("write home config: %v", err)
+	}
+
+	t.Chdir(workspace)
+	setHomeEnv(t, home)
+	t.Setenv("AGENT_API_KEY", "test-key")
+
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("LoadFromEnv() error = %v", err)
+	}
+	if cfg.LLM.Model != "workspace-model" {
+		t.Fatalf("model = %q, want workspace-model", cfg.LLM.Model)
+	}
+}
+
+func TestLoadFromEnvRejectsMissingExplicitConfigFile(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("AGENT_API_KEY", "test-key")
+	t.Setenv("AGENT_CONFIG_FILE", filepath.Join(t.TempDir(), "missing.yaml"))
+
+	if _, err := LoadFromEnv(); err == nil {
+		t.Fatalf("LoadFromEnv() error = nil, want missing explicit config error")
+	}
+}
+
+func setHomeEnv(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
 }

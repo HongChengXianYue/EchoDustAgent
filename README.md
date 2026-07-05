@@ -60,6 +60,8 @@ A terminal-first coding agent written in Go with a Bubble Tea TUI, native functi
 ### 前置要求 | Prerequisites
 
 - Go `1.24.2+`
+- Node.js `18+`（仅在通过 npm 全局安装或发布 npm 包时需要）
+  Node.js `18+` is only needed for global npm installation or npm publishing.
 
 ### 获取源码 | Clone
 
@@ -68,7 +70,41 @@ git clone https://github.com/HongChengXianYue/EchoDustAgent.git
 cd EchoDustAgent
 ```
 
-### 运行 | Run
+### 方式一：全局安装 | Install Globally With npm
+
+```bash
+npm install -g @hongchengxianyue/echo-dust-code
+export AGENT_API_KEY=sk-...
+echo-dust-code
+```
+
+安装后可用的全局启动命令有 3 个：
+
+After installation, the package exposes three equivalent global commands:
+
+```bash
+echo-dust-code
+echocode
+edc
+```
+
+更新全局版本：
+
+Update the global installation with:
+
+```bash
+npm update -g @hongchengxianyue/echo-dust-code
+```
+
+或直接升级到最新发布版：
+
+Or jump straight to the latest published version:
+
+```bash
+npm install -g @hongchengxianyue/echo-dust-code@latest
+```
+
+### 方式二：源码运行 | Run From Source
 
 ```bash
 export AGENT_API_KEY=sk-...
@@ -86,7 +122,24 @@ go build -o echo-dust-code ./cmd/agent
 
 程序会读取 `config.yaml`，在 TTY 下进入交互式 TUI，在非 TTY 下退回到旧渲染器。
 
-The agent reads `config.yaml`, starts the interactive TUI in TTY sessions, and falls back to the legacy renderer in non-TTY environments.
+The agent resolves configuration, starts the interactive TUI in TTY sessions, and falls back to the legacy renderer in non-TTY environments.
+
+### 配置文件查找顺序 | Config Resolution Order
+
+配置文件按以下顺序查找：
+
+The config file is resolved in this order:
+
+1. `AGENT_CONFIG_FILE` 指定的显式路径
+   the explicit path from `AGENT_CONFIG_FILE`
+2. 当前工作目录下的 `./config.yaml`
+   `./config.yaml` in the current working directory
+3. 用户级默认配置 `~/.echo-dust-code/config.yaml`
+   the user-level default config at `~/.echo-dust-code/config.yaml`
+
+这意味着通过 npm 全局安装后，你可以把通用配置放在 `~/.echo-dust-code/config.yaml`，然后在任意项目目录直接执行 `echo-dust-code`、`echocode` 或 `edc`。
+
+This means a global npm install can keep shared defaults in `~/.echo-dust-code/config.yaml` while still allowing per-project overrides via `./config.yaml`, and you can launch the agent with `echo-dust-code`, `echocode`, or `edc`.
 
 ---
 
@@ -95,6 +148,7 @@ The agent reads `config.yaml`, starts the interactive TUI in TTY sessions, and f
 | 变量 Variable | 说明 Description | 必填 Required |
 |---|---|---|
 | `AGENT_API_KEY` | LLM 服务的 API key / API key for the LLM provider | Yes |
+| `AGENT_CONFIG_FILE` | 显式指定配置文件路径，优先级高于 `./config.yaml` 和 `~/.echo-dust-code/config.yaml` / Explicit config file path that overrides both `./config.yaml` and `~/.echo-dust-code/config.yaml` | No |
 | `AGENT_BASE_URL` | 覆盖 `llm.base_url` / Override `llm.base_url` | No |
 | `AGENT_MODEL` | 覆盖 `llm.model` / Override `llm.model` | No |
 | `AGENT_WIRE_API` | 覆盖 `llm.wire_api`，可选 `chat_completions` 或 `responses` / Override `llm.wire_api` (`chat_completions` or `responses`) | No |
@@ -106,6 +160,21 @@ The agent reads `config.yaml`, starts the interactive TUI in TTY sessions, and f
 `AGENT_API_KEY` 故意只从环境变量读取，不写入 `config.yaml`。
 
 `AGENT_API_KEY` is intentionally loaded only from the environment and is never stored in `config.yaml`.
+
+---
+
+## npm 打包与发布 | npm Packaging And Release
+
+- npm 包本身只分发一个很薄的 Node.js 启动器。
+  The npm package ships a thin Node.js launcher only.
+- 实际运行的 Go 二进制会在 `postinstall` 阶段按平台从 GitHub Releases 下载。
+  The real Go binary is downloaded from GitHub Releases during `postinstall`.
+- 支持的目标平台为 `darwin/linux/win32` + `x64/arm64`。
+  Supported targets are `darwin/linux/win32` with `x64/arm64`.
+- 发布时推送 `vX.Y.Z` tag，GitHub Actions 会校验 `package.json` 版本与 tag 一致，再构建 release 资产、上传 GitHub Releases，并通过 npm trusted publishing 执行 `npm publish`。
+  Publishing a `vX.Y.Z` tag triggers GitHub Actions to verify the `package.json` version, build release assets, upload GitHub Releases, and publish to npm via trusted publishing.
+- 当前 workflow 不再依赖长期 `NPM_TOKEN`；需要先在 npm 后台把这个 GitHub 仓库配置为 trusted publisher。
+  The workflow no longer depends on a long-lived `NPM_TOKEN`; you must configure this GitHub repository as a trusted publisher in npm before the first release.
 
 ---
 

@@ -1,3 +1,4 @@
+# 本文件既可以放在当前 workspace 的 ./config.yaml，也可以放在 ~/.echo-dust-code/config.yaml 作为用户级默认配置。
 # LLM 服务配置。API Key 故意只从 AGENT_API_KEY 环境变量读取。
 llm:
   # OpenAI 兼容接口的基础地址，不包含 /chat/completions 或 /responses 路径。

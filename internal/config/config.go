@@ -3,12 +3,15 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
 
 const (
-	defaultConfigPath = "config.yaml"
+	defaultConfigPath     = "config.yaml"
+	defaultUserConfigPath = "~/.echo-dust-code/config.yaml"
+	configPathEnv         = "AGENT_CONFIG_FILE"
 )
 
 type Config struct {
@@ -127,7 +130,7 @@ type UIConfig struct {
 }
 
 func LoadFromEnv() (Config, error) {
-	cfg, err := LoadFile(defaultConfigPath)
+	cfg, err := loadDefaultConfig()
 	if err != nil {
 		return Config{}, err
 	}
@@ -173,6 +176,60 @@ func LoadFromEnv() (Config, error) {
 		return Config{}, fmt.Errorf("AGENT_API_KEY is required")
 	}
 	return cfg, nil
+}
+
+func loadDefaultConfig() (Config, error) {
+	path, explicit, err := resolveConfigPath()
+	if err != nil {
+		return Config{}, err
+	}
+	if explicit {
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				return Config{}, fmt.Errorf("%s points to missing config file %q", configPathEnv, path)
+			}
+			return Config{}, err
+		}
+	}
+	return LoadFile(path)
+}
+
+func resolveConfigPath() (string, bool, error) {
+	if raw := strings.TrimSpace(os.Getenv(configPathEnv)); raw != "" {
+		path, err := expandConfigPath(raw)
+		if err != nil {
+			return "", false, fmt.Errorf("expand %s: %w", configPathEnv, err)
+		}
+		return path, true, nil
+	}
+	if _, err := os.Stat(defaultConfigPath); err == nil {
+		return defaultConfigPath, false, nil
+	} else if !os.IsNotExist(err) {
+		return "", false, err
+	}
+	path, err := expandConfigPath(defaultUserConfigPath)
+	if err != nil {
+		return "", false, fmt.Errorf("expand user config path: %w", err)
+	}
+	return path, false, nil
+}
+
+func expandConfigPath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return defaultConfigPath, nil
+	}
+	if path == "~" || strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~\\") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		if path == "~" {
+			return home, nil
+		}
+		return filepath.Join(home, path[2:]), nil
+	}
+	return path, nil
 }
 
 func Default() Config {

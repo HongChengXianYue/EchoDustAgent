@@ -1109,3 +1109,23 @@
 - 已知限制或后续风险：
   - 当前 todo 去重基于“assistant 正文中的 checklist 行”和 live todo 文本精确归一化匹配；如果模型用完全不同的表述复述计划，仍会保留在正文中。
   - think 标签清理当前只针对 `<think>` / `</think>` 这一类明文标签；若供应商改用其他私有推理标记，需再扩展过滤规则。
+
+## 2026-07-05 - 增加 npm 全局分发壳与 release 发布链路
+
+- 摘要：为项目补齐 npm 全局安装方案，使 `echo-dust-code` 可以作为一个轻量 npm 包对外发布，并在安装时按平台自动下载对应的 Go 二进制。同时新增 GitHub Actions release 工作流，统一完成 tag 校验、Go 交叉编译、GitHub Releases 上传与 npm trusted publishing。为保证全局安装后的可用性，还补充了配置文件查找顺序：显式环境变量路径优先，其次当前工作目录，再次用户级 `~/.echo-dust-code/config.yaml`。
+- 主要模块：
+  - `package.json`、`bin/echo-dust-code.js`、`lib/npm-platform.js`、`scripts/postinstall.js`：新增 npm 包壳、全局 bin 启动器、平台识别逻辑，以及按 tag/version 从 GitHub Releases 下载平台二进制的安装脚本。
+  - `scripts/build-release-artifacts.sh`、`.github/workflows/release.yml`：新增 release 构建脚本和 GitHub Actions 工作流，覆盖版本校验、Go 测试/vet、Node 脚本语法检查、npm pack dry-run、跨平台归档、GitHub Release 发布与 npm trusted publishing。
+  - `internal/config/config.go`、`internal/config/config_test.go`：新增 `AGENT_CONFIG_FILE`、用户级默认配置 `~/.echo-dust-code/config.yaml` 的解析逻辑，并补充显式配置、home 回退、workspace 优先级和缺失显式路径的回归测试。
+  - `README.md`、`config.yaml`、`.gitignore`：补充 npm 全局安装/更新说明、配置文件查找顺序、发布说明，以及 npm 本地缓存和二进制下载目录的忽略规则。
+- 验证命令和结果：
+  - `go test ./...`：通过。
+  - `go vet ./...`：通过。
+  - `npm run check`：通过。
+  - `HOME=/home/lqy/ai-workspace/local-agent/.tmp-home NPM_CONFIG_CACHE=/home/lqy/ai-workspace/local-agent/.npm-cache ECHODUST_CODE_SKIP_DOWNLOAD=1 npm pack --dry-run`：通过，确认 npm 包内容与入口文件正确。
+  - `./scripts/build-release-artifacts.sh linux amd64 /tmp/echodust-dist`：通过，成功生成 `echo-dust-code-linux-amd64.tar.gz`，归档内包含单个 `echo-dust-code` 可执行文件。
+  - `git diff --check`：通过。
+- 已知限制或后续风险：
+  - npm `postinstall` 依赖系统可用的 `tar` 命令来解压 GitHub Release 归档；在极少数缺少 `tar` 的环境中需要额外安装或改成纯 JS 解压实现。
+  - 当前 npm 包名使用 `@hongchengxianyue/echo-dust-code` 作用域；如果正式发布时希望改成其他组织名或无作用域名称，需要同步调整 `package.json`、README 和下载提示文案。
+  - trusted publishing 仍需要先在 npm 后台为这个 GitHub 仓库配置 trusted publisher，且要求推送的 `vX.Y.Z` tag 与 `package.json` 版本完全一致。

@@ -1,0 +1,52 @@
+{
+  "name": "@hongchengxianyue/echo-dust-code",
+  "version": "0.1.0",
+  "description": "Terminal-first coding agent packaged as a global npm command.",
+  "homepage": "https://github.com/HongChengXianYue/EchoDustAgent",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HongChengXianYue/EchoDustAgent.git"
+  },
+  "bugs": {
+    "url": "https://github.com/HongChengXianYue/EchoDustAgent/issues"
+  },
+  "license": "MIT",
+  "bin": {
+    "echo-dust-code": "bin/echo-dust-code.js",
+    "echocode": "bin/echo-dust-code.js",
+    "edc": "bin/echo-dust-code.js"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "scripts/postinstall.js",
+    "README.md",
+    "package.json"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js",
+    "check": "node --check bin/echo-dust-code.js && node --check lib/npm-platform.js && node --check scripts/postinstall.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "keywords": [
+    "agent",
+    "cli",
+    "tui",
+    "go",
+    "openai"
+  ]
+}
