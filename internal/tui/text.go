@@ -7,8 +7,7 @@ import (
 )
 
 func cleanTerminalText(text string) string {
-	text = strings.ReplaceAll(text, "\r\n", "\n")
-	text = strings.ReplaceAll(text, "\r", "\n")
+	text = sanitizeAssistantText(text)
 	text = stripDecorativeRunes(text)
 
 	var out []string

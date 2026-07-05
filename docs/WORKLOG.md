@@ -1092,3 +1092,20 @@
   - `go vet ./...`
 - 已知限制或后续风险：
   - 该提示词仍是硬编码在 agent 代码中的英文模板；如果后续希望按项目或用户偏好定制，需要再设计外部化配置与覆盖优先级。
+
+## 2026-07-05 - 修正 TUI 中 todo 正文重复与 think 标签泄漏
+
+- 摘要：修复 TUI 运行态里 todo 同时出现在正文和底部 checklist 的重复展示问题，并清理模型输出里泄漏到正文的 `<think>` / `</think>` 标签。现在当前 run 的 assistant 正文会去掉与 live todo 区重复的 checklist 行，推理标签和被标签包裹的内容也不会再出现在主内容区。
+- 主要模块：
+  - `internal/tui/assistant_text.go`：新增 assistant 文本净化逻辑，负责剥离 `<think>...</think>` 片段、孤立 think 标签，以及识别并移除与当前 todo 列表重复的 checklist 行。
+  - `internal/tui/model_layout.go`：为当前 run 的 assistant block 增加渲染前预处理，仅对当前运行中的正文启用 todo 去重，保留历史 transcript 不变。
+  - `internal/tui/text.go`：把通用终端文本清洗接入新的 assistant 文本净化逻辑。
+  - `internal/tui/model_test.go`、`internal/tui/text_test.go`：补充 todo 去重和 think 标签清理的回归测试。
+  - `internal/agent/agent_test.go`：同步修正一条系统提示词断言，避免与当前 prompt 文案不一致导致全量测试误报。
+- 验证命令和结果：
+  - `go test ./internal/tui`：通过。
+  - `go test ./...`：通过。
+  - `go vet ./...`：通过。
+- 已知限制或后续风险：
+  - 当前 todo 去重基于“assistant 正文中的 checklist 行”和 live todo 文本精确归一化匹配；如果模型用完全不同的表述复述计划，仍会保留在正文中。
+  - think 标签清理当前只针对 `<think>` / `</think>` 这一类明文标签；若供应商改用其他私有推理标记，需再扩展过滤规则。

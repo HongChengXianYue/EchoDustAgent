@@ -505,7 +505,7 @@ func TestRunUsesPromptGuidanceInsteadOfHidingToolsForGreeting(t *testing.T) {
 		"multiple tool calls in one assistant turn",
 		"more than 10 non-update_todos tool calls",
 		"claiming a feature or behavior is missing",
-		"stale docs, missing tests",
+		"stale docs, missing regression tests, partial migration, or unreachable code path",
 		"Classify implementation problems precisely",
 		"concrete trigger path end-to-end",
 		"without a reachable user path is incomplete",

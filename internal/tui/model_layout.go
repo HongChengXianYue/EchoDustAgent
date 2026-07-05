@@ -93,6 +93,7 @@ func (m *Model) rebuildViewportContent() {
 	retryBlock := m.renderLiveChatRetryBlock(bodyWidth)
 	todoBlock := m.renderLiveTodoBlock(bodyWidth)
 	for i, block := range m.blocks {
+		block = m.prepareBlockForRender(i, block)
 		rendered := m.renderBlock(block, bodyWidth)
 		if strings.TrimSpace(rendered) != "" {
 			parts = append(parts, rendered)
@@ -112,11 +113,11 @@ func (m *Model) rebuildViewportContent() {
 		parts = append(parts, m.renderBlock(m.pendingApprovalBlock(), bodyWidth))
 		parts = append(parts, m.renderInlineApprovalOptions(bodyWidth))
 	}
-	if strings.TrimSpace(m.assistantDraft) != "" {
+	if draft := m.prepareAssistantBodyForRender(m.assistantDraft, false, true); draft != "" {
 		parts = append(parts, m.renderBlock(transcriptBlock{
 			Kind:  blockAssistant,
 			Title: "Agent (streaming)",
-			Body:  cleanTerminalText(m.assistantDraft),
+			Body:  draft,
 		}, bodyWidth))
 	}
 	if retryBlock != "" {
@@ -136,6 +137,31 @@ func (m *Model) rebuildViewportContent() {
 		return
 	}
 	m.viewport.SetYOffset(offset)
+}
+
+func (m *Model) prepareBlockForRender(index int, block transcriptBlock) transcriptBlock {
+	if block.Kind != blockAssistant {
+		return block
+	}
+	block.Body = m.prepareAssistantBodyForRender(block.Body, block.Markdown, m.shouldSuppressLiveTodoEcho(index))
+	return block
+}
+
+func (m *Model) prepareAssistantBodyForRender(body string, markdown bool, suppressTodoEcho bool) string {
+	body = sanitizeAssistantText(body)
+	if markdown {
+		body = strings.TrimSpace(body)
+	} else {
+		body = cleanTerminalText(body)
+	}
+	if suppressTodoEcho {
+		body = stripTodoEchoLines(body, m.todos)
+	}
+	return strings.TrimSpace(body)
+}
+
+func (m *Model) shouldSuppressLiveTodoEcho(index int) bool {
+	return m.running && len(m.todos) > 0 && index >= m.runStartBlock
 }
 
 func (m *Model) renderLiveTodoBlock(width int) string {

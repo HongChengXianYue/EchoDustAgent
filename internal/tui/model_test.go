@@ -525,6 +525,50 @@ func TestTodoStaysAtEndOfCurrentRunContent(t *testing.T) {
 	}
 }
 
+func TestCurrentRunAssistantBodyHidesDuplicatedTodoChecklist(t *testing.T) {
+	model := newSizedTestModel()
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeRunStart}})
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
+		Type:    runtimeevent.TypeAssistantMessage,
+		Message: "Working on it.\n- [x] Add selectionMode field to Model\n- [x] Create internal/tui/selection_mode.go",
+	}})
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
+		Type: runtimeevent.TypeTodoUpdate,
+		Todos: []runtimeevent.TodoItem{
+			{Text: "Add selectionMode field to Model", Status: runtimeevent.TodoCompleted},
+			{Text: "Create internal/tui/selection_mode.go", Status: runtimeevent.TodoCompleted},
+		},
+	}})
+
+	view := model.View()
+	if !strings.Contains(view, "Working on it.") {
+		t.Fatalf("assistant prose should remain visible:\n%s", view)
+	}
+	if strings.Contains(view, "- [x] Add selectionMode field to Model") || strings.Contains(view, "- [x] Create internal/tui/selection_mode.go") {
+		t.Fatalf("duplicated todo checklist should not remain in assistant body:\n%s", view)
+	}
+	if !containsAll(view, "■ Add selectionMode field to Model", "■ Create internal/tui/selection_mode.go") {
+		t.Fatalf("live todo block should still render:\n%s", view)
+	}
+}
+
+func TestStreamingAssistantBodyStripsOrphanThinkTag(t *testing.T) {
+	model := newSizedTestModel()
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeRunStart}})
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
+		Type:  runtimeevent.TypeAssistantDelta,
+		Delta: "</think>\nVisible answer",
+	}})
+
+	view := model.View()
+	if strings.Contains(view, "</think>") || strings.Contains(view, "<think>") {
+		t.Fatalf("think tags should not render in streaming body:\n%s", view)
+	}
+	if !strings.Contains(view, "Visible answer") {
+		t.Fatalf("visible streaming text should remain:\n%s", view)
+	}
+}
+
 func TestRunWithoutTodoDoesNotRenderTodoBlock(t *testing.T) {
 	model := newSizedTestModel()
 	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeRunStart}})
