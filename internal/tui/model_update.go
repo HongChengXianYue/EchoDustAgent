@@ -27,6 +27,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case runTimerTickMsg:
 		if m.running && !m.runStartedAt.IsZero() {
 			m.runElapsedMS = msg.At.Sub(m.runStartedAt).Milliseconds()
+			if m.chatRetry != nil {
+				m.markViewportDirty()
+			}
 			m.syncLayout()
 			return m, m.nextRunTimerTick()
 		}
@@ -44,6 +47,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case runFinishedMsg:
 		m.cancelCurrent = nil
 		m.running = false
+		m.chatRetry = nil
 		if !m.runStartedAt.IsZero() && m.runElapsedMS == 0 {
 			m.runElapsedMS = time.Since(m.runStartedAt).Milliseconds()
 		}
@@ -315,6 +319,7 @@ func (m *Model) startRun(input string) tea.Cmd {
 	m.lastRunHadFinal = false
 	m.runErrorReported = false
 	m.assistantDraft = ""
+	m.chatRetry = nil
 	m.markViewportDirty()
 	runCmd := func() tea.Msg {
 		var err error

@@ -81,10 +81,17 @@ func TestLoadSessionSnapshotClearsStateAndAppendInfoBlock(t *testing.T) {
 	model.running = true
 	model.todos = []runtimeevent.TodoItem{{Text: "pending", Status: runtimeevent.TodoInProgress}}
 	model.assistantDraft = "streaming"
+	model.chatRetry = &chatRetryState{Attempt: 1, MaxRetries: 1}
 
 	model.LoadSessionSnapshot(session.UISnapshot{})
-	if model.running || len(model.todos) != 0 || model.assistantDraft != "" {
-		t.Fatalf("expected running/todos/draft to reset: running=%v todos=%d draft=%q", model.running, len(model.todos), model.assistantDraft)
+	if model.running || len(model.todos) != 0 || model.assistantDraft != "" || model.chatRetry != nil {
+		t.Fatalf(
+			"expected running/todos/draft/retry to reset: running=%v todos=%d draft=%q retry=%#v",
+			model.running,
+			len(model.todos),
+			model.assistantDraft,
+			model.chatRetry,
+		)
 	}
 
 	model.AppendInfoBlock("Session", "Resumed session demo")

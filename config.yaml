@@ -8,6 +8,10 @@ llm:
   wire_api: responses
   # 单次 LLM HTTP 请求超时时间。
   request_timeout_seconds: 300
+  # 单次 chat 请求失败后，最多自动重试多少次；设为 0 表示禁用重试。
+  max_retries: 1
+  # 两次重试之间等待多少毫秒。
+  retry_backoff_milliseconds: 2000
   # 是否允许模型在一次 assistant 回复中返回多个原生 tool call。
   parallel_tool_calls: true
 

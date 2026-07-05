@@ -28,6 +28,7 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 		m.lastRunHadFinal = false
 		m.runErrorReported = false
 		m.assistantDraft = ""
+		m.chatRetry = nil
 		m.todos = nil
 		m.tokens = tokenState{}
 		m.markLayoutDirty()
@@ -38,6 +39,7 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 			m.runElapsedMS = time.Since(m.runStartedAt).Milliseconds()
 		}
 		m.interrupting = false
+		m.chatRetry = nil
 		m.hideSubagentPanel()
 		m.markLayoutDirty()
 		m.markViewportDirty()
@@ -46,11 +48,13 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 			m.appendBlock(transcriptBlock{Kind: blockUser, Title: "You", Body: event.Message})
 		}
 	case runtimeevent.TypeAssistantDelta:
+		m.clearChatRetry()
 		if strings.TrimSpace(event.Delta) != "" {
 			m.assistantDraft += event.Delta
 			m.markViewportDirty()
 		}
 	case runtimeevent.TypeAssistantMessage:
+		m.clearChatRetry()
 		if strings.TrimSpace(event.Message) != "" {
 			m.appendBlock(transcriptBlock{
 				Kind:  blockAssistant,
@@ -58,6 +62,8 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 				Body:  cleanTerminalText(event.Message),
 			})
 		}
+	case runtimeevent.TypeChatRetry:
+		m.setChatRetry(event)
 	case runtimeevent.TypeTodoUpdate:
 		m.todos = append([]runtimeevent.TodoItem(nil), event.Todos...)
 		m.markViewportDirty()
@@ -74,6 +80,9 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 		runtimeevent.TypeStepTiming,
 		runtimeevent.TypeRunTiming,
 		runtimeevent.TypeError:
+		if shouldClearChatRetryForEvent(event.Type) {
+			m.clearChatRetry()
+		}
 		if event.Tool != "" {
 			m.lastTool = event.Tool
 		}
@@ -126,6 +135,7 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 	case runtimeevent.TypeFinal:
 		m.lastRunHadFinal = true
 		m.assistantDraft = ""
+		m.clearChatRetry()
 		m.markViewportDirty()
 		m.hideSubagentPanel()
 		if strings.TrimSpace(event.Message) != "" {
@@ -137,6 +147,48 @@ func (m *Model) applyRuntimeEvent(event runtimeevent.Event) {
 			})
 		}
 		m.persistSessionSnapshot()
+	}
+}
+
+func (m *Model) clearChatRetry() {
+	if m.chatRetry == nil {
+		return
+	}
+	m.chatRetry = nil
+	m.markViewportDirty()
+}
+
+func (m *Model) setChatRetry(event runtimeevent.Event) {
+	retryUntil := time.Now()
+	if event.DurationMS > 0 {
+		retryUntil = retryUntil.Add(time.Duration(event.DurationMS) * time.Millisecond)
+	}
+	m.chatRetry = &chatRetryState{
+		Attempt:    max(1, event.Count),
+		MaxRetries: max(1, event.After),
+		Until:      retryUntil,
+		Message:    strings.TrimSpace(event.Message),
+		Error:      strings.TrimSpace(event.Error),
+	}
+	m.markViewportDirty()
+}
+
+func shouldClearChatRetryForEvent(eventType runtimeevent.Type) bool {
+	switch eventType {
+	case runtimeevent.TypeToolCall,
+		runtimeevent.TypeToolResult,
+		runtimeevent.TypeApprovalRequest,
+		runtimeevent.TypeApprovalDecision,
+		runtimeevent.TypeContextPruned,
+		runtimeevent.TypeCompactionStart,
+		runtimeevent.TypeCompactionDone,
+		runtimeevent.TypeCompactionSkip,
+		runtimeevent.TypeStepBudgetExtend,
+		runtimeevent.TypeStepBudgetStop,
+		runtimeevent.TypeError:
+		return true
+	default:
+		return false
 	}
 }
 

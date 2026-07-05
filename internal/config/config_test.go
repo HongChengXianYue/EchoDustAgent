@@ -14,6 +14,8 @@ llm:
   model: test-model
   wire_api: responses
   request_timeout_seconds: 7
+  max_retries: 3
+  retry_backoff_milliseconds: 1500
   parallel_tool_calls: false
 agent:
   max_steps: 9
@@ -84,6 +86,12 @@ ui:
 	}
 	if cfg.LLM.RequestTimeoutSeconds != 7 {
 		t.Fatalf("request timeout = %d", cfg.LLM.RequestTimeoutSeconds)
+	}
+	if cfg.LLM.MaxRetries != 3 {
+		t.Fatalf("max retries = %d", cfg.LLM.MaxRetries)
+	}
+	if cfg.LLM.RetryBackoffMS != 1500 {
+		t.Fatalf("retry backoff = %d", cfg.LLM.RetryBackoffMS)
 	}
 	if cfg.LLM.ParallelToolCalls {
 		t.Fatalf("parallel tool calls = true, want false")
@@ -256,6 +264,8 @@ func TestLoadFromEnvOverridesConfigDefaults(t *testing.T) {
 	t.Setenv("AGENT_BASE_URL", "https://env.example/v1")
 	t.Setenv("AGENT_MODEL", "env-model")
 	t.Setenv("AGENT_WIRE_API", "responses")
+	t.Setenv("AGENT_LLM_MAX_RETRIES", "2")
+	t.Setenv("AGENT_LLM_RETRY_BACKOFF_MILLISECONDS", "250")
 	t.Setenv("AGENT_MAX_STEPS", "12")
 	t.Setenv("AGENT_STEP_TIMING_ENABLED", "true")
 
@@ -274,6 +284,12 @@ func TestLoadFromEnvOverridesConfigDefaults(t *testing.T) {
 	}
 	if cfg.LLM.WireAPI != "responses" {
 		t.Fatalf("wire api = %q", cfg.LLM.WireAPI)
+	}
+	if cfg.LLM.MaxRetries != 2 {
+		t.Fatalf("max retries = %d", cfg.LLM.MaxRetries)
+	}
+	if cfg.LLM.RetryBackoffMS != 250 {
+		t.Fatalf("retry backoff = %d", cfg.LLM.RetryBackoffMS)
 	}
 	if cfg.Agent.MaxSteps != 12 {
 		t.Fatalf("max steps = %d", cfg.Agent.MaxSteps)

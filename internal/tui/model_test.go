@@ -560,6 +560,76 @@ func TestTodoBlockHidesAfterRunEnd(t *testing.T) {
 	}
 }
 
+func TestChatRetryRendersBelowTranscriptAndAboveTodo(t *testing.T) {
+	model := newSizedTestModel()
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeRunStart}})
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
+		Type:    runtimeevent.TypeAssistantMessage,
+		Message: "working on it",
+	}})
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
+		Type: runtimeevent.TypeTodoUpdate,
+		Todos: []runtimeevent.TodoItem{
+			{Text: "Read files", Status: runtimeevent.TodoInProgress},
+		},
+	}})
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
+		Type:       runtimeevent.TypeChatRetry,
+		Count:      1,
+		After:      5,
+		DurationMS: (11 * time.Second).Milliseconds(),
+		Message:    "LLM request timed out. Waiting before retry.",
+	}})
+
+	view := model.View()
+	assistantIndex := strings.Index(view, "working on it")
+	retryIndex := strings.Index(view, "Retrying chat... 1/5 (11s · esc to interrupt)")
+	todoIndex := strings.Index(view, "□ Read files")
+	if assistantIndex < 0 || retryIndex < 0 || todoIndex < 0 {
+		t.Fatalf("expected assistant body, retry block and todo block in view:\n%s", view)
+	}
+	if !(assistantIndex < retryIndex && retryIndex < todoIndex) {
+		t.Fatalf("retry block should render below transcript output and above todo:\n%s", view)
+	}
+	if !strings.Contains(view, "LLM request timed out. Waiting before retry.") {
+		t.Fatalf("retry detail missing from view:\n%s", view)
+	}
+
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
+		Type:    runtimeevent.TypeAssistantMessage,
+		Message: "retried answer",
+	}})
+	view = model.View()
+	if strings.Contains(view, "Retrying chat...") {
+		t.Fatalf("retry block should clear after new assistant progress:\n%s", view)
+	}
+}
+
+func TestChatRetryCountdownRefreshesOnRunTick(t *testing.T) {
+	model := newSizedTestModel()
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeRunStart}})
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{
+		Type:       runtimeevent.TypeChatRetry,
+		Count:      1,
+		After:      5,
+		DurationMS: (11 * time.Second).Milliseconds(),
+		Message:    "LLM request timed out. Waiting before retry.",
+	}})
+
+	view := model.View()
+	if !strings.Contains(view, "Retrying chat... 1/5 (11s · esc to interrupt)") {
+		t.Fatalf("initial retry countdown missing from view:\n%s", view)
+	}
+
+	model.chatRetry.Until = time.Now().Add(2 * time.Second)
+	model.Update(runTimerTickMsg{At: time.Now()})
+
+	view = model.View()
+	if !strings.Contains(view, "Retrying chat... 1/5 (2s · esc to interrupt)") {
+		t.Fatalf("retry countdown should refresh on run tick:\n%s", view)
+	}
+}
+
 func TestMouseWheelScrollsViewport(t *testing.T) {
 	model := newSizedTestModel()
 	model.Update(tea.WindowSizeMsg{Width: 60, Height: 12})

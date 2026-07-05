@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
@@ -87,8 +88,9 @@ func (m *Model) syncLayout() {
 
 func (m *Model) rebuildViewportContent() {
 	bodyWidth := max(20, m.viewport.Width)
-	parts := make([]string, 0, len(m.blocks)+1)
+	parts := make([]string, 0, len(m.blocks)+2)
 	attachedApproval := false
+	retryBlock := m.renderLiveChatRetryBlock(bodyWidth)
 	todoBlock := m.renderLiveTodoBlock(bodyWidth)
 	for i, block := range m.blocks {
 		rendered := m.renderBlock(block, bodyWidth)
@@ -117,6 +119,9 @@ func (m *Model) rebuildViewportContent() {
 			Body:  cleanTerminalText(m.assistantDraft),
 		}, bodyWidth))
 	}
+	if retryBlock != "" {
+		parts = append(parts, retryBlock)
+	}
 	// Keep the live todo checklist pinned to the end of the content area so the
 	// latest agent/tool transcript always stays above it.
 	if todoBlock != "" {
@@ -138,6 +143,13 @@ func (m *Model) renderLiveTodoBlock(width int) string {
 		return ""
 	}
 	return m.renderTodoChecklist(width)
+}
+
+func (m *Model) renderLiveChatRetryBlock(width int) string {
+	if !m.running || m.approval != nil || m.chatRetry == nil {
+		return ""
+	}
+	return m.renderChatRetryBlock(width)
 }
 
 func (m *Model) renderTodoChecklist(width int) string {
@@ -181,6 +193,51 @@ func todoMarker(status runtimeevent.TodoStatus) string {
 	default:
 		return "□"
 	}
+}
+
+func (m *Model) renderChatRetryBlock(width int) string {
+	if m.chatRetry == nil {
+		return ""
+	}
+	retry := m.chatRetry
+	title := fmt.Sprintf(
+		"Retrying chat... %d/%d (%s · esc to interrupt)",
+		retry.Attempt,
+		retry.MaxRetries,
+		formatRetryCountdown(time.Until(retry.Until)),
+	)
+	titleLine := m.retryDotStyle.Render("•") + " " + m.retryTitleStyle.Render(title)
+
+	detail := strings.TrimSpace(retry.Message)
+	if detail == "" {
+		detail = strings.TrimSpace(retry.Error)
+	}
+	detail = collapseHorizontalSpace(detail)
+	if detail == "" {
+		return titleLine
+	}
+	prefix := "└ "
+	continuation := strings.Repeat(" ", lipgloss.Width(prefix))
+	lines := strings.Split(wrapText(detail, max(8, width-lipgloss.Width(prefix))), "\n")
+	if len(lines) == 0 {
+		lines = []string{detail}
+	}
+	lines[0] = prefix + lines[0]
+	for i := 1; i < len(lines); i++ {
+		lines[i] = continuation + lines[i]
+	}
+	return titleLine + "\n" + m.mutedStyle.Render(strings.Join(lines, "\n"))
+}
+
+func formatRetryCountdown(remaining time.Duration) string {
+	if remaining <= 0 {
+		return "0s"
+	}
+	if remaining < time.Second {
+		return formatDuration(remaining.Milliseconds())
+	}
+	seconds := int((remaining + time.Second - time.Nanosecond) / time.Second)
+	return fmt.Sprintf("%ds", seconds)
 }
 
 func (m *Model) renderBlock(block transcriptBlock, width int) string {

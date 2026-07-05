@@ -27,6 +27,7 @@ const (
 	TypeCompactionDone   Type = "compaction_done"
 	TypeCompactionSkip   Type = "compaction_skipped"
 	TypeTokenUsage       Type = "token_usage"
+	TypeChatRetry        Type = "chat_retry"
 	TypeStepBudgetExtend Type = "step_budget_extended"
 	TypeStepBudgetStop   Type = "step_budget_exhausted"
 	TypeStepTiming       Type = "step_timing"

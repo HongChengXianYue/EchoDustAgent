@@ -293,7 +293,7 @@ func TestFindSymbolTool(t *testing.T) {
 	}
 	tool := &FindSymbolTool{Workdir: workdir}
 	result, execErr := tool.Execute(context.Background(), mustJSON(t, map[string]any{
-		"query": "Run",
+		"query": "chatWithTools",
 		"limit": 5,
 	}))
 	if execErr != nil {
@@ -343,7 +343,8 @@ func TestGoCodeNavigationTools(t *testing.T) {
 		"line":   line,
 		"column": column,
 	}))
-	if execErr != nil || result.Status != "success" || !strings.Contains(result.Output, "callee[") || !strings.Contains(result.Output, "ChatWithToolsStream") {
+	if execErr != nil || result.Status != "success" || !strings.Contains(result.Output, "callee[") ||
+		!strings.Contains(result.Output, "chatWithToolsOnce") || !strings.Contains(result.Output, "recordChatUsage") {
 		t.Fatalf("find callees result = %#v err = %v", result, execErr)
 	}
 }

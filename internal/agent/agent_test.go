@@ -21,6 +21,7 @@ import (
 
 type fakeClient struct {
 	responses []*llm.ChatResponse
+	errors    []error
 	calls     int
 	messages  [][]llm.Message
 	tools     [][]llm.FunctionTool
@@ -31,7 +32,13 @@ type fakeClient struct {
 func (f *fakeClient) ChatWithTools(ctx context.Context, messages []llm.Message, specs []llm.FunctionTool) (*llm.ChatResponse, error) {
 	f.messages = append(f.messages, append([]llm.Message(nil), messages...))
 	f.tools = append(f.tools, append([]llm.FunctionTool(nil), specs...))
+	if f.calls < len(f.errors) && f.errors[f.calls] != nil {
+		err := f.errors[f.calls]
+		f.calls++
+		return nil, err
+	}
 	if f.calls >= len(f.responses) {
+		f.calls++
 		return &llm.ChatResponse{Content: "done"}, nil
 	}
 	resp := f.responses[f.calls]
@@ -42,13 +49,6 @@ func (f *fakeClient) ChatWithTools(ctx context.Context, messages []llm.Message, 
 func (f *fakeClient) ChatWithToolsStream(ctx context.Context, messages []llm.Message, specs []llm.FunctionTool, onDelta llm.StreamHandler) (*llm.ChatResponse, error) {
 	f.messages = append(f.messages, append([]llm.Message(nil), messages...))
 	f.tools = append(f.tools, append([]llm.FunctionTool(nil), specs...))
-	if f.calls >= len(f.responses) {
-		if onDelta != nil {
-			_ = onDelta(llm.StreamDelta{Content: "done"})
-		}
-		return &llm.ChatResponse{Content: "done"}, nil
-	}
-	resp := f.responses[f.calls]
 	if onDelta != nil {
 		var deltas []string
 		if f.calls < len(f.deltas) {
@@ -60,6 +60,16 @@ func (f *fakeClient) ChatWithToolsStream(ctx context.Context, messages []llm.Mes
 			}
 		}
 	}
+	if f.calls < len(f.errors) && f.errors[f.calls] != nil {
+		err := f.errors[f.calls]
+		f.calls++
+		return nil, err
+	}
+	if f.calls >= len(f.responses) {
+		f.calls++
+		return &llm.ChatResponse{Content: "done"}, nil
+	}
+	resp := f.responses[f.calls]
 	f.calls++
 	return resp, nil
 }
@@ -915,6 +925,96 @@ func TestRunEmitsAssistantDeltaBeforeFinal(t *testing.T) {
 	}
 	if !foundFinal {
 		t.Fatalf("expected final event, got %#v", renderer.events)
+	}
+}
+
+func TestRunRetriesNonStreamingChatTimeout(t *testing.T) {
+	client := &fakeClient{
+		responses: []*llm.ChatResponse{
+			nil,
+			{Content: "retried answer"},
+		},
+		errors: []error{
+			context.DeadlineExceeded,
+		},
+	}
+	options := DefaultOptions()
+	options.ChatRetry.MaxRetries = 1
+	options.ChatRetry.Backoff = time.Millisecond
+
+	renderer := &captureRenderer{}
+	agent := NewWithWorkspaceAndOptions(client, tools.NewRegistry(), 2, "/tmp/project", options)
+	agent.streamingDisabled = true
+	agent.SetRenderer(renderer)
+
+	answer, err := agent.Run(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if answer != "retried answer" {
+		t.Fatalf("answer = %q, want retried answer", answer)
+	}
+	if client.calls != 2 {
+		t.Fatalf("client calls = %d, want 2", client.calls)
+	}
+	foundRetry := false
+	for _, event := range renderer.events {
+		if event.Type != runtimeevent.TypeChatRetry {
+			continue
+		}
+		foundRetry = true
+		if event.Count != 1 || event.After != 1 {
+			t.Fatalf("retry event counts = %d/%d, want 1/1", event.Count, event.After)
+		}
+		if event.DurationMS != time.Millisecond.Milliseconds() {
+			t.Fatalf("retry backoff = %dms, want %dms", event.DurationMS, time.Millisecond.Milliseconds())
+		}
+		if !strings.Contains(event.Message, "timed out") {
+			t.Fatalf("retry message = %q, want timeout hint", event.Message)
+		}
+	}
+	if !foundRetry {
+		t.Fatalf("expected chat retry event, got %#v", renderer.events)
+	}
+}
+
+func TestRunDoesNotRetryStreamingFailureAfterVisibleDelta(t *testing.T) {
+	client := &fakeClient{
+		responses: []*llm.ChatResponse{
+			nil,
+			{Content: "should not be reached"},
+		},
+		errors: []error{
+			context.DeadlineExceeded,
+		},
+		deltas: [][]string{
+			{"partial "},
+		},
+	}
+	options := DefaultOptions()
+	options.ChatRetry.MaxRetries = 1
+	options.ChatRetry.Backoff = time.Millisecond
+
+	renderer := &captureRenderer{}
+	agent := NewWithWorkspaceAndOptions(client, tools.NewRegistry(), 2, "/tmp/project", options)
+	agent.SetRenderer(renderer)
+
+	if _, err := agent.Run(context.Background(), "hello"); err == nil {
+		t.Fatal("Run() error = nil, want streaming failure")
+	}
+	if client.calls != 1 {
+		t.Fatalf("client calls = %d, want 1", client.calls)
+	}
+
+	foundDelta := false
+	for _, event := range renderer.events {
+		if event.Type == runtimeevent.TypeAssistantDelta && strings.Contains(event.Delta, "partial") {
+			foundDelta = true
+			break
+		}
+	}
+	if !foundDelta {
+		t.Fatalf("expected assistant delta before failure, got %#v", renderer.events)
 	}
 }
 

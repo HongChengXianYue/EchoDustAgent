@@ -86,7 +86,7 @@ func main() {
 		WireAPI:           cfg.LLM.WireAPI,
 		ParallelToolCalls: cfg.LLM.ParallelToolCalls,
 	})
-	codingAgent := agent.NewWithWorkspaceAndOptions(client, registry, cfg.Agent.MaxSteps, workdir, agentOptions(cfg.Agent, cfg.Subagents, cfg.Skills, cfg.Context, loadedMemory, skillRegistry))
+	codingAgent := agent.NewWithWorkspaceAndOptions(client, registry, cfg.Agent.MaxSteps, workdir, agentOptions(cfg.Agent, cfg.LLM, cfg.Subagents, cfg.Skills, cfg.Context, loadedMemory, skillRegistry))
 
 	startupInfo := ui.StartupInfo{
 		Workdir:    workdir,
@@ -307,7 +307,7 @@ func uiOptions(cfg config.UIConfig) ui.Options {
 	}
 }
 
-func agentOptions(agentCfg config.AgentConfig, subagentsCfg config.SubagentsConfig, skillsCfg config.SkillsConfig, contextCfg config.ContextConfig, loadedMemory *memory.Set, skillRegistry *skill.Registry) agent.Options {
+func agentOptions(agentCfg config.AgentConfig, llmCfg config.LLMConfig, subagentsCfg config.SubagentsConfig, skillsCfg config.SkillsConfig, contextCfg config.ContextConfig, loadedMemory *memory.Set, skillRegistry *skill.Registry) agent.Options {
 	memoryBlock := ""
 	if loadedMemory != nil {
 		memoryBlock = loadedMemory.Block()
@@ -315,6 +315,10 @@ func agentOptions(agentCfg config.AgentConfig, subagentsCfg config.SubagentsConf
 	return agent.Options{
 		MaxParallelToolCalls: agentCfg.MaxParallelToolCalls,
 		StepTimingEnabled:    agentCfg.StepTimingEnabled,
+		ChatRetry: agent.ChatRetryOptions{
+			MaxRetries: llmCfg.MaxRetries,
+			Backoff:    time.Duration(llmCfg.RetryBackoffMS) * time.Millisecond,
+		},
 		StepBudget: agent.StepBudgetOptions{
 			AdaptiveEnabled:  agentCfg.AdaptiveMaxStepsEnabled,
 			MaxExtensions:    agentCfg.MaxStepExtensions,

@@ -34,6 +34,14 @@ type runTimerTickMsg struct {
 	At time.Time
 }
 
+type chatRetryState struct {
+	Attempt    int
+	MaxRetries int
+	Until      time.Time
+	Message    string
+	Error      string
+}
+
 type approvalPromptMsg struct {
 	Request  approval.Request
 	Response chan approval.Decision
@@ -106,6 +114,7 @@ type Model struct {
 
 	blocks                []transcriptBlock
 	assistantDraft        string
+	chatRetry             *chatRetryState
 	approval              *approvalState
 	resumePicker          *resumePickerState
 	todos                 []runtimeevent.TodoItem
@@ -150,6 +159,8 @@ type Model struct {
 	todoStyle             lipgloss.Style
 	todoDoneStyle         lipgloss.Style
 	assistantBodyStyle    lipgloss.Style
+	retryDotStyle         lipgloss.Style
+	retryTitleStyle       lipgloss.Style
 	errorStyle            lipgloss.Style
 	toolCallTitleStyle    lipgloss.Style
 	toolCallDotStyle      lipgloss.Style
@@ -212,6 +223,8 @@ func NewModel(options ui.Options, startup ui.StartupInfo, bridge *Bridge) *Model
 		todoStyle:             lipgloss.NewStyle().Foreground(lipgloss.Color("150")).Bold(true),
 		todoDoneStyle:         lipgloss.NewStyle().Foreground(lipgloss.Color("114")),
 		assistantBodyStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("255")),
+		retryDotStyle:         lipgloss.NewStyle().Foreground(lipgloss.Color("221")).Bold(true),
+		retryTitleStyle:       lipgloss.NewStyle().Foreground(lipgloss.Color("229")).Bold(true),
 		errorStyle:            lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true),
 		toolCallTitleStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("229")).Bold(true),
 		toolCallDotStyle:      lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true),

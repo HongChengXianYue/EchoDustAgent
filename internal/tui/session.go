@@ -65,6 +65,7 @@ func (m *Model) LoadSessionSnapshot(snapshot session.UISnapshot) {
 	m.runErrorReported = false
 	m.lastTool = ""
 	m.assistantDraft = ""
+	m.chatRetry = nil
 	m.approval = nil
 	m.todos = nil
 	m.viewingSubagent = false

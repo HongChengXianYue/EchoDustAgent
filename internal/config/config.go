@@ -30,6 +30,8 @@ type LLMConfig struct {
 	Model                 string
 	WireAPI               string
 	RequestTimeoutSeconds int
+	MaxRetries            int
+	RetryBackoffMS        int
 	ParallelToolCalls     bool
 }
 
@@ -139,6 +141,16 @@ func LoadFromEnv() (Config, error) {
 	if raw := strings.TrimSpace(os.Getenv("AGENT_WIRE_API")); raw != "" {
 		cfg.LLM.WireAPI = raw
 	}
+	if raw := strings.TrimSpace(os.Getenv("AGENT_LLM_MAX_RETRIES")); raw != "" {
+		if err := setNonNegativeInt("AGENT_LLM_MAX_RETRIES", raw, &cfg.LLM.MaxRetries); err != nil {
+			return Config{}, err
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("AGENT_LLM_RETRY_BACKOFF_MILLISECONDS")); raw != "" {
+		if err := setPositiveInt("AGENT_LLM_RETRY_BACKOFF_MILLISECONDS", raw, &cfg.LLM.RetryBackoffMS); err != nil {
+			return Config{}, err
+		}
+	}
 	if raw := strings.TrimSpace(os.Getenv("AGENT_MAX_STEPS")); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n <= 0 {
@@ -170,6 +182,8 @@ func Default() Config {
 			Model:                 "gpt-5.5",
 			WireAPI:               "responses",
 			RequestTimeoutSeconds: 300,
+			MaxRetries:            1,
+			RetryBackoffMS:        2000,
 			ParallelToolCalls:     true,
 		},
 		Agent: AgentConfig{
@@ -281,6 +295,7 @@ func LoadFile(path string) (Config, error) {
 func validate(cfg Config) error {
 	checkPositive := map[string]int{
 		"llm.request_timeout_seconds":           cfg.LLM.RequestTimeoutSeconds,
+		"llm.retry_backoff_milliseconds":        cfg.LLM.RetryBackoffMS,
 		"agent.max_steps":                       cfg.Agent.MaxSteps,
 		"agent.max_parallel_tool_calls":         cfg.Agent.MaxParallelToolCalls,
 		"agent.step_extension_size":             cfg.Agent.StepExtensionSize,
@@ -342,6 +357,7 @@ func validate(cfg Config) error {
 		}
 	}
 	for key, value := range map[string]int{
+		"llm.max_retries":               cfg.LLM.MaxRetries,
 		"agent.max_step_extensions":     cfg.Agent.MaxStepExtensions,
 		"subagents.max_step_extensions": cfg.Subagents.MaxStepExtensions,
 		"skills.min_score":              cfg.Skills.MinScore,

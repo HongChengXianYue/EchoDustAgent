@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -313,6 +315,48 @@ func (a *Agent) executeStep(ctx context.Context, step int, progressHistory *step
 }
 
 func (a *Agent) chatWithTools(ctx context.Context, step int) (*llm.ChatResponse, error) {
+	for attempt := 0; ; attempt++ {
+		resp, usedStreaming, sawVisibleDelta, err := a.chatWithToolsOnce(ctx, step)
+		if err == nil {
+			a.recordChatUsage(step, resp, usedStreaming)
+			return resp, nil
+		}
+		if !a.shouldRetryChatError(ctx, err, attempt, usedStreaming, sawVisibleDelta) {
+			return nil, err
+		}
+
+		if usedStreaming && !sawVisibleDelta && !a.streamingDisabled {
+			// If the stream failed before any visible output reached the UI,
+			// fall back to non-streaming for the retry to avoid repeating SSE
+			// transport issues on providers with flaky streaming paths.
+			a.streamingDisabled = true
+		}
+		backoff := a.options.ChatRetry.Backoff
+		a.emit(runtimeevent.Event{
+			Step:       step,
+			Type:       runtimeevent.TypeChatRetry,
+			Message:    chatRetryStatusMessage(err, usedStreaming && !sawVisibleDelta),
+			Error:      err.Error(),
+			DurationMS: backoff.Milliseconds(),
+			Count:      attempt + 1,
+			After:      a.options.ChatRetry.MaxRetries,
+		})
+		logs.Infof(
+			"agent chat retry scheduled: step=%d retry=%d/%d backoff=%s streaming_fallback=%t err=%v",
+			step,
+			attempt+1,
+			a.options.ChatRetry.MaxRetries,
+			backoff,
+			usedStreaming && !sawVisibleDelta,
+			err,
+		)
+		if err := sleepContext(ctx, backoff); err != nil {
+			return nil, err
+		}
+	}
+}
+
+func (a *Agent) chatWithToolsOnce(ctx context.Context, step int) (*llm.ChatResponse, bool, bool, error) {
 	tools := a.functionTools()
 	streamingClient, ok := a.client.(llm.StreamingClient)
 	var resp *llm.ChatResponse
@@ -323,10 +367,12 @@ func (a *Agent) chatWithTools(ctx context.Context, step int) (*llm.ChatResponse,
 	if !ok || a.streamingDisabled {
 		resp, err = a.client.ChatWithTools(ctx, a.conversationMessages(), tools)
 	} else {
+		sawVisibleDelta := false
 		resp, err = streamingClient.ChatWithToolsStream(ctx, a.conversationMessages(), tools, func(delta llm.StreamDelta) error {
 			if strings.TrimSpace(delta.Content) == "" {
 				return nil
 			}
+			sawVisibleDelta = true
 			a.emit(runtimeevent.Event{
 				Step:    step,
 				Type:    runtimeevent.TypeAssistantDelta,
@@ -335,8 +381,12 @@ func (a *Agent) chatWithTools(ctx context.Context, step int) (*llm.ChatResponse,
 			})
 			return nil
 		})
+		return resp, true, sawVisibleDelta, err
 	}
+	return resp, false, false, err
+}
 
+func (a *Agent) recordChatUsage(step int, resp *llm.ChatResponse, usedStreaming bool) {
 	if resp != nil && resp.Usage != nil {
 		cumulative := a.addTokenUsage(resp.Usage)
 		a.emit(runtimeevent.Event{
@@ -347,13 +397,54 @@ func (a *Agent) chatWithTools(ctx context.Context, step int) (*llm.ChatResponse,
 			CachedTokens:     resp.Usage.CachedTokens,
 			CumulativeTotal:  cumulative,
 		})
-	} else if ok && !a.streamingDisabled {
+	} else if usedStreaming && !a.streamingDisabled {
 		// Streaming call returned without usage — disable streaming so the
 		// next call uses the non-streaming path which usually includes usage.
 		a.streamingDisabled = true
 		logs.Infof("streaming returned no usage, falling back to non-streaming")
 	}
-	return resp, err
+}
+
+func (a *Agent) shouldRetryChatError(ctx context.Context, err error, attempt int, usedStreaming bool, sawVisibleDelta bool) bool {
+	if a.options.ChatRetry.MaxRetries <= 0 || attempt >= a.options.ChatRetry.MaxRetries {
+		return false
+	}
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+		return false
+	}
+	if usedStreaming && sawVisibleDelta {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && (netErr.Timeout() || netErr.Temporary())
+}
+
+func sleepContext(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func chatRetryStatusMessage(err error, streamingFallback bool) string {
+	base := "Temporary LLM transport failure."
+	if errors.Is(err, context.DeadlineExceeded) {
+		base = "LLM request timed out."
+	}
+	if streamingFallback {
+		return base + " Retrying without streaming."
+	}
+	return base + " Waiting before retry."
 }
 
 func (a *Agent) activateSkills(input string) {

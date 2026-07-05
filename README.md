@@ -98,6 +98,8 @@ The agent reads `config.yaml`, starts the interactive TUI in TTY sessions, and f
 | `AGENT_BASE_URL` | 覆盖 `llm.base_url` / Override `llm.base_url` | No |
 | `AGENT_MODEL` | 覆盖 `llm.model` / Override `llm.model` | No |
 | `AGENT_WIRE_API` | 覆盖 `llm.wire_api`，可选 `chat_completions` 或 `responses` / Override `llm.wire_api` (`chat_completions` or `responses`) | No |
+| `AGENT_LLM_MAX_RETRIES` | 覆盖 `llm.max_retries`，控制 chat 失败后的自动重试次数 / Override `llm.max_retries` for automatic chat retries | No |
+| `AGENT_LLM_RETRY_BACKOFF_MILLISECONDS` | 覆盖 `llm.retry_backoff_milliseconds`，控制两次 chat 重试之间的等待时间 / Override `llm.retry_backoff_milliseconds` between chat retries | No |
 | `AGENT_MAX_STEPS` | 覆盖 `agent.max_steps` / Override `agent.max_steps` | No |
 | `AGENT_STEP_TIMING_ENABLED` | 覆盖 `agent.step_timing_enabled`，开启逐 step 耗时事件 / Override `agent.step_timing_enabled` to emit per-step timing events | No |
 

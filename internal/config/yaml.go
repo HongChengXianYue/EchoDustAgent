@@ -87,6 +87,10 @@ func applyConfigValue(cfg *Config, key string, value string) error {
 		cfg.LLM.WireAPI = value
 	case "llm.request_timeout_seconds":
 		return setPositiveInt(key, value, &cfg.LLM.RequestTimeoutSeconds)
+	case "llm.max_retries":
+		return setNonNegativeInt(key, value, &cfg.LLM.MaxRetries)
+	case "llm.retry_backoff_milliseconds":
+		return setPositiveInt(key, value, &cfg.LLM.RetryBackoffMS)
 	case "llm.parallel_tool_calls":
 		return setBool(key, value, &cfg.LLM.ParallelToolCalls)
 	case "agent.max_steps":

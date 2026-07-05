@@ -3,18 +3,25 @@ package agent
 import (
 	contextmgr "local-agent/internal/context"
 	"local-agent/internal/skill"
+	"time"
 )
 
 type Options struct {
 	MaxParallelToolCalls int
 	// StepTimingEnabled controls whether per-step timing events are emitted.
 	// Total run timing remains enabled regardless of this flag.
-	StepTimingEnabled    bool
-	StepBudget           StepBudgetOptions
-	Subagents            SubagentOptions
-	Skills               SkillOptions
-	SystemPromptSuffix   string
-	Context              ContextOptions
+	StepTimingEnabled  bool
+	ChatRetry          ChatRetryOptions
+	StepBudget         StepBudgetOptions
+	Subagents          SubagentOptions
+	Skills             SkillOptions
+	SystemPromptSuffix string
+	Context            ContextOptions
+}
+
+type ChatRetryOptions struct {
+	MaxRetries int
+	Backoff    time.Duration
 }
 
 type StepBudgetOptions struct {
@@ -44,6 +51,10 @@ type ContextOptions = contextmgr.Options
 func DefaultOptions() Options {
 	return Options{
 		MaxParallelToolCalls: 10,
+		ChatRetry: ChatRetryOptions{
+			MaxRetries: 1,
+			Backoff:    2 * time.Second,
+		},
 		StepBudget: StepBudgetOptions{
 			AdaptiveEnabled:  true,
 			MaxExtensions:    3,
@@ -85,6 +96,12 @@ func normalizeOptions(options Options) Options {
 	defaults := DefaultOptions()
 	if options.MaxParallelToolCalls <= 0 {
 		options.MaxParallelToolCalls = defaults.MaxParallelToolCalls
+	}
+	if options.ChatRetry.MaxRetries < 0 {
+		options.ChatRetry.MaxRetries = defaults.ChatRetry.MaxRetries
+	}
+	if options.ChatRetry.Backoff <= 0 {
+		options.ChatRetry.Backoff = defaults.ChatRetry.Backoff
 	}
 	options.StepBudget = normalizeStepBudgetOptions(options.StepBudget, defaults.StepBudget)
 	if options.Subagents.MaxConcurrent <= 0 {

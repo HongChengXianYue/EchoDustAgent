@@ -1038,3 +1038,33 @@
   - `GOMODCACHE=/home/lqy/ai-workspace/local-agent/.gomodcache GOCACHE=/home/lqy/ai-workspace/local-agent/.gocache GOPROXY=https://proxy.golang.org,direct GOSUMDB=sum.golang.org go vet ./...`：通过。
 - 已知限制或后续风险：
   - 本次验证为了绕过系统只读模块缓存与代理限制，使用了工作区内本地 `GOMODCACHE/GOCACHE` 并补齐缺失依赖；如果后续要在干净环境复现，需要确保可下载这些模块或预热缓存。
+
+## 2026-07-05 - 为 chat 过程增加超时重试机制
+
+- 摘要：为 agent 的 chat 过程增加有限重试，避免单次 LLM 请求因 `context deadline exceeded` 或其他超时型传输错误而直接终止整个 ReAct loop。默认对单次 chat 失败自动重试 1 次，重试间隔 2000ms；如果 streaming 已经向 UI 输出过可见 delta，则不再重试，避免重复打印半截回答。
+- 主要模块：
+  - `internal/agent/agent.go`：将 `chatWithTools` 改为“尝试 + 重试”包装；新增超时错误判定、context-aware backoff 等待，以及“streaming 失败但尚未输出内容时切回 non-streaming 再试”的逻辑。
+  - `internal/agent/options.go`：新增 `ChatRetryOptions`，定义重试次数和退避间隔。
+  - `cmd/agent/main.go`：把 LLM 重试配置映射到 agent options。
+  - `internal/config/config.go`、`internal/config/yaml.go`、`internal/config/config_test.go`、`config.yaml`、`README.md`：新增 `llm.max_retries`、`llm.retry_backoff_milliseconds` 及对应环境变量说明。
+  - `internal/agent/agent_test.go`：新增两条回归测试，覆盖“non-streaming 超时后成功重试”与“streaming 已输出 delta 后失败时不重试”。
+- 验证命令和结果：
+  - `go test ./internal/agent ./internal/config`：通过。
+  - 全量验证见本次最终回复。
+- 已知限制或后续风险：
+  - 当前仅对超时类传输错误自动重试，未把 429/5xx HTTP 状态码纳入默认重试集合；如果后续提供商经常返回这类状态，可以再补一层基于状态码的可重试判定。
+
+## 2026-07-05 - TUI 增加 chat 重试中的正文状态提示
+
+- 摘要：把 chat 自动重试从“仅写日志”补齐到 TUI 运行态展示。现在主 agent 在等待下一次重试时，会在正文末尾追加一个临时状态块，显示当前重试次数、剩余等待时间，以及简短原因说明；新输出一旦到来，该状态块会自动消失，不会写入 resume 历史。
+- 主要模块：
+  - `internal/runtimeevent/runtimeevent.go`：新增 `chat_retry` 运行时事件类型。
+  - `internal/agent/agent.go`：在计划重试时发出 `chat_retry` 事件，携带次数、backoff 和简短原因说明。
+  - `internal/tui/model.go`、`internal/tui/model_events.go`、`internal/tui/model_layout.go`、`internal/tui/model_update.go`、`internal/tui/session.go`：新增 live retry 状态、正文末尾渲染、倒计时刷新，以及 run/session 结束时的清理逻辑。
+  - `internal/agent/agent_test.go`、`internal/tui/model_test.go`、`internal/tui/session_test.go`：补充 retry 事件发射、TUI 排序/清理、倒计时刷新和 session 恢复清理的回归测试。
+- 验证命令和结果：
+  - `go test ./...`
+  - `go vet ./...`
+- 已知限制或后续风险：
+  - 当前只有主 content viewport 会显示 live retry block；subagent 面板里的 retry 仍未单独可视化。
+  - 重试倒计时按当前 TUI 的 200ms run tick 刷新，短 backoff（例如几毫秒）通常只会闪现或直接被后续输出覆盖。
