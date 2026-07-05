@@ -34,6 +34,19 @@ type sessionRuntime struct {
 	current sessionHandle
 }
 
+// Close releases the underlying session store resources.
+func (r *sessionRuntime) Close() error {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.store != nil {
+		return r.store.Close()
+	}
+	return nil
+}
+
 func newSessionRuntime(cfg config.SessionConfig, workspace string, codingAgent *agent.Agent, startup *ui.StartupInfo) (*sessionRuntime, error) {
 	runtime := &sessionRuntime{
 		agent:   codingAgent,

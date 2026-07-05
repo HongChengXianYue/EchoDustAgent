@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,8 +32,44 @@ func newTestSlashRouter(t *testing.T) (*slashRouter, *sessionRuntime) {
 	if err != nil {
 		t.Fatalf("newSessionRuntime() error = %v", err)
 	}
+	t.Cleanup(func() {
+		_ = sessions.Close()
+	})
 	router := newSlashRouter(&startup, sessions, func() bool { return false })
 	return router, sessions
+}
+
+type sessionInfoBlock struct {
+	title string
+	body  string
+}
+
+type testSessionUI struct {
+	loaded     []session.UISnapshot
+	infoBlocks []sessionInfoBlock
+}
+
+func (u *testSessionUI) SessionSnapshot() session.UISnapshot {
+	return session.UISnapshot{}
+}
+
+func (u *testSessionUI) LoadSessionSnapshot(snapshot session.UISnapshot) {
+	u.loaded = append(u.loaded, snapshot)
+}
+
+func (u *testSessionUI) AppendInfoBlock(title, body string) {
+	u.infoBlocks = append(u.infoBlocks, sessionInfoBlock{title: title, body: body})
+}
+
+func writeJSONFixture(t *testing.T, path string, value any) {
+	t.Helper()
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		t.Fatalf("MarshalIndent(%s) error = %v", path, err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("WriteFile(%s) error = %v", path, err)
+	}
 }
 
 func TestDispatchSlashTextInfo(t *testing.T) {
@@ -182,6 +219,116 @@ func TestResumeRestoresLegacySyntheticSystemMessages(t *testing.T) {
 	}
 }
 
+func TestResumeMigratesLegacyJSONAndRestoresUISnapshot(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspace) error = %v", err)
+	}
+
+	startup := ui.StartupInfo{
+		Workdir: workspace,
+		Model:   "demo-model",
+		WireAPI: "responses",
+		LogFile: filepath.Join(workspace, "agent.log"),
+	}
+	codingAgent := agent.NewWithWorkspace(nil, tools.NewRegistry(), 4, workspace)
+
+	sessionID := "20260704T011530Z-a1b2"
+	createdAt := time.Date(2026, 7, 4, 1, 15, 30, 0, time.UTC)
+	projectDir := (session.Store{RootDir: root, Workspace: workspace}).ProjectDir()
+	sessionDir := filepath.Join(projectDir, sessionID)
+	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll(sessionDir) error = %v", err)
+	}
+
+	writeJSONFixture(t, filepath.Join(sessionDir, "meta.json"), session.Meta{
+		Version:         1,
+		SessionID:       sessionID,
+		Workspace:       workspace,
+		Title:           "legacy snapshot",
+		CreatedAt:       createdAt,
+		UpdatedAt:       createdAt.Add(2 * time.Minute),
+		Model:           "demo-model",
+		WireAPI:         "responses",
+		MessageCount:    3,
+		LastUserPreview: "inspect project",
+		HasUISnapshot:   true,
+	})
+	writeJSONFixture(t, filepath.Join(sessionDir, "state.json"), session.State{
+		Version: 1,
+		Conversation: []llm.Message{
+			{Role: "user", Content: "inspect project"},
+			{Role: "system", Content: "Background delegate_task result.\nSubagent-1 task: inspect\nStatus: completed"},
+			{Role: "assistant", Content: "done"},
+		},
+		UI: &session.UISnapshot{
+			Blocks: []session.TranscriptBlockSnapshot{
+				{Kind: "user", Body: "inspect project"},
+				{Kind: "assistant", Body: "done", Markdown: true},
+			},
+			Subagents: []session.SubagentSnapshot{
+				{Index: 1, Task: "inspect", Status: "done", TokenTotal: 42},
+			},
+			Tokens: session.TokenSnapshot{Prompt: 10, Completion: 5, Total: 15, Cached: 2},
+		},
+	})
+
+	sessions, err := newSessionRuntime(config.SessionConfig{
+		Enabled: true,
+		Dir:     root,
+	}, workspace, codingAgent, &startup)
+	if err != nil {
+		t.Fatalf("newSessionRuntime() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sessions.Close()
+	})
+
+	testUI := &testSessionUI{}
+	sessions.SetUI(testUI)
+	router := newSlashRouter(&startup, sessions, func() bool { return false })
+
+	output, handled, shouldExit := router.DispatchText("/resume latest")
+	if !handled || shouldExit {
+		t.Fatalf("/resume latest handled=%v shouldExit=%v", handled, shouldExit)
+	}
+	if !strings.Contains(output, sessionID) || !strings.Contains(output, "legacy snapshot") {
+		t.Fatalf("unexpected /resume output: %q", output)
+	}
+	if sessions.CurrentSessionID() != sessionID {
+		t.Fatalf("CurrentSessionID() = %q", sessions.CurrentSessionID())
+	}
+
+	conversation := sessions.agent.ConversationMessages()
+	if len(conversation) != 3 {
+		t.Fatalf("ConversationMessages() len = %d", len(conversation))
+	}
+	if conversation[1].Role != "user" {
+		t.Fatalf("legacy system message not sanitized after migration: %#v", conversation[1])
+	}
+
+	if len(testUI.loaded) != 1 {
+		t.Fatalf("LoadSessionSnapshot() calls = %d, want 1", len(testUI.loaded))
+	}
+	if len(testUI.loaded[0].Blocks) != 2 || len(testUI.loaded[0].Subagents) != 1 {
+		t.Fatalf("loaded snapshot = %#v", testUI.loaded[0])
+	}
+	if testUI.loaded[0].Tokens.Total != 15 {
+		t.Fatalf("loaded token total = %d, want 15", testUI.loaded[0].Tokens.Total)
+	}
+
+	if len(testUI.infoBlocks) != 1 {
+		t.Fatalf("AppendInfoBlock() calls = %d, want 1", len(testUI.infoBlocks))
+	}
+	if testUI.infoBlocks[0].title != "Session" {
+		t.Fatalf("info block title = %q", testUI.infoBlocks[0].title)
+	}
+	if !strings.Contains(testUI.infoBlocks[0].body, sessionID) || !strings.Contains(testUI.infoBlocks[0].body, "legacy snapshot") {
+		t.Fatalf("unexpected info block body: %q", testUI.infoBlocks[0].body)
+	}
+}
+
 func TestResumeRejectsAmbiguousPrefixAndRunningState(t *testing.T) {
 	startup := ui.StartupInfo{
 		Workdir: "/tmp/project",
@@ -197,6 +344,9 @@ func TestResumeRejectsAmbiguousPrefixAndRunningState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newSessionRuntime() error = %v", err)
 	}
+	t.Cleanup(func() {
+		_ = sessions.Close()
+	})
 	store := sessions.store
 	now := time.Date(2026, 7, 3, 23, 15, 30, 0, time.UTC)
 	for _, id := range []string{"20260703T231530Z-a1b2", "20260703T231530Z-b2c3"} {

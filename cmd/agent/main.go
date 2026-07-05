@@ -101,6 +101,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	defer sessions.Close()
 	var runStateMu sync.Mutex
 	isRunning := false
 	setRunning := func(v bool) {

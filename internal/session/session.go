@@ -2,15 +2,16 @@ package session
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
-	"unicode"
+
+	_ "modernc.org/sqlite"
 
 	"local-agent/internal/llm"
 )
@@ -90,6 +91,7 @@ type SaveRequest struct {
 type Store struct {
 	RootDir   string
 	Workspace string
+	db        *sql.DB
 }
 
 func OpenStore(rootDir, workspace string) (Store, error) {
@@ -101,7 +103,48 @@ func OpenStore(rootDir, workspace string) (Store, error) {
 	if workspace == "" {
 		return Store{}, fmt.Errorf("workspace is required")
 	}
-	return Store{RootDir: rootDir, Workspace: workspace}, nil
+
+	store := Store{RootDir: rootDir, Workspace: workspace}
+
+	// Open SQLite database
+	dbPath := store.dbPath()
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
+		return Store{}, err
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return Store{}, fmt.Errorf("open sqlite: %w", err)
+	}
+
+	// Enable WAL mode for better concurrent access
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		db.Close()
+		return Store{}, fmt.Errorf("set wal mode: %w", err)
+	}
+
+	// Create tables if they don't exist
+	if err := store.createTables(db); err != nil {
+		db.Close()
+		return Store{}, fmt.Errorf("create tables: %w", err)
+	}
+
+	store.db = db
+
+	// Auto-migrate legacy JSON files on first open
+	if err := store.migrateLegacyJSON(); err != nil {
+		_ = db.Close()
+		return Store{}, fmt.Errorf("migrate legacy sessions: %w", err)
+	}
+
+	return store, nil
+}
+
+func (s Store) dbPath() string {
+	if s.RootDir == "" || s.Workspace == "" {
+		return ""
+	}
+	return filepath.Join(s.RootDir, "projects", slugify(s.Workspace), "sessions.db")
 }
 
 func (s Store) ProjectDir() string {
@@ -111,42 +154,172 @@ func (s Store) ProjectDir() string {
 	return filepath.Join(s.RootDir, "projects", slugify(s.Workspace))
 }
 
-func (s Store) List(limit int) ([]Meta, error) {
+func (s Store) createTables(db *sql.DB) error {
+	schema := `
+		CREATE TABLE IF NOT EXISTS sessions (
+			session_id TEXT PRIMARY KEY,
+			workspace TEXT NOT NULL,
+			title TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			model TEXT,
+			wire_api TEXT,
+			message_count INTEGER NOT NULL,
+			last_user_preview TEXT,
+			has_ui_snapshot INTEGER NOT NULL,
+			state_json TEXT NOT NULL
+		);
+		CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at DESC);
+	`
+	_, err := db.Exec(schema)
+	return err
+}
+
+func (s Store) migrateLegacyJSON() error {
 	projectDir := s.ProjectDir()
 	if projectDir == "" {
-		return nil, fmt.Errorf("session store is not configured")
+		return nil
 	}
+
+	// Check if project directory exists
 	entries, err := os.ReadDir(projectDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil
 		}
-		return nil, err
+		return err
 	}
-	metas := make([]Meta, 0, len(entries))
+
+	// Look for session directories (legacy format)
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		metaPath, err := safeJoin(filepath.Join(projectDir, entry.Name()), metaFileName)
+
+		sessionID := entry.Name()
+		sessionDir := filepath.Join(projectDir, sessionID)
+
+		// Check if this session already exists in SQLite
+		var count int
+		err := s.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE session_id = ?", sessionID).Scan(&count)
 		if err != nil {
-			continue
+			return fmt.Errorf("check session existence: %w", err)
 		}
+		if count > 0 {
+			continue // Already migrated
+		}
+
+		// Read legacy JSON files
+		metaPath := filepath.Join(sessionDir, metaFileName)
+		statePath := filepath.Join(sessionDir, stateFileName)
+
 		meta, err := readJSONFile[Meta](metaPath)
-		if err != nil || strings.TrimSpace(meta.SessionID) == "" {
+		if err != nil {
+			// Skip broken sessions
 			continue
 		}
+
+		state, err := readJSONFile[State](statePath)
+		if err != nil {
+			// Skip broken sessions
+			continue
+		}
+
+		// Insert into SQLite
+		if err := s.insertSession(meta, state); err != nil {
+			return fmt.Errorf("migrate session %s: %w", sessionID, err)
+		}
+	}
+
+	return nil
+}
+
+func (s Store) insertSession(meta Meta, state State) error {
+	stateJSON, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("marshal state: %w", err)
+	}
+
+	_, err = s.db.Exec(`
+		INSERT OR REPLACE INTO sessions (
+			session_id, workspace, title, created_at, updated_at,
+			model, wire_api, message_count, last_user_preview,
+			has_ui_snapshot, state_json
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		meta.SessionID,
+		meta.Workspace,
+		meta.Title,
+		meta.CreatedAt.UTC().Format(time.RFC3339Nano),
+		meta.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		meta.Model,
+		meta.WireAPI,
+		meta.MessageCount,
+		meta.LastUserPreview,
+		boolToInt(meta.HasUISnapshot),
+		string(stateJSON),
+	)
+	return err
+}
+
+func (s Store) List(limit int) ([]Meta, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("session store is not configured")
+	}
+
+	query := `
+		SELECT session_id, workspace, title, created_at, updated_at,
+		       model, wire_api, message_count, last_user_preview, has_ui_snapshot
+		FROM sessions
+		ORDER BY updated_at DESC, session_id DESC
+	`
+	args := []interface{}{}
+
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	metas := make([]Meta, 0)
+	for rows.Next() {
+		var meta Meta
+		var createdAtStr, updatedAtStr string
+		var hasUI int
+
+		err := rows.Scan(
+			&meta.SessionID,
+			&meta.Workspace,
+			&meta.Title,
+			&createdAtStr,
+			&updatedAtStr,
+			&meta.Model,
+			&meta.WireAPI,
+			&meta.MessageCount,
+			&meta.LastUserPreview,
+			&hasUI,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		meta.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAtStr)
+		meta.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updatedAtStr)
+		meta.HasUISnapshot = hasUI != 0
+		meta.Version = version
+
 		metas = append(metas, meta)
 	}
-	sort.SliceStable(metas, func(i, j int) bool {
-		if metas[i].UpdatedAt.Equal(metas[j].UpdatedAt) {
-			return metas[i].SessionID > metas[j].SessionID
-		}
-		return metas[i].UpdatedAt.After(metas[j].UpdatedAt)
-	})
-	if limit > 0 && len(metas) > limit {
-		metas = metas[:limit]
+
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
+
 	return metas, nil
 }
 
@@ -155,38 +328,64 @@ func (s Store) Load(sessionID string) (Record, error) {
 	if sessionID == "" {
 		return Record{}, fmt.Errorf("session id is required")
 	}
-	sessionDir, err := safeJoin(s.ProjectDir(), sessionID)
+
+	if s.db == nil {
+		return Record{}, fmt.Errorf("session store is not configured")
+	}
+
+	var meta Meta
+	var createdAtStr, updatedAtStr, stateJSON string
+	var hasUI int
+
+	err := s.db.QueryRow(`
+		SELECT session_id, workspace, title, created_at, updated_at,
+		       model, wire_api, message_count, last_user_preview, has_ui_snapshot, state_json
+		FROM sessions
+		WHERE session_id = ?
+	`, sessionID).Scan(
+		&meta.SessionID,
+		&meta.Workspace,
+		&meta.Title,
+		&createdAtStr,
+		&updatedAtStr,
+		&meta.Model,
+		&meta.WireAPI,
+		&meta.MessageCount,
+		&meta.LastUserPreview,
+		&hasUI,
+		&stateJSON,
+	)
+
+	if err == sql.ErrNoRows {
+		return Record{}, os.ErrNotExist
+	}
 	if err != nil {
 		return Record{}, err
 	}
-	metaPath, err := safeJoin(sessionDir, metaFileName)
-	if err != nil {
-		return Record{}, err
+
+	meta.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAtStr)
+	meta.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updatedAtStr)
+	meta.HasUISnapshot = hasUI != 0
+	meta.Version = version
+
+	var state State
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		return Record{}, fmt.Errorf("unmarshal state: %w", err)
 	}
-	statePath, err := safeJoin(sessionDir, stateFileName)
-	if err != nil {
-		return Record{}, err
-	}
-	meta, err := readJSONFile[Meta](metaPath)
-	if err != nil {
-		return Record{}, err
-	}
-	state, err := readJSONFile[State](statePath)
-	if err != nil {
-		return Record{}, err
-	}
+
 	return Record{Meta: meta, State: state}, nil
 }
 
 func (s Store) Save(request SaveRequest) (Meta, error) {
-	projectDir := s.ProjectDir()
-	if projectDir == "" {
+	if s.db == nil {
 		return Meta{}, fmt.Errorf("session store is not configured")
 	}
+
 	now := request.Now.UTC()
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
+
 	sessionID := strings.TrimSpace(request.SessionID)
 	if sessionID == "" {
 		var err error
@@ -195,10 +394,12 @@ func (s Store) Save(request SaveRequest) (Meta, error) {
 			return Meta{}, err
 		}
 	}
+
 	createdAt := request.CreatedAt.UTC()
 	if createdAt.IsZero() {
 		createdAt = now
 	}
+
 	state := State{
 		Version:      version,
 		Conversation: copyMessages(request.Conversation),
@@ -207,6 +408,7 @@ func (s Store) Save(request SaveRequest) (Meta, error) {
 		snapshot := cloneUISnapshot(*request.UI)
 		state.UI = &snapshot
 	}
+
 	meta := Meta{
 		Version:         version,
 		SessionID:       sessionID,
@@ -220,31 +422,19 @@ func (s Store) Save(request SaveRequest) (Meta, error) {
 		LastUserPreview: latestUserPreview(state.Conversation),
 		HasUISnapshot:   state.UI != nil,
 	}
-	if err := os.MkdirAll(projectDir, 0o700); err != nil {
+
+	if err := s.insertSession(meta, state); err != nil {
 		return Meta{}, err
 	}
-	sessionDir, err := safeJoin(projectDir, sessionID)
-	if err != nil {
-		return Meta{}, err
-	}
-	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
-		return Meta{}, err
-	}
-	metaPath, err := safeJoin(sessionDir, metaFileName)
-	if err != nil {
-		return Meta{}, err
-	}
-	statePath, err := safeJoin(sessionDir, stateFileName)
-	if err != nil {
-		return Meta{}, err
-	}
-	if err := writeJSONAtomic(metaPath, meta); err != nil {
-		return Meta{}, err
-	}
-	if err := writeJSONAtomic(statePath, state); err != nil {
-		return Meta{}, err
-	}
+
 	return meta, nil
+}
+
+func (s Store) Close() error {
+	if s.db != nil {
+		return s.db.Close()
+	}
+	return nil
 }
 
 func copyMessages(messages []llm.Message) []llm.Message {
@@ -283,42 +473,6 @@ func readJSONFile[T any](path string) (T, error) {
 		return value, fmt.Errorf("%s: %w", path, err)
 	}
 	return value, nil
-}
-
-func writeJSONAtomic(path string, value any) error {
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	dir := filepath.Dir(path)
-	temp, err := os.CreateTemp(dir, ".tmp-*.json")
-	if err != nil {
-		return err
-	}
-	tempPath := temp.Name()
-	cleanup := func() {
-		_ = os.Remove(tempPath)
-	}
-	if err := temp.Chmod(0o600); err != nil {
-		temp.Close()
-		cleanup()
-		return err
-	}
-	if _, err := temp.Write(data); err != nil {
-		temp.Close()
-		cleanup()
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		cleanup()
-		return err
-	}
-	if err := os.Rename(tempPath, path); err != nil {
-		cleanup()
-		return err
-	}
-	return nil
 }
 
 func newSessionID(now time.Time) (string, error) {
@@ -378,19 +532,11 @@ func slugify(path string) string {
 	return replacer.Replace(path)
 }
 
-func safeJoin(base, name string) (string, error) {
-	if strings.TrimSpace(base) == "" {
-		return "", fmt.Errorf("base directory is empty")
+func boolToInt(b bool) int {
+	if b {
+		return 1
 	}
-	path := filepath.Join(base, name)
-	rel, err := filepath.Rel(base, path)
-	if err != nil {
-		return "", err
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path escapes session store")
-	}
-	return path, nil
+	return 0
 }
 
 func expandHome(path string) string {
@@ -421,23 +567,4 @@ func absPath(path string) string {
 		return filepath.Clean(path)
 	}
 	return filepath.Clean(abs)
-}
-
-func slug(value string) string {
-	value = strings.ToLower(strings.TrimSpace(value))
-	var b strings.Builder
-	lastDash := false
-	for _, r := range value {
-		switch {
-		case unicode.IsLetter(r) || unicode.IsDigit(r):
-			b.WriteRune(r)
-			lastDash = false
-		case r == '-' || r == '_' || unicode.IsSpace(r):
-			if !lastDash && b.Len() > 0 {
-				b.WriteByte('-')
-				lastDash = true
-			}
-		}
-	}
-	return strings.Trim(b.String(), "-")
 }

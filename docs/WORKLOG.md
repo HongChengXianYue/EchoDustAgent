@@ -1005,3 +1005,36 @@
   - `go vet ./...`
 - 已知限制或后续风险：
   - 当前 todo 仍属于主 content viewport，而不是独立固定面板；如果后续需要“始终可见、不随正文滚动”的 todo 区，还需要再做单独布局分区。
+
+## 2026-07-05 - Session 持久化后端从 JSON 目录迁移到 SQLite
+
+- 摘要：将 `/resume` 会话持久化后端从每个 session 一个目录（`meta.json` + `state.json`）改为 SQLite 单文件存储。外部行为不变，`OpenStore`、`Save`、`Load`、`List` 接口语义保持一致。使用纯 Go 的 `modernc.org/sqlite` 驱动，避免 CGO 依赖。数据库文件位于 `<session root>/projects/<workspace-slug>/sessions.db`，保持按 workspace 隔离。首次打开时自动检测并幂等导入遗留 JSON session 目录，不删除原始文件。
+- 主要模块：
+  - `internal/session/session.go`：新增 `database/sql` + SQLite 初始化、WAL 模式、建表、`insertSession`、`migrateLegacyJSON`、`Close()`；`List` 改为 SQL `ORDER BY updated_at DESC, session_id DESC`；`Load` 缺失 session 返回 `os.ErrNotExist`；删除 `writeJSONAtomic`、`safeJoin`、`slug` 等不再使用的函数。
+  - `internal/session/session_test.go`：新增 `TestStoreAutoMigratesLegacyJSON`（遗留 JSON → SQLite 自动迁移）、`TestStoreIdempotentMigration`（幂等迁移）、`TestStoreSaveOverwrite`（同 ID 覆盖写）；已有测试补充 `defer store.Close()`。
+  - `cmd/agent/session_runtime.go`：新增 `sessionRuntime.Close()` 方法，释放 SQLite 连接。
+  - `go.mod` / `go.sum`：新增 `modernc.org/sqlite v1.53.0` 作为直接依赖（纯 Go 实现，无 CGO）。
+- 验证命令和结果：
+  - `go test ./internal/session -v`：8 个测试全部通过（Save/Load roundtrip、List 排序、missing session、broken meta 跳过、home 展开、自动迁移、覆盖写、幂等迁移）。
+  - `go test ./cmd/agent`：通过（包含 `/resume` 相关测试）。
+  - `go test ./...`：除 `internal/tools` 的 `TestGoCodeNavigationTools` 因环境缺少 `gopls` 失败外（与本次改动无关），其余全部通过。
+  - `go vet ./...`：通过。
+- 已知限制或后续风险：
+  - `modernc.org/sqlite` 是纯 Go 编译的 SQLite 实现，首次编译时间较长且二进制体积增大（约增加 10MB），但避免了 CGO 交叉编译复杂度。
+  - 遗留 JSON 目录在迁移后不会被删除，作为安全备份保留；迁移通过 `SELECT COUNT(*)` 检查保证幂等。
+  - `conversation` 和 `ui_snapshot` 仍以 JSON blob 存储在 `state_json` 列中，未做拆表。
+  - `meta.json` / `state.json` 常量和 `ProjectDir()` 方法保留，因为迁移逻辑仍需要读取遗留目录结构。
+
+## 2026-07-05 - SQLite 迁移后续修正与 `/resume` 端到端回归覆盖
+
+- 摘要：修正 SQLite 会话迁移收尾中的 4 个问题：`OpenStore` 不再吞掉 legacy JSON 迁移失败；主进程补上 session store 关闭；将 SQLite 驱动版本降到兼容仓库原始 `go 1.24.2` 的 `modernc.org/sqlite v1.29.0`；补齐从 legacy JSON 目录一路恢复到 `/resume` 与 UI snapshot 的端到端测试。
+- 主要模块：
+  - `internal/session/session.go`：legacy 迁移失败时立即关闭 DB 并返回错误，避免半迁移状态被静默放行。
+  - `cmd/agent/main.go`：成功创建 `sessionRuntime` 后统一 `defer sessions.Close()`。
+  - `cmd/agent/slash_test.go`：新增 legacy `meta.json/state.json` → `/resume latest` 恢复测试，校验 conversation 恢复、legacy synthetic system message 清洗、UI snapshot 加载、Session info block 追加。
+  - `go.mod` / `go.sum`：将 SQLite 驱动及其间接依赖压回兼容 `go 1.24.2` 的版本集合。
+- 验证命令和结果：
+  - `GOMODCACHE=/home/lqy/ai-workspace/local-agent/.gomodcache GOCACHE=/home/lqy/ai-workspace/local-agent/.gocache GOPROXY=https://proxy.golang.org,direct GOSUMDB=sum.golang.org go test ./...`：通过。
+  - `GOMODCACHE=/home/lqy/ai-workspace/local-agent/.gomodcache GOCACHE=/home/lqy/ai-workspace/local-agent/.gocache GOPROXY=https://proxy.golang.org,direct GOSUMDB=sum.golang.org go vet ./...`：通过。
+- 已知限制或后续风险：
+  - 本次验证为了绕过系统只读模块缓存与代理限制，使用了工作区内本地 `GOMODCACHE/GOCACHE` 并补齐缺失依赖；如果后续要在干净环境复现，需要确保可下载这些模块或预热缓存。
