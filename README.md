@@ -169,6 +169,8 @@ This means a global npm install can keep shared defaults in `~/.echo-dust-code/c
   The npm package ships a thin Node.js launcher only.
 - 实际运行的 Go 二进制会在 `postinstall` 阶段按平台从 GitHub Releases 下载。
   The real Go binary is downloaded from GitHub Releases during `postinstall`.
+- `gopls` 会和主程序二进制一起打包进 release 资产，并在 npm 安装时作为内置依赖一并下发。
+  `gopls` is bundled into the same release archive as the main binary and installed alongside it as a built-in dependency.
 - 支持的目标平台为 `darwin/linux/win32` + `x64/arm64`。
   Supported targets are `darwin/linux/win32` with `x64/arm64`.
 - 发布时推送 `vX.Y.Z` tag，GitHub Actions 会校验 `package.json` 版本与 tag 一致，再构建 release 资产、上传 GitHub Releases，并通过 npm trusted publishing 执行 `npm publish`。

@@ -308,6 +308,7 @@ func TestFindSymbolTool(t *testing.T) {
 }
 
 func TestGoCodeNavigationTools(t *testing.T) {
+	requireCommand(t, "gopls")
 	workdir, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -346,6 +347,13 @@ func TestGoCodeNavigationTools(t *testing.T) {
 	if execErr != nil || result.Status != "success" || !strings.Contains(result.Output, "callee[") ||
 		!strings.Contains(result.Output, "chatWithToolsOnce") || !strings.Contains(result.Output, "recordChatUsage") {
 		t.Fatalf("find callees result = %#v err = %v", result, execErr)
+	}
+}
+
+func requireCommand(t *testing.T, name string) {
+	t.Helper()
+	if _, err := exec.LookPath(name); err != nil {
+		t.Skipf("%s command not available", name)
 	}
 }
 

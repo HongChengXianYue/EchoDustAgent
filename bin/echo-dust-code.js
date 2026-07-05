@@ -8,6 +8,7 @@ const {
   binaryName,
   detectTarget,
   installedBinaryPath,
+  installedGoplsPath,
   packageName,
 } = require("../lib/npm-platform");
 
@@ -22,6 +23,7 @@ try {
 }
 
 const binaryPath = installedBinaryPath(rootDir, target);
+const goplsPath = installedGoplsPath(rootDir, target);
 if (!fs.existsSync(binaryPath)) {
   console.error(
     `[${binaryName}] Missing packaged binary at ${binaryPath}.\n` +
@@ -29,8 +31,19 @@ if (!fs.existsSync(binaryPath)) {
   );
   process.exit(1);
 }
+if (!fs.existsSync(goplsPath)) {
+  console.error(
+    `[${binaryName}] Missing bundled gopls at ${goplsPath}.\n` +
+      `Reinstall with: npm install -g ${packageName}@latest`
+  );
+  process.exit(1);
+}
 
 const child = spawn(binaryPath, process.argv.slice(2), {
+  env: {
+    ...process.env,
+    ECHODUST_CODE_GOPLS: goplsPath,
+  },
   stdio: "inherit",
 });
 

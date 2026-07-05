@@ -1129,3 +1129,33 @@
   - npm `postinstall` 依赖系统可用的 `tar` 命令来解压 GitHub Release 归档；在极少数缺少 `tar` 的环境中需要额外安装或改成纯 JS 解压实现。
   - 当前 npm 包名使用 `@hongchengxianyue/echo-dust-code` 作用域；如果正式发布时希望改成其他组织名或无作用域名称，需要同步调整 `package.json`、README 和下载提示文案。
   - trusted publishing 仍需要先在 npm 后台为这个 GitHub 仓库配置 trusted publisher，且要求推送的 `vX.Y.Z` tag 与 `package.json` 版本完全一致。
+
+## 2026-07-06 - 去掉 find_symbol 对 codegraph 的运行依赖并放宽外部工具测试
+
+- 摘要：将 `find_symbol` 从依赖外部 `codegraph` 命令改为纯 Go 标准库实现，直接扫描 workspace 下的 Go AST 做符号匹配，避免在运行时和 CI 中把 codegraph 当成必需依赖。同时将 `gopls` 相关测试改为“命令不存在则 skip”，让 release 验证在精简环境下也能通过。
+- 主要模块：
+  - `internal/tools/code_tools.go`：删除 `find_symbol` 对 `codegraph query` 的外部命令依赖，改为遍历 workspace Go 文件并收集 `function/method/type/var/const` 符号；按精确匹配、前缀匹配、子串匹配排序输出。
+  - `internal/tools/tools_test.go`：为 `gopls` 依赖型导航测试加入 `requireCommand` 检查，在命令缺失时自动 skip，而不是让整套 `go test ./...` 失败。
+- 验证命令和结果：
+  - `go test ./...`：通过。
+  - `go vet ./...`：通过。
+- 已知限制或后续风险：
+  - `find_symbol` 现在只扫描 workspace 内 `.go` 文件中的显式声明，不提供像 codegraph 那样的跨语言或更丰富的图关系信息。
+  - `find_references` / `find_callers` / `find_callees` 仍然依赖外部 `gopls`；只是测试层面在缺少命令时不再强制失败。
+
+## 2026-07-06 - 将 gopls 作为 npm 发行物的内置强依赖一起打包
+
+- 摘要：把 `gopls` 从“依赖用户本机 PATH”改为“随 npm release 资产一并分发”。现在每个 GitHub Release 归档都会同时包含 `echo-dust-code` 和 `gopls`，npm `postinstall` 会一起安装并强校验两者都存在；运行时 Node 启动器会把内置 `gopls` 路径注入环境，Go 侧优先使用该路径，从而让全局 npm 安装后的 `find_references` / `find_callers` / `find_callees` 能直接工作。
+- 主要模块：
+  - `scripts/build-release-artifacts.sh`：release 构建阶段除主程序外额外交叉编译 `gopls`，并将两个可执行文件一起打进平台归档。
+  - `scripts/postinstall.js`、`lib/npm-platform.js`、`bin/echo-dust-code.js`：npm 安装阶段同时验证和落地 `echo-dust-code` 与 `gopls`，启动时通过 `ECHODUST_CODE_GOPLS` 把内置 `gopls` 路径传给主程序。
+  - `internal/tools/code_tools.go`、`internal/tools/code_tools_test.go`：导航工具运行时优先使用环境变量指定的 `gopls`，其次检查主程序同目录下的 bundled `gopls`，最后才回退到系统 PATH；补充 env override 回归测试。
+  - `README.md`：补充 npm 发行物内置 `gopls` 的说明。
+- 验证命令和结果：
+  - `go test ./...`
+  - `go vet ./...`
+  - `npm run check`
+  - `ECHODUST_CODE_SKIP_DOWNLOAD=1 npm pack --dry-run`
+- 已知限制或后续风险：
+  - 当前 release 构建已固定使用 `golang.org/x/tools/gopls@v0.22.0`，可复现性更好；但该版本在构建时会触发 Go toolchain 自动切换到 `go1.26.4`，因此 GitHub Actions 需要保留外网下载 toolchain 的能力。
+  - 如果未来要继续升级 `gopls` 版本，需要同步回归验证其最低 Go 版本要求，避免 release workflow 因 toolchain 不匹配而失败。

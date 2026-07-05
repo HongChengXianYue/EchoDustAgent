@@ -14,6 +14,7 @@ const {
   detectTarget,
   installedBinaryDir,
   installedBinaryPath,
+  installedGoplsPath,
   releaseDownloadURL,
 } = require("../lib/npm-platform");
 
@@ -89,6 +90,7 @@ async function main() {
   const target = detectTarget();
   const installDir = installedBinaryDir(rootDir);
   const binaryPath = installedBinaryPath(rootDir, target);
+  const goplsPath = installedGoplsPath(rootDir, target);
   const archive = archiveName(target);
   const downloadURL = releaseDownloadURL(packageJSON.version, target);
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), "echo-dust-code-"));
@@ -96,6 +98,7 @@ async function main() {
 
   await fsp.mkdir(installDir, { recursive: true });
   await fsp.rm(binaryPath, { force: true });
+  await fsp.rm(goplsPath, { force: true });
 
   console.log(`[${binaryName}] Downloading ${archive} from ${downloadURL}`);
   await downloadFile(downloadURL, archivePath);
@@ -104,11 +107,17 @@ async function main() {
   if (!fs.existsSync(binaryPath)) {
     throw new Error(`archive ${archive} did not contain ${path.basename(binaryPath)}`);
   }
+  if (!fs.existsSync(goplsPath)) {
+    throw new Error(`archive ${archive} did not contain ${path.basename(goplsPath)}`);
+  }
   if (target.platform !== "windows") {
     await fsp.chmod(binaryPath, 0o755);
+    await fsp.chmod(goplsPath, 0o755);
   }
   await fsp.rm(tempDir, { recursive: true, force: true });
-  console.log(`[${binaryName}] Installed ${path.basename(binaryPath)} for ${target.platform}/${target.arch}`);
+  console.log(
+    `[${binaryName}] Installed ${path.basename(binaryPath)} and ${path.basename(goplsPath)} for ${target.platform}/${target.arch}`
+  );
 }
 
 main().catch((error) => {
