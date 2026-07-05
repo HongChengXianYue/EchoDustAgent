@@ -1159,3 +1159,24 @@
 - 已知限制或后续风险：
   - 当前 release 构建已固定使用 `golang.org/x/tools/gopls@v0.22.0`，可复现性更好；但该版本在构建时会触发 Go toolchain 自动切换到 `go1.26.4`，因此 GitHub Actions 需要保留外网下载 toolchain 的能力。
   - 如果未来要继续升级 `gopls` 版本，需要同步回归验证其最低 Go 版本要求，避免 release workflow 因 toolchain 不匹配而失败。
+
+## 2026-07-06 - 修复 0.1.1 release 跨平台构建失败并准备重发
+
+- 摘要：`v0.1.1` 在 GitHub Actions 的 release matrix 阶段暴露出两个真实问题：一是 `internal/ui` 的历史非阻塞输入逻辑直接把 `int` 传给 Windows 版 `syscall.Handle` API，导致 Windows 交叉编译失败；二是 release 脚本在交叉编译 `gopls` 时同时设置了 `GOBIN`，触发 `go install` 的跨平台限制。为避免复用失败 tag，本次将 npm 版本提升到 `0.1.2`，修复后重新发布。
+- 主要模块：
+  - `internal/ui/nonblock_io_unix.go`、`internal/ui/nonblock_io_windows.go`：为历史 UI 的非阻塞输入读写增加按平台分发的 syscall 封装，让 Windows 编译使用 `syscall.Handle`，Unix 继续使用 `int` fd。
+  - `internal/ui/toggle_watcher.go`、`internal/ui/full_log_viewer.go`：改为复用平台封装，而不是在共享文件里直接写死 Unix 风格 `syscall.Read` / `SetNonblock`。
+  - `scripts/build-release-artifacts.sh`：交叉编译 `gopls` 时改用临时 `GOPATH` 安装，再从对应 `bin` 目录拷贝到 release 归档，避开 `go install` 在 cross-compile 场景下对 `GOBIN` 的限制。
+  - `package.json`：版本从 `0.1.1` 提升到 `0.1.2`，为新的 release tag 做准备。
+- 验证命令和结果：
+  - `go test ./...`
+  - `go vet ./...`
+  - `GOOS=windows GOARCH=amd64 go build ./cmd/agent`
+  - `GOOS=darwin GOARCH=amd64 go build ./cmd/agent`
+  - `GOOS=linux GOARCH=arm64 go build ./cmd/agent`
+  - `npm run check`
+  - `NPM_CONFIG_CACHE=/home/lqy/ai-workspace/local-agent/.npm-cache ECHODUST_CODE_SKIP_DOWNLOAD=1 npm pack --dry-run`
+  - `env -u HTTPS_PROXY -u HTTP_PROXY -u ALL_PROXY GOPROXY=https://proxy.golang.org,direct ./scripts/build-release-artifacts.sh darwin amd64 /tmp/edc-release-smoke`
+- 已知限制或后续风险：
+  - `internal/ui` 是历史实现，当前只修到“可跨平台编译”的程度；其 Windows 运行时交互体验没有单独做实机回归，主维护面仍然是 `internal/tui`。
+  - `gopls@v0.22.0` 仍会触发 Go toolchain 自动升级到 `go1.26.4`，因此 release workflow 依赖外网可正常下载该 toolchain。

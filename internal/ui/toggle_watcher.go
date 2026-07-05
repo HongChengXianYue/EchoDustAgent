@@ -1,11 +1,9 @@
 package ui
 
 import (
-	"errors"
 	"io"
 	"os"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -80,9 +78,8 @@ func (w *toggleKeyWatcher) run(file *os.File, outputFile *os.File, stop <-chan s
 	raw := enterRawMode(file)
 	defer raw.restore()
 
-	fd := int(file.Fd())
-	_ = syscall.SetNonblock(fd, true)
-	defer syscall.SetNonblock(fd, false)
+	_ = setFileNonblock(file, true)
+	defer setFileNonblock(file, false)
 
 	var buf [16]byte
 	for {
@@ -92,9 +89,9 @@ func (w *toggleKeyWatcher) run(file *os.File, outputFile *os.File, stop <-chan s
 		default:
 		}
 
-		n, err := syscall.Read(fd, buf[:])
+		n, err := readFileNonblock(file, buf[:])
 		if err != nil {
-			if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK) {
+			if isNonblockRetry(err) {
 				time.Sleep(w.poll)
 				continue
 			}

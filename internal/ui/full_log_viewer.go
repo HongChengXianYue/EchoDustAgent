@@ -1,13 +1,11 @@
 package ui
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -83,9 +81,9 @@ func (v *fullLogViewer) Run() {
 	v.render()
 	var buf [32]byte
 	for {
-		n, err := syscall.Read(int(v.input.Fd()), buf[:])
+		n, err := readFileNonblock(v.input, buf[:])
 		if err != nil {
-			if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK) {
+			if isNonblockRetry(err) {
 				time.Sleep(v.pollInterval)
 				if v.handlePendingInputIdle() {
 					return
