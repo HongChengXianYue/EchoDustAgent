@@ -152,11 +152,19 @@ func (m *Model) renderSuggestions() string {
 	if len(matches) == 0 {
 		return ""
 	}
-	if len(matches) > 5 {
-		matches = matches[:5]
-	}
 	m.clampSlashSuggestion()
 	selected := m.slashSuggest
+	start := 0
+	if len(matches) > maxVisibleSlashSuggestions && selected >= maxVisibleSlashSuggestions {
+		start = selected - maxVisibleSlashSuggestions + 1
+	}
+	maxStart := max(0, len(matches)-maxVisibleSlashSuggestions)
+	if start > maxStart {
+		start = maxStart
+	}
+	end := min(len(matches), start+maxVisibleSlashSuggestions)
+	matches = matches[start:end]
+	selected -= start
 	var lines []string
 	for i, match := range matches {
 		prefix := "  "

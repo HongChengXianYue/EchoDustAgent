@@ -27,8 +27,8 @@ func (m *Model) syncLayout() {
 		prevViewportHeight := m.viewport.Height
 		prevSubagentHeight := m.subagentViewport.Height
 		suggestionCount := len(m.matchedSlashCommands())
-		if suggestionCount > 5 {
-			suggestionCount = 5
+		if suggestionCount > maxVisibleSlashSuggestions {
+			suggestionCount = maxVisibleSlashSuggestions
 		}
 		headerHeight := lipgloss.Height(m.renderHeader())
 		inputInnerWidth := max(10, m.width-m.inputBoxStyle.GetHorizontalFrameSize())

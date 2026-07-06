@@ -969,6 +969,17 @@
 - 验证：`gofmt -w` 通过；全量验证见本次最终回复。
 - 备注：当前 UI 行为变为“默认只展示总耗时；需要逐 step 耗时时再开启配置”。
 
+## 2026-07-07 - Slash 命令建议列表滚动修复
+
+- 摘要：修复 TUI 中 `/` 命令建议列表只显示前 5 项且不会跟随当前选中项滚动的问题。现在当用户用方向键向下移动到第 6 项及以后时，可视窗口会随选中项一起滚动，保证末尾命令也能被看到和选中。
+- 主要模块：`internal/tui/model.go`、`internal/tui/model_layout.go`、`internal/tui/model_render.go`、`internal/tui/model_test.go`。
+- 改动要点：
+  - 抽出 `maxVisibleSlashSuggestions` 常量，统一建议列表最大可见条数。
+  - `renderSuggestions()` 改为根据 `slashSuggest` 计算可视窗口，而不是固定截取前 5 条。
+  - 新增测试覆盖：下移到第 7 个 slash 命令时，列表窗口会滚动，前面的命令会退出可视区域。
+- 验证：`gofmt -w` 通过；全量验证见本次最终回复。
+- 备注：当前行为仍保留方向键循环选择，只修复“选中项不可见”的滚动问题。
+
 ## 2026-07-05 - 修正 /init 作用域并补齐 ECHODUST 注入回归测试
 
 - 摘要：修复新加 `/init` 命令把 `ECHODUST.md` 写到 git 根目录的问题，改为与 `memory.ScopeProject` 一致，始终写到当前 workspace；同时修正 `.gitignore` 对 `cmd/agent/` / `internal/agent/` 新文件的误伤，并恢复对旧 `AGENTS.md` 的忽略；补齐 `/init` 和 `ECHODUST.md` 自动加载的回归测试。

@@ -797,6 +797,32 @@ func TestTabAcceptsSlashSuggestion(t *testing.T) {
 	}
 }
 
+func TestSlashSuggestionsScrollWithSelection(t *testing.T) {
+	model := newSizedTestModel()
+	model.SetSlashCommands([]ui.CommandSuggestion{
+		{Name: "alpha", Desc: "first"},
+		{Name: "beta", Desc: "second"},
+		{Name: "charlie", Desc: "third"},
+		{Name: "delta", Desc: "fourth"},
+		{Name: "echo", Desc: "fifth"},
+		{Name: "foxtrot", Desc: "sixth"},
+		{Name: "golf", Desc: "seventh"},
+	})
+
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for i := 0; i < 6; i++ {
+		model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+
+	view := model.View()
+	if !strings.Contains(view, "› /golf") {
+		t.Fatalf("expected selected suggestion to scroll into view:\n%s", view)
+	}
+	if strings.Contains(view, "/alpha") {
+		t.Fatalf("expected earlier suggestions to scroll out of view:\n%s", view)
+	}
+}
+
 func TestLongInputExpandsInputBox(t *testing.T) {
 	model := newSizedTestModel()
 	model.Update(tea.WindowSizeMsg{Width: 60, Height: 20})

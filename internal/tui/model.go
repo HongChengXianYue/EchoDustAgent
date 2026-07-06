@@ -359,6 +359,7 @@ func disableMouseCmd() tea.Cmd {
 }
 
 const inputPrompt = "› "
+const maxVisibleSlashSuggestions = 5
 
 func (m *Model) clampSlashSuggestion() {
 	matches := m.matchedSlashCommands()
