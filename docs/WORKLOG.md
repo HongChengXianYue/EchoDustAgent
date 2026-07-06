@@ -1327,3 +1327,20 @@
   - `go vet ./...`：通过。
 - 已知限制或后续风险：
   - 提示词里给的是“规范形状”和常用字段，不替代运行时校验；模型仍然应在写入前优先读取现有示例或现有配置，避免覆盖用户已有风格或遗漏 repo 特定要求。
+
+## 2026-07-06 - 为主 Agent 与 Subagent 增加步数耗尽后的无工具总结轮
+
+- 摘要：调整 agent 的 step budget 收尾策略。当主 Agent 或 Subagent 走到最后一步且无法继续扩步时，不再直接以 `without a final response` 结束，而是追加一轮“禁用全部工具、仅允许总结”的 LLM 调用，要求模型基于当前已收集的信息向用户输出最终总结。这样即使因为循环检测、扩步次数耗尽或其他 budget stop reason 停机，也尽量给用户一个可读结果，而不是空手退出。
+- 主要模块：
+  - `internal/agent/agent.go`：新增预算耗尽后的 summary-only 收尾逻辑；把通用聊天调用抽成“指定 messages + 指定 tools”的通路，复用现有的流式输出、重试和 token usage 统计；为最终总结轮注入临时 system 提示词。
+  - `internal/agent/step_budget.go`：`maybeExtendStepBudget` 现在会把停止原因回传给 `Run`，用于决定是否触发最后总结轮，并把 stop reason 透传给总结提示词。
+  - `internal/agent/agent_test.go`：把原本“重复工具循环后直接报错”的回归，改成“触发 step budget stop 后再做一次无工具总结”的回归，并断言最后一轮不再暴露 tools。
+  - `internal/tools/tools_test.go`：同步更新 Go 代码导航测试的调用图期望，匹配 `chatWithTools -> chat` 的新结构。
+- 验证命令和结果：
+  - `gofmt -w internal/agent/agent.go internal/agent/step_budget.go internal/agent/agent_test.go internal/tools/tools_test.go`
+  - `go test ./internal/agent/...`：通过。
+  - `go test ./...`：通过。
+  - `go vet ./...`：通过。
+- 已知限制或后续风险：
+  - 这次新增的是“一次 summary-only 的额外 LLM 收尾轮”，不是额外的工具行动轮；它会超出原 action step budget 一次聊天请求，但不会再允许执行工具。
+  - 如果 stop reason 是上下文已取消（例如外部主动终止），当前实现不会再补总结轮，仍保持原有终止语义。

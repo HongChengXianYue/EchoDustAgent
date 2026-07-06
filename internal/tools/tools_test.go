@@ -345,7 +345,9 @@ func TestGoCodeNavigationTools(t *testing.T) {
 		"column": column,
 	}))
 	if execErr != nil || result.Status != "success" || !strings.Contains(result.Output, "callee[") ||
-		!strings.Contains(result.Output, "chatWithToolsOnce") || !strings.Contains(result.Output, "recordChatUsage") {
+		!strings.Contains(result.Output, "function conversationMessages") ||
+		!strings.Contains(result.Output, "function functionTools") ||
+		!strings.Contains(result.Output, "function chat") {
 		t.Fatalf("find callees result = %#v err = %v", result, execErr)
 	}
 }

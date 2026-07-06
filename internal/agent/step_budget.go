@@ -196,26 +196,28 @@ func toolCallSignature(calls []llm.ToolCall, todos []tools.TodoItem) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (a *Agent) maybeExtendStepBudget(ctx context.Context, step int, budget *stepBudget, history stepProgressHistory) bool {
+func (a *Agent) maybeExtendStepBudget(ctx context.Context, step int, budget *stepBudget, history stepProgressHistory) (bool, string) {
 	if step+1 < budget.limit {
-		return true
+		return true, ""
 	}
 	if ctx.Err() != nil {
-		a.emitStepBudgetStop(step, budget.limit, "context was cancelled")
-		return false
+		reason := "context was cancelled"
+		a.emitStepBudgetStop(step, budget.limit, reason)
+		return false, reason
 	}
 	if !budget.canExtend() {
-		a.emitStepBudgetStop(step, budget.limit, "step budget extension limit reached")
-		return false
+		reason := "step budget extension limit reached"
+		a.emitStepBudgetStop(step, budget.limit, reason)
+		return false, reason
 	}
 	if reason := a.contextExtensionBlockReason(ctx); reason != "" {
 		a.emitStepBudgetStop(step, budget.limit, reason)
-		return false
+		return false, reason
 	}
 	ok, reason := history.shouldExtend()
 	if !ok {
 		a.emitStepBudgetStop(step, budget.limit, reason)
-		return false
+		return false, reason
 	}
 	before, after := budget.extend()
 	logs.Infof("extended step budget: before=%d after=%d extension=%d reason=%s", before, after, budget.extensions, reason)
@@ -228,7 +230,7 @@ func (a *Agent) maybeExtendStepBudget(ctx context.Context, step int, budget *ste
 		Count:   budget.extensions,
 		Reason:  reason,
 	})
-	return true
+	return true, ""
 }
 
 func (a *Agent) emitStepBudgetStop(step int, limit int, reason string) {

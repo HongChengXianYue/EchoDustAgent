@@ -1365,7 +1365,7 @@ func TestRunExtendsStepBudgetWhenTodoPlanProgresses(t *testing.T) {
 	}
 }
 
-func TestRunStopsAtStepBudgetForRepeatedToolLoop(t *testing.T) {
+func TestRunSummarizesWhenStepBudgetStopsAtRepeatedToolLoop(t *testing.T) {
 	client := &fakeClient{responses: []*llm.ChatResponse{
 		{
 			ToolCalls: []llm.ToolCall{
@@ -1385,7 +1385,7 @@ func TestRunStopsAtStepBudgetForRepeatedToolLoop(t *testing.T) {
 				testToolCall("call_3", "echo", `{"text":"same"}`),
 			},
 		},
-		{Content: "should not be reached"},
+		{Content: "Loop detected. I repeatedly called the same tool and did not make further progress."},
 	}}
 	registry := tools.NewRegistry()
 	registry.Register(&echoTool{})
@@ -1398,15 +1398,36 @@ func TestRunStopsAtStepBudgetForRepeatedToolLoop(t *testing.T) {
 
 	agent := NewWithWorkspaceAndOptions(client, registry, 1, "/tmp/workspace", options)
 	agent.SetRenderer(renderer)
-	_, err := agent.Run(context.Background(), "loop")
-	if err == nil {
-		t.Fatalf("Run() error = nil, want step budget error")
-	}
-	if !strings.Contains(err.Error(), "without a final response") {
+	answer, err := agent.Run(context.Background(), "loop")
+	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if client.calls != 3 {
-		t.Fatalf("client calls = %d, want 3", client.calls)
+	if answer != "Loop detected. I repeatedly called the same tool and did not make further progress." {
+		t.Fatalf("answer = %q", answer)
+	}
+	if client.calls != 4 {
+		t.Fatalf("client calls = %d, want 4", client.calls)
+	}
+	if len(client.tools) != 4 || len(client.tools[3]) != 0 {
+		t.Fatalf("summary tools = %#v, want nil/empty", client.tools)
+	}
+	if len(client.messages) != 4 {
+		t.Fatalf("client messages = %d, want 4", len(client.messages))
+	}
+	lastMessages := client.messages[3]
+	if len(lastMessages) == 0 || lastMessages[len(lastMessages)-1].Role != "system" {
+		t.Fatalf("summary messages = %#v", lastMessages)
+	}
+	lastPrompt := lastMessages[len(lastMessages)-1].Content
+	for _, want := range []string{
+		"# Final Summary Only",
+		"The action budget for this run is exhausted.",
+		"Do not call tools in this turn.",
+		"Stop reason: repeated identical tool calls indicate a likely loop",
+	} {
+		if !strings.Contains(lastPrompt, want) {
+			t.Fatalf("summary prompt missing %q:\n%s", want, lastPrompt)
+		}
 	}
 
 	extensions := 0

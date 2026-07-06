@@ -306,6 +306,7 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 	budget := newStepBudget(a.maxSteps, a.options.StepBudget)
 	progressHistory := stepProgressHistory{}
 	lastStep := 0
+	stopReason := ""
 	for step := 0; step < budget.limit; step++ {
 		a.collectCompletedSubagentResults()
 		lastStep = step
@@ -326,12 +327,26 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 			a.emit(runtimeevent.Event{Step: step, Type: runtimeevent.TypeFinal, Message: outcome.final})
 			return outcome.final, nil
 		case stepOutcomeContinue:
-			if !a.maybeExtendStepBudget(runCtx, step, &budget, progressHistory) {
+			shouldContinue, reason := a.maybeExtendStepBudget(runCtx, step, &budget, progressHistory)
+			if !shouldContinue {
+				stopReason = reason
 				break
 			}
 		}
 	}
+	summaryStep := lastStep + 1
+	if final, ok, err := a.summarizeBudgetExhaustion(runCtx, summaryStep, stopReason); err == nil && ok {
+		a.logTokenUsage()
+		a.emit(runtimeevent.Event{Step: summaryStep, Type: runtimeevent.TypeRunEnd})
+		a.emit(runtimeevent.Event{Step: summaryStep, Type: runtimeevent.TypeFinal, Message: final})
+		return final, nil
+	} else if err != nil {
+		logs.Errorf("final summary after step budget exhaustion failed: step=%d err=%v", summaryStep, err)
+	}
 	err := fmt.Errorf("agent stopped after %d steps without a final response", budget.limit)
+	if strings.TrimSpace(stopReason) != "" {
+		err = fmt.Errorf("%w: %s", err, stopReason)
+	}
 	logs.Errorf("agent stopped without final response: max_steps=%d used_steps=%d", budget.limit, lastStep+1)
 	a.logTokenUsage()
 	a.emit(runtimeevent.Event{Type: runtimeevent.TypeError, Error: err.Error()})
@@ -421,8 +436,12 @@ func (a *Agent) executeStep(ctx context.Context, step int, progressHistory *step
 }
 
 func (a *Agent) chatWithTools(ctx context.Context, step int) (*llm.ChatResponse, error) {
+	return a.chat(ctx, step, a.conversationMessages(), a.functionTools())
+}
+
+func (a *Agent) chat(ctx context.Context, step int, messages []llm.Message, tools []llm.FunctionTool) (*llm.ChatResponse, error) {
 	for attempt := 0; ; attempt++ {
-		resp, usedStreaming, sawVisibleDelta, err := a.chatWithToolsOnce(ctx, step)
+		resp, usedStreaming, sawVisibleDelta, err := a.chatOnce(ctx, step, messages, tools)
 		if err == nil {
 			a.recordChatUsage(step, resp, usedStreaming)
 			return resp, nil
@@ -462,8 +481,7 @@ func (a *Agent) chatWithTools(ctx context.Context, step int) (*llm.ChatResponse,
 	}
 }
 
-func (a *Agent) chatWithToolsOnce(ctx context.Context, step int) (*llm.ChatResponse, bool, bool, error) {
-	tools := a.functionTools()
+func (a *Agent) chatOnce(ctx context.Context, step int, messages []llm.Message, tools []llm.FunctionTool) (*llm.ChatResponse, bool, bool, error) {
 	streamingClient, ok := a.client.(llm.StreamingClient)
 	var resp *llm.ChatResponse
 	var err error
@@ -471,10 +489,10 @@ func (a *Agent) chatWithToolsOnce(ctx context.Context, step int) (*llm.ChatRespo
 	// Fall back to non-streaming when a previous streaming call returned no
 	// usage data. Some providers (e.g. Bailian qwen) omit usage in SSE chunks.
 	if !ok || a.streamingDisabled {
-		resp, err = a.client.ChatWithTools(ctx, a.conversationMessages(), tools)
+		resp, err = a.client.ChatWithTools(ctx, messages, tools)
 	} else {
 		sawVisibleDelta := false
-		resp, err = streamingClient.ChatWithToolsStream(ctx, a.conversationMessages(), tools, func(delta llm.StreamDelta) error {
+		resp, err = streamingClient.ChatWithToolsStream(ctx, messages, tools, func(delta llm.StreamDelta) error {
 			if strings.TrimSpace(delta.Content) == "" {
 				return nil
 			}
@@ -490,6 +508,26 @@ func (a *Agent) chatWithToolsOnce(ctx context.Context, step int) (*llm.ChatRespo
 		return resp, true, sawVisibleDelta, err
 	}
 	return resp, false, false, err
+}
+
+func (a *Agent) summarizeBudgetExhaustion(ctx context.Context, step int, stopReason string) (string, bool, error) {
+	if ctx.Err() != nil || strings.TrimSpace(stopReason) == "" || stopReason == "context was cancelled" {
+		return "", false, nil
+	}
+	a.collectCompletedSubagentResults()
+	if _, err := a.awaitOutstandingSubagents(ctx); err != nil {
+		return "", false, err
+	}
+	logs.Infof("requesting final summary after step budget exhaustion: step=%d reason=%s", step, stopReason)
+	resp, err := a.chat(ctx, step, a.budgetSummaryMessages(stopReason), nil)
+	if err != nil {
+		return "", false, err
+	}
+	final := strings.TrimSpace(resp.Content)
+	if final == "" {
+		final = fmt.Sprintf("Action budget exhausted. Stop reason: %s", stopReason)
+	}
+	return final, true, nil
 }
 
 func (a *Agent) recordChatUsage(step int, resp *llm.ChatResponse, usedStreaming bool) {
@@ -592,6 +630,28 @@ func (a *Agent) conversationMessages() []llm.Message {
 	out = append(out, a.messages[0])
 	out = append(out, llm.Message{Role: "system", Content: a.skillContext})
 	out = append(out, a.messages[1:]...)
+	return out
+}
+
+func (a *Agent) budgetSummaryMessages(stopReason string) []llm.Message {
+	messages := a.conversationMessages()
+	out := make([]llm.Message, 0, len(messages)+1)
+	out = append(out, messages...)
+	lines := []string{
+		"# Final Summary Only",
+		"The action budget for this run is exhausted.",
+		"Do not call tools in this turn.",
+		"Summarize the current state for the user using only the information already gathered in the conversation.",
+		"State clearly what is finished, what remains unresolved, any blockers, and the most useful next step.",
+		"If the task is incomplete, say that explicitly.",
+	}
+	if reason := strings.TrimSpace(stopReason); reason != "" {
+		lines = append(lines, "Stop reason: "+reason)
+	}
+	out = append(out, llm.Message{
+		Role:    "system",
+		Content: strings.Join(lines, "\n"),
+	})
 	return out
 }
 
