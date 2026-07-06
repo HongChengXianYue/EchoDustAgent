@@ -32,8 +32,8 @@ func (m *Model) View() string {
 }
 
 func (m *Model) renderHeader() string {
-	if m.shouldUseCompactHeader() {
-		return m.renderCompactHeader()
+	if m.shouldHideHeader() {
+		return ""
 	}
 	return m.renderBanner()
 }
@@ -60,14 +60,7 @@ func (m *Model) renderBanner() string {
 	return strings.Join(lines, "\n")
 }
 
-func (m *Model) renderCompactHeader() string {
-	title := m.bannerStyle.Render("ECHO DUST CODE")
-	return lipgloss.NewStyle().
-		Width(max(0, m.width)).
-		Render(title)
-}
-
-func (m *Model) shouldUseCompactHeader() bool {
+func (m *Model) shouldHideHeader() bool {
 	return len(m.blocks) > 0 ||
 		strings.TrimSpace(m.assistantDraft) != "" ||
 		m.running ||

@@ -46,11 +46,11 @@ func TestRuntimeEventsRenderTranscript(t *testing.T) {
 	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeFinal, Message: "**done**"}})
 
 	view := model.View()
-	if !containsAll(view, "ECHO DUST CODE", "hello", "working on it", "done") {
+	if !containsAll(view, "hello", "working on it", "done") {
 		t.Fatalf("view missing transcript content:\n%s", view)
 	}
-	if strings.Contains(view, "███████") {
-		t.Fatalf("large startup banner should collapse after conversation starts:\n%s", view)
+	if strings.Contains(view, "ECHO DUST CODE") || strings.Contains(view, "███████") {
+		t.Fatalf("header should be hidden after conversation starts:\n%s", view)
 	}
 	if strings.Contains(view, "\nYou\n") || strings.Contains(view, "\nAgent\n") {
 		t.Fatalf("view should hide transcript role labels:\n%s", view)
@@ -73,11 +73,8 @@ func TestStartupViewKeepsLargeBannerUntilConversationStarts(t *testing.T) {
 
 	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeUserMessage, Message: "hello"}})
 	header = model.renderHeader()
-	if strings.Contains(header, "███████") {
-		t.Fatalf("expected header to collapse after first transcript block:\n%s", header)
-	}
-	if lipgloss.Height(header) != 1 {
-		t.Fatalf("expected collapsed header to be single-line, got %d", lipgloss.Height(header))
+	if header != "" {
+		t.Fatalf("expected header to be hidden after first transcript block:\n%s", header)
 	}
 }
 
