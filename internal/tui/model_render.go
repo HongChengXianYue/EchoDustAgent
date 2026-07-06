@@ -32,6 +32,9 @@ func (m *Model) View() string {
 }
 
 func (m *Model) renderHeader() string {
+	if m.shouldUseCompactHeader() {
+		return m.renderCompactHeader()
+	}
 	return m.renderBanner()
 }
 
@@ -57,8 +60,28 @@ func (m *Model) renderBanner() string {
 	return strings.Join(lines, "\n")
 }
 
+func (m *Model) renderCompactHeader() string {
+	title := m.bannerStyle.Render("ECHO DUST CODE")
+	return lipgloss.NewStyle().
+		Width(max(0, m.width)).
+		Render(title)
+}
+
+func (m *Model) shouldUseCompactHeader() bool {
+	return len(m.blocks) > 0 ||
+		strings.TrimSpace(m.assistantDraft) != "" ||
+		m.running ||
+		m.resumePickerActive() ||
+		m.approval != nil ||
+		len(m.todos) > 0 ||
+		m.showSubagents
+}
+
 func (m *Model) renderContent() string {
 	content := m.viewport.View()
+	if m.hasCopySelection() {
+		content = m.renderSelectedViewport()
+	}
 	if content != "" {
 		content = indentBlock(content, strings.Repeat(" ", contentLeftInset))
 	}
@@ -86,7 +109,13 @@ func (m *Model) renderInputBox() string {
 func (m *Model) renderFooter() string {
 	width := max(20, m.width)
 	left := ""
-	if m.shouldRenderLiveRunTimer() {
+	if m.copyNotice != "" {
+		if m.copyNoticeError {
+			left = m.errorStyle.Render(m.copyNotice)
+		} else {
+			left = m.titleStyle.Render(m.copyNotice)
+		}
+	} else if m.shouldRenderLiveRunTimer() {
 		left = "Total · " + formatDuration(m.runElapsedMS)
 	}
 	rightLimit := max(12, width-2)
@@ -119,7 +148,7 @@ func (m *Model) shouldRenderLiveRunTimer() bool {
 }
 
 func (m *Model) shouldRenderStatusBar(limit int) bool {
-	return m.shouldRenderLiveRunTimer() || m.footerSummary(limit) != ""
+	return m.copyNotice != "" || m.shouldRenderLiveRunTimer() || m.footerSummary(limit) != ""
 }
 
 func (m *Model) renderSuggestions() string {

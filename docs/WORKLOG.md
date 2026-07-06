@@ -1242,3 +1242,35 @@
 - 已知限制或后续风险：
   - 输入框当前会按内容自动增高，但有一个上限，避免在小终端里占满整个视口；超出上限后会改为输入框内部滚动。
   - slash 候选仍然只看第一行且只在输入 slash 命令名时触发；如果后续要支持多行 prompt 模板或更复杂的命令参数提示，还需要继续扩展这一层逻辑。
+
+## 2026-07-06 - 为 TUI 正文新增内建拖拽复制
+
+- 摘要：为主 TUI 正文区域新增内部选区复制能力，默认鼠标模式下可以直接拖拽正文完成复制，不再必须先按 `F2` 在“滚动”和“复制”之间切换。实现方式不是依赖终端原生选区，而是基于 viewport 已渲染后的逐行文本做坐标映射、选区高亮和剪贴板写入；`F2` 仍然保留，用作切回终端原生框选的 fallback。
+- 主要模块：
+  - `internal/tui/copy.go`：新增正文渲染缓冲、鼠标拖拽选区、可见文本切片和剪贴板写入逻辑；优先走系统剪贴板，失败时回退到 OSC52。
+  - `internal/tui/model_update.go`、`internal/tui/model_render.go`、`internal/tui/model_layout.go`：接入鼠标事件分发、复制结果提示、选区高亮渲染，以及在 viewport 内容重建时清理失效选区。
+  - `internal/tui/model.go`、`internal/tui/session.go`：为模型增加复制状态、提示状态和渲染缓存，并在会话恢复时清空这些瞬态 UI 状态。
+  - `internal/tui/model_test.go`：补充鼠标拖拽复制、单击不复制、宽字符切片等回归测试。
+- 验证命令和结果：
+  - `gofmt -w internal/tui/model.go internal/tui/copy.go internal/tui/model_update.go internal/tui/model_layout.go internal/tui/model_render.go internal/tui/session.go internal/tui/model_test.go`
+  - `go test ./internal/tui ./cmd/agent`：通过。
+  - `go test ./...`：通过。
+  - `go vet ./...`：通过。
+- 已知限制或后续风险：
+  - 当前内建选区只覆盖主 transcript viewport，尚未扩展到 subagent 详情面板。
+  - 复制内容基于“已经渲染并换行后的可见文本”，因此它追求的是“接近终端原生框选”的体验，而不是保留 assistant 原始 markdown/source 的无折行版本。
+  - 当正文因新事件流入、窗口宽度变化或重新排版而触发 viewport 重建时，现有选区会被主动清空，避免旧坐标错误映射到新文本。
+
+## 2026-07-06 - 对话开始后自动收起顶部大字 Banner
+
+- 摘要：为了让正文区域更接近原生终端的阅读和拖拽复制体验，启动空白页仍然保留 `ECHO DUST CODE` 大字 banner，但只要进入会话态，就自动收起成单行 header，把更多垂直空间让给 transcript viewport。
+- 主要模块：
+  - `internal/tui/model_render.go`：新增启动态/会话态 header 分支，空白页显示多行 banner，对话态切换为单行 slim header。
+  - `internal/tui/model_test.go`：补充“启动页保留大字”“对话开始后自动收起”的回归测试，并更新已有 transcript 渲染断言。
+- 验证命令和结果：
+  - `gofmt -w internal/tui/model_render.go internal/tui/model_test.go`
+  - `go test ./internal/tui ./cmd/agent`：通过。
+  - `go test ./...`：通过。
+  - `go vet ./...`：通过。
+- 已知限制或后续风险：
+  - 当前收起条件按“进入会话态”判断，包括已有 transcript、resume picker、运行态和 subagent 面板；如果后续要做“对话后完全隐藏 header”，可以继续沿用这层分支逻辑扩展。

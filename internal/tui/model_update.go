@@ -34,6 +34,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.nextRunTimerTick()
 		}
 		return m, nil
+	case copySelectionResultMsg:
+		if msg.Err != nil {
+			m.setCopyNotice("复制失败: "+msg.Err.Error(), true)
+			return m, nil
+		}
+		m.setCopyNotice(fmt.Sprintf("已复制 %d 个字符", len([]rune(msg.Text))), false)
+		return m, nil
 	case approvalPromptMsg:
 		m.approval = &approvalState{
 			Request:  msg.Request,
@@ -98,7 +105,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.mouseEnabled {
 			return m, nil
 		}
-		return m, m.updateActiveViewport(msg)
+		return m, m.updateMouse(msg)
 	case tea.KeyMsg:
 		if m.approval != nil {
 			return m.updateApproval(msg)
@@ -110,6 +117,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	m.clearCopyNotice()
 	if msg.String() == "f2" {
 		return m, m.toggleMouseMode()
 	}
@@ -151,6 +159,10 @@ func (m *Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		if m.running {
 			m.interruptRun()
+			return m, nil
+		}
+		if m.hasCopySelection() {
+			m.clearCopySelection()
 			return m, nil
 		}
 		if m.viewingSubagent {
@@ -212,6 +224,7 @@ func (m *Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) updateApproval(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	m.clearCopyNotice()
 	switch msg.String() {
 	case "f2":
 		return m, m.toggleMouseMode()

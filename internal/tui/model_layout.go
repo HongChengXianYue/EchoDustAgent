@@ -131,6 +131,11 @@ func (m *Model) rebuildViewportContent() {
 	content := strings.Join(parts, "\n\n")
 	wasAtBottom := m.viewport.AtBottom()
 	offset := m.viewport.YOffset
+	// Copy selection is anchored to the already-wrapped viewport lines. Once the
+	// transcript is rebuilt those coordinates are no longer stable, so drop the
+	// selection together with the cached line buffer.
+	m.clearCopySelection()
+	m.mainViewportBuffer = buildRenderedTextBuffer(content)
 	m.viewport.SetContent(content)
 	if wasAtBottom {
 		m.viewport.GotoBottom()

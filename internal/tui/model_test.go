@@ -29,6 +29,15 @@ func newSizedTestModel() *Model {
 	return model
 }
 
+func runTeaCmd(model *Model, cmd tea.Cmd) {
+	if model == nil || cmd == nil {
+		return
+	}
+	if msg := cmd(); msg != nil {
+		model.Update(msg)
+	}
+}
+
 func TestRuntimeEventsRenderTranscript(t *testing.T) {
 	model := newSizedTestModel()
 
@@ -37,14 +46,38 @@ func TestRuntimeEventsRenderTranscript(t *testing.T) {
 	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeFinal, Message: "**done**"}})
 
 	view := model.View()
-	if !containsAll(view, "███████", "hello", "working on it", "done") {
+	if !containsAll(view, "ECHO DUST CODE", "hello", "working on it", "done") {
 		t.Fatalf("view missing transcript content:\n%s", view)
+	}
+	if strings.Contains(view, "███████") {
+		t.Fatalf("large startup banner should collapse after conversation starts:\n%s", view)
 	}
 	if strings.Contains(view, "\nYou\n") || strings.Contains(view, "\nAgent\n") {
 		t.Fatalf("view should hide transcript role labels:\n%s", view)
 	}
 	if strings.Contains(view, "Session") {
 		t.Fatalf("view should not render legacy session box label:\n%s", view)
+	}
+}
+
+func TestStartupViewKeepsLargeBannerUntilConversationStarts(t *testing.T) {
+	model := newSizedTestModel()
+
+	header := model.renderHeader()
+	if !strings.Contains(header, "███████") {
+		t.Fatalf("expected startup header to keep the large banner:\n%s", header)
+	}
+	if lipgloss.Height(header) <= 1 {
+		t.Fatalf("expected startup header to use multiple lines, got %d", lipgloss.Height(header))
+	}
+
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeUserMessage, Message: "hello"}})
+	header = model.renderHeader()
+	if strings.Contains(header, "███████") {
+		t.Fatalf("expected header to collapse after first transcript block:\n%s", header)
+	}
+	if lipgloss.Height(header) != 1 {
+		t.Fatalf("expected collapsed header to be single-line, got %d", lipgloss.Height(header))
 	}
 }
 
@@ -807,7 +840,7 @@ func TestDefaultPlaceholderHintsAtMouseMode(t *testing.T) {
 	if !model.mouseEnabled {
 		t.Fatal("mouse capture should start enabled")
 	}
-	if !strings.Contains(model.input.Placeholder, "F2 text copy") {
+	if !strings.Contains(model.input.Placeholder, "drag to copy") {
 		t.Fatalf("unexpected placeholder: %q", model.input.Placeholder)
 	}
 }
@@ -830,7 +863,7 @@ func TestF2TogglesMouseModeAndPlaceholder(t *testing.T) {
 	if !model.mouseEnabled {
 		t.Fatal("expected second F2 to enable mouse mode")
 	}
-	if !strings.Contains(model.input.Placeholder, "F2 text copy") {
+	if !strings.Contains(model.input.Placeholder, "F2 native select") {
 		t.Fatalf("unexpected enabled placeholder: %q", model.input.Placeholder)
 	}
 	if cmd == nil {
@@ -876,6 +909,78 @@ func TestMouseWheelIgnoredWhileCopyModeEnabled(t *testing.T) {
 	})
 	if model.viewport.YOffset <= before {
 		t.Fatalf("expected viewport to scroll after re-enabling mouse mode, before=%d after=%d", before, model.viewport.YOffset)
+	}
+}
+
+func TestMouseDragCopiesViewportSelection(t *testing.T) {
+	model := newSizedTestModel()
+	model.Update(tea.WindowSizeMsg{Width: 70, Height: 18})
+	model.appendBlock(transcriptBlock{
+		Kind: blockAssistant,
+		Body: "alpha beta gamma",
+	})
+	model.syncLayout()
+
+	copied := ""
+	model.copyText = func(text string) error {
+		copied = text
+		return nil
+	}
+
+	top := lipgloss.Height(model.renderHeader())
+	model.Update(tea.MouseMsg{X: contentLeftInset + 6, Y: top, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	model.Update(tea.MouseMsg{X: contentLeftInset + 9, Y: top, Button: tea.MouseButtonLeft, Action: tea.MouseActionMotion})
+	_, cmd := model.Update(tea.MouseMsg{X: contentLeftInset + 9, Y: top, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease})
+	runTeaCmd(model, cmd)
+
+	if copied != "beta" {
+		t.Fatalf("copied text = %q, want %q", copied, "beta")
+	}
+	if !model.hasCopySelection() {
+		t.Fatal("expected selection to remain highlighted after copy")
+	}
+	if !strings.Contains(model.copyNotice, "已复制") {
+		t.Fatalf("expected copy notice after selection copy, got %q", model.copyNotice)
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if model.hasCopySelection() {
+		t.Fatal("expected esc to clear an existing text selection")
+	}
+}
+
+func TestMouseClickWithoutDragDoesNotCopy(t *testing.T) {
+	model := newSizedTestModel()
+	model.appendBlock(transcriptBlock{
+		Kind: blockAssistant,
+		Body: "alpha beta gamma",
+	})
+	model.syncLayout()
+
+	copied := ""
+	model.copyText = func(text string) error {
+		copied = text
+		return nil
+	}
+
+	top := lipgloss.Height(model.renderHeader())
+	model.Update(tea.MouseMsg{X: contentLeftInset + 6, Y: top, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	_, cmd := model.Update(tea.MouseMsg{X: contentLeftInset + 6, Y: top, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease})
+	runTeaCmd(model, cmd)
+
+	if copied != "" {
+		t.Fatalf("expected simple click not to copy, got %q", copied)
+	}
+	if model.hasCopySelection() {
+		t.Fatal("expected simple click not to keep an active selection")
+	}
+}
+
+func TestSliceTextByCellsHandlesWideRunes(t *testing.T) {
+	if got := sliceTextByCells("复制 beta", 0, 4); got != "复制" {
+		t.Fatalf("sliceTextByCells returned %q, want %q", got, "复制")
+	}
+	if got := sliceTextByCells("复制 beta", 5, 9); got != "beta" {
+		t.Fatalf("sliceTextByCells returned %q, want %q", got, "beta")
 	}
 }
 

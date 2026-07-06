@@ -36,6 +36,11 @@ type runTimerTickMsg struct {
 	At time.Time
 }
 
+type copySelectionResultMsg struct {
+	Text string
+	Err  error
+}
+
 type chatRetryState struct {
 	Attempt    int
 	MaxRetries int
@@ -76,6 +81,11 @@ type tokenState struct {
 	Completion int
 	Total      int
 	Cached     int
+}
+
+type renderedTextBuffer struct {
+	StyledLines []string
+	PlainLines  []string
 }
 
 type resumePickerState struct {
@@ -136,6 +146,10 @@ type Model struct {
 	layoutDirty           bool
 	viewportDirty         bool
 	subagentViewportDirty bool
+	mainViewportBuffer    renderedTextBuffer
+	copySelection         *copySelectionState
+	copyNotice            string
+	copyNoticeError       bool
 	mouseEnabled          bool
 	running               bool
 	runStartBlock         int
@@ -173,12 +187,14 @@ type Model struct {
 	diffRemoveStyle       lipgloss.Style
 	diffContextStyle      lipgloss.Style
 	diffEllipsisStyle     lipgloss.Style
+	selectionStyle        lipgloss.Style
 	approvalSelectedStyle lipgloss.Style
 	approvalHintStyle     lipgloss.Style
 	subagentTitleStyle    lipgloss.Style
 	subagentSelectedStyle lipgloss.Style
 	subagentOpenStyle     lipgloss.Style
 	subagentIdleStyle     lipgloss.Style
+	copyText              func(string) error
 }
 
 func NewModel(options ui.Options, startup ui.StartupInfo, bridge *Bridge) *Model {
@@ -247,6 +263,7 @@ func NewModel(options ui.Options, startup ui.StartupInfo, bridge *Bridge) *Model
 		diffRemoveStyle:       lipgloss.NewStyle().Foreground(lipgloss.Color("#F2B8BD")).Background(lipgloss.Color("#4A221D")),
 		diffContextStyle:      lipgloss.NewStyle().Foreground(lipgloss.Color("252")),
 		diffEllipsisStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("245")),
+		selectionStyle:        lipgloss.NewStyle().Foreground(lipgloss.Color("16")).Background(lipgloss.Color("153")),
 		approvalSelectedStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("117")).Bold(true),
 		approvalHintStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("245")),
 		subagentTitleStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Bold(true),
@@ -256,6 +273,7 @@ func NewModel(options ui.Options, startup ui.StartupInfo, bridge *Bridge) *Model
 		layoutDirty:           true,
 		viewportDirty:         true,
 		subagentViewportDirty: true,
+		copyText:              writeClipboardText,
 	}
 	model.input.Focus()
 	model.historyPos = 0
@@ -307,7 +325,7 @@ func (m *Model) Init() tea.Cmd {
 func (m *Model) setMouseEnabled(enabled bool) {
 	m.mouseEnabled = enabled
 	if enabled {
-		m.input.Placeholder = "Ask the agent · F2 text copy"
+		m.input.Placeholder = "Ask the agent · drag to copy · F2 native select"
 		return
 	}
 	m.input.Placeholder = "Ask the agent · F2 mouse scroll"
@@ -315,6 +333,7 @@ func (m *Model) setMouseEnabled(enabled bool) {
 
 func (m *Model) toggleMouseMode() tea.Cmd {
 	if m.mouseEnabled {
+		m.clearCopySelection()
 		m.setMouseEnabled(false)
 		m.markLayoutDirty()
 		return disableMouseCmd()
