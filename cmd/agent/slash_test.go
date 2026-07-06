@@ -45,12 +45,13 @@ type sessionInfoBlock struct {
 }
 
 type testSessionUI struct {
+	snapshot   session.UISnapshot
 	loaded     []session.UISnapshot
 	infoBlocks []sessionInfoBlock
 }
 
 func (u *testSessionUI) SessionSnapshot() session.UISnapshot {
-	return session.UISnapshot{}
+	return u.snapshot
 }
 
 func (u *testSessionUI) LoadSessionSnapshot(snapshot session.UISnapshot) {
@@ -183,6 +184,53 @@ func TestResumeLatestAndPrefix(t *testing.T) {
 	}
 	if !strings.Contains(output, "20260703T231530Z-a1b2") {
 		t.Fatalf("unexpected prefix output: %q", output)
+	}
+}
+
+func TestNewStartsFreshSessionAndClearsUI(t *testing.T) {
+	router, sessions := newTestSlashRouter(t)
+	testUI := &testSessionUI{
+		snapshot: session.UISnapshot{
+			Blocks: []session.TranscriptBlockSnapshot{
+				{Kind: "user", Body: "hello"},
+				{Kind: "assistant", Body: "world"},
+			},
+		},
+	}
+	sessions.SetUI(testUI)
+	if err := sessions.agent.RestoreConversation([]llm.Message{
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "world"},
+	}); err != nil {
+		t.Fatalf("RestoreConversation() error = %v", err)
+	}
+
+	output, handled, shouldExit := router.DispatchText("/new")
+	if !handled || shouldExit {
+		t.Fatalf("/new handled=%v shouldExit=%v", handled, shouldExit)
+	}
+	if !strings.Contains(output, "started a new session") {
+		t.Fatalf("unexpected /new output: %q", output)
+	}
+	if sessions.CurrentSessionID() != "" {
+		t.Fatalf("CurrentSessionID() = %q, want empty", sessions.CurrentSessionID())
+	}
+	if len(sessions.agent.ConversationMessages()) != 0 {
+		t.Fatalf("ConversationMessages() = %#v, want empty", sessions.agent.ConversationMessages())
+	}
+	if len(testUI.loaded) != 1 {
+		t.Fatalf("LoadSessionSnapshot() calls = %d, want 1", len(testUI.loaded))
+	}
+	if len(testUI.loaded[0].Blocks) != 0 {
+		t.Fatalf("loaded snapshot should be empty, got %#v", testUI.loaded[0])
+	}
+
+	metas, err := (*sessions.store).List(10)
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(metas) != 1 || metas[0].Title != "hello" {
+		t.Fatalf("saved sessions = %#v", metas)
 	}
 }
 
@@ -377,6 +425,14 @@ func TestResumeRejectsAmbiguousPrefixAndRunningState(t *testing.T) {
 	}
 	if !strings.Contains(output, "unavailable while the agent is running") {
 		t.Fatalf("unexpected running-state output: %q", output)
+	}
+
+	output, handled, shouldExit = runningRouter.DispatchText("/new")
+	if !handled || shouldExit {
+		t.Fatalf("/new running handled=%v shouldExit=%v", handled, shouldExit)
+	}
+	if !strings.Contains(output, "unavailable while the agent is running") {
+		t.Fatalf("unexpected /new running-state output: %q", output)
 	}
 }
 

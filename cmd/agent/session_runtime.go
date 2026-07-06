@@ -116,6 +116,53 @@ func (r *sessionRuntime) SaveUISnapshot(snapshot session.UISnapshot) error {
 	return err
 }
 
+// StartNewSession saves the current conversation when possible, then resets
+// the in-memory agent and UI state so the next user message starts a fresh
+// session timeline.
+func (r *sessionRuntime) StartNewSession() (session.Meta, error) {
+	if r == nil {
+		return session.Meta{}, fmt.Errorf("session runtime is unavailable")
+	}
+
+	var (
+		snapshot session.UISnapshot
+		hasUI    bool
+		saved    session.Meta
+	)
+
+	r.mu.Lock()
+	if r.ui != nil {
+		snapshot = r.ui.SessionSnapshot()
+		hasUI = true
+	}
+	if r.store != nil {
+		var err error
+		if hasUI {
+			saved, err = r.saveLocked(&snapshot)
+		} else {
+			saved, err = r.saveLocked(nil)
+		}
+		if err != nil {
+			r.mu.Unlock()
+			return session.Meta{}, err
+		}
+	}
+	r.current = sessionHandle{}
+	if r.startup != nil {
+		r.startup.SessionID = ""
+	}
+	ui := r.ui
+	r.mu.Unlock()
+
+	if err := r.agent.RestoreConversation(nil); err != nil {
+		return session.Meta{}, err
+	}
+	if ui != nil {
+		ui.LoadSessionSnapshot(session.UISnapshot{})
+	}
+	return saved, nil
+}
+
 func (r *sessionRuntime) saveLocked(snapshot *session.UISnapshot) (session.Meta, error) {
 	conversation := r.agent.ConversationMessages()
 	if len(conversation) == 0 {

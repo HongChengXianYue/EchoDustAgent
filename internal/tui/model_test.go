@@ -756,6 +756,51 @@ func TestTypingSlashCommandMarksLayoutDirtyAndRendersSuggestions(t *testing.T) {
 	}
 }
 
+func TestEscInterruptsRunningAgent(t *testing.T) {
+	model := newSizedTestModel()
+	interrupted := false
+	model.running = true
+	model.cancelCurrent = func() { interrupted = true }
+
+	model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	if !interrupted {
+		t.Fatal("expected esc to interrupt the running agent")
+	}
+	if !model.interrupting {
+		t.Fatal("expected interrupting state to be set")
+	}
+}
+
+func TestEscInterruptsRunningApprovalPrompt(t *testing.T) {
+	model := newSizedTestModel()
+	interrupted := false
+	model.running = true
+	model.cancelCurrent = func() { interrupted = true }
+	response := make(chan approval.Decision, 1)
+
+	model.Update(approvalPromptMsg{
+		Request:  approval.Request{Tool: "write_file", Category: approval.CategoryWorkspaceWrite},
+		Response: response,
+	})
+	model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	if !interrupted {
+		t.Fatal("expected esc to interrupt a run even when approval is open")
+	}
+	if model.approval != nil {
+		t.Fatal("expected approval prompt to close on esc interrupt")
+	}
+	select {
+	case got := <-response:
+		if got != approval.DecisionDeny {
+			t.Fatalf("decision = %q, want %q", got, approval.DecisionDeny)
+		}
+	default:
+		t.Fatal("expected approval decision to be sent")
+	}
+}
+
 func TestApprovalPromptSelectsFirstOptionOnEnter(t *testing.T) {
 	model := newSizedTestModel()
 	response := make(chan approval.Decision, 1)

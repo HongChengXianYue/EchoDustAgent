@@ -44,6 +44,10 @@ func newSlashRouter(startup *ui.StartupInfo, sessions *sessionRuntime, isRunning
 		desc:    "show or switch the active LLM model",
 		handler: router.slashModel,
 	}
+	router.commands["new"] = slashCommand{
+		desc:    "start a fresh session conversation",
+		handler: router.slashNew,
+	}
 	router.commands["resume"] = slashCommand{
 		desc:    "list or resume saved sessions for the current workspace",
 		handler: router.slashResume,
@@ -136,6 +140,26 @@ func (r *slashRouter) slashModel(args []string) (string, error) {
 		return fmt.Sprintf("current model: %s", r.currentStartup().Model), nil
 	}
 	return "", fmt.Errorf("/model switch not yet implemented (requested: %s)", strings.Join(args, " "))
+}
+
+func (r *slashRouter) slashNew(args []string) (string, error) {
+	if len(args) != 0 {
+		return "", fmt.Errorf("usage: /new")
+	}
+	if r.sessions == nil {
+		return "", fmt.Errorf("session runtime is unavailable")
+	}
+	if r.isRunning != nil && r.isRunning() {
+		return "", fmt.Errorf("/new is unavailable while the agent is running")
+	}
+	saved, err := r.sessions.StartNewSession()
+	if err != nil {
+		return "", err
+	}
+	if saved.SessionID != "" {
+		return fmt.Sprintf("started a new session (previous session saved as %s)", saved.SessionID), nil
+	}
+	return "started a new session", nil
 }
 
 func (r *slashRouter) slashResume(args []string) (string, error) {

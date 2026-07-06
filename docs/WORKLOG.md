@@ -1180,3 +1180,18 @@
 - 已知限制或后续风险：
   - `internal/ui` 是历史实现，当前只修到“可跨平台编译”的程度；其 Windows 运行时交互体验没有单独做实机回归，主维护面仍然是 `internal/tui`。
   - `gopls@v0.22.0` 仍会触发 Go toolchain 自动升级到 `go1.26.4`，因此 release workflow 依赖外网可正常下载该 toolchain。
+
+## 2026-07-06 - 新增 /new 会话命令并支持 Esc 中断当前运行
+
+- 摘要：为 slash 命令新增 `/new`，可以在当前 workspace 内立即开启一段全新的会话，对旧会话内容先做一次持久化保存，再清空内存中的 conversation 和 TUI transcript。同时为 TUI 补上 `Esc` 中断当前 `agent.Run` 的行为，并让审批提示打开时的 `Esc`/`Ctrl+C` 也能真正结束本次运行，而不是仅仅拒绝当前审批。
+- 主要模块：
+  - `cmd/agent/slash.go`、`cmd/agent/session_runtime.go`：新增 `/new` 命令和 `StartNewSession` 运行时入口，复用现有 session 存储、agent 恢复与 UI snapshot 重置逻辑。
+  - `internal/tui/model_update.go`：把主输入态的 `Esc` 映射到 `interruptRun()`，同步修正审批态和信号态的取消路径，并更新运行中提示文案。
+  - `cmd/agent/slash_test.go`、`internal/tui/model_test.go`：补充 `/new` 保存并清空会话、运行态 `Esc` 中断、审批态 `Esc` 中断的回归测试。
+- 验证命令和结果：
+  - `go test ./cmd/agent ./internal/tui`：通过。
+  - `go test ./...`：通过。
+  - `go vet ./...`：通过。
+- 已知限制或后续风险：
+  - `/new` 会先尝试保存当前会话；如果当前会话还没有任何 conversation 消息，则不会生成新的历史 session 记录。
+  - `Esc` 现在在 TUI 运行态优先用于中断当前 run；如果用户正停留在 subagent 详情视图，需要等 run 结束后再用 `Esc` 返回列表视图。

@@ -48,6 +48,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cancelCurrent = nil
 		m.running = false
 		m.chatRetry = nil
+		m.approval = nil
 		if !m.runStartedAt.IsZero() && m.runElapsedMS == 0 {
 			m.runElapsedMS = time.Since(m.runStartedAt).Milliseconds()
 		}
@@ -80,6 +81,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case SignalMsg:
 		if m.approval != nil {
+			if m.running {
+				m.resolveApproval(approval.DecisionDeny)
+				m.interruptRun()
+				return m, nil
+			}
 			m.resolveApproval(approval.DecisionDeny)
 			return m, nil
 		}
@@ -132,6 +138,10 @@ func (m *Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Quit
 	case "esc":
+		if m.running {
+			m.interruptRun()
+			return m, nil
+		}
 		if m.viewingSubagent {
 			m.viewingSubagent = false
 			m.markLayoutDirty()
@@ -184,7 +194,14 @@ func (m *Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) updateApproval(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "ctrl+c", "esc", "n", "N", "d", "D":
+	case "ctrl+c", "esc":
+		if m.running {
+			m.resolveApproval(approval.DecisionDeny)
+			m.interruptRun()
+			break
+		}
+		m.resolveApproval(approval.DecisionDeny)
+	case "n", "N", "d", "D":
 		m.resolveApproval(approval.DecisionDeny)
 	case "pgup", "pageup", "pgdown", "pagedown":
 		return m, m.updateActiveViewport(msg)
@@ -291,7 +308,7 @@ func (m *Model) submitInput() tea.Cmd {
 		m.appendBlock(transcriptBlock{
 			Kind:  blockInfo,
 			Title: "Busy",
-			Body:  "Agent is running. Wait for it to finish or press Ctrl+C to interrupt.",
+			Body:  "Agent is running. Wait for it to finish or press Esc/Ctrl+C to interrupt.",
 		})
 		m.syncLayout()
 		return nil
