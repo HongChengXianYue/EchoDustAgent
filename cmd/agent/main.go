@@ -155,6 +155,8 @@ func runTUI(codingAgent *agent.Agent, cfg config.UIConfig, startup *ui.StartupIn
 	codingAgent.SetApprover(approval.NewMemoryApprover(tui.NewBubbleApprover(bridge)))
 	sessions.SetUI(model)
 
+	// Default to mouse-friendly navigation. Users can temporarily disable mouse
+	// capture from inside the TUI when they want native terminal text selection.
 	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	bridge.SetProgram(program)
 

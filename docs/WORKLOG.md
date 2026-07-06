@@ -1195,3 +1195,50 @@
 - 已知限制或后续风险：
   - `/new` 会先尝试保存当前会话；如果当前会话还没有任何 conversation 消息，则不会生成新的历史 session 记录。
   - `Esc` 现在在 TUI 运行态优先用于中断当前 run；如果用户正停留在 subagent 详情视图，需要等 run 结束后再用 `Esc` 返回列表视图。
+
+## 2026-07-06 - 调整 TUI 默认鼠标策略以恢复正文复制
+
+- 摘要：修复 TUI 启动后正文难以直接鼠标选中复制的问题。原因是程序启动时默认开启了 Bubble Tea 鼠标捕获，终端拖拽会优先变成程序内鼠标事件。现在改为默认关闭鼠标捕获，让正文和 diff 可以直接框选复制；同时新增 `F2` 切换鼠标滚轮模式，用户需要滚动时再临时开启，切回后继续正常复制。
+- 主要模块：
+  - `cmd/agent/main.go`：移除 TUI 启动时默认的 `tea.WithMouseCellMotion()`，改成按需开启鼠标捕获。
+  - `internal/tui/model.go`、`internal/tui/model_update.go`：新增鼠标模式状态、`F2` 切换逻辑，以及基于当前模式的输入框提示文案；鼠标关闭时忽略 TUI 内部滚轮事件，避免与终端原生选区冲突。
+  - `internal/tui/model_test.go`：补充默认复制模式、`F2` 切换、鼠标关闭时忽略滚轮、开启后主 viewport 和 subagent viewport 仍可滚动的回归测试。
+- 验证命令和结果：
+  - `go test ./internal/tui ./cmd/agent`：通过。
+  - `go test ./...`：通过。
+  - `go vet ./...`：通过。
+- 已知限制或后续风险：
+  - 默认复制模式下，鼠标滚轮不会驱动 TUI viewport；需要按一次 `F2` 进入鼠标滚轮模式，再按一次切回可复制模式。
+  - 当前只做了“终端原生选区优先”和“F2 切换鼠标捕获”，还没有实现块级复制、OSC52 直接复制到剪贴板等更强的内建复制能力。
+
+## 2026-07-06 - 将 TUI 默认交互改为鼠标滚轮优先并保留 F2 复制模式
+
+- 摘要：修正上一版默认禁用鼠标捕获带来的交互回退。现在 TUI 启动后重新默认开启鼠标滚轮模式，正文可以直接滚动，避免部分终端把滚轮解释成历史导航并误带出 `/resume`。需要复制正文时，按 `F2` 临时切到文本复制模式，关闭鼠标捕获后再用终端原生框选复制；再按一次 `F2` 恢复滚轮模式。
+- 主要模块：
+  - `cmd/agent/main.go`：恢复 TUI 启动时默认 `tea.WithMouseCellMotion()`。
+  - `internal/tui/model.go`、`internal/tui/model_update.go`：将默认鼠标状态改回开启，并保留 `F2` 在“滚轮模式”和“复制模式”之间切换。
+  - `internal/tui/model_test.go`：更新默认模式、滚轮行为和 `F2` 切换的回归测试，确保主 viewport 和 subagent viewport 在默认状态下可滚动，复制模式下滚轮会被忽略。
+- 验证命令和结果：
+  - `go test ./internal/tui ./cmd/agent`：通过。
+  - `go test ./...`：通过。
+  - `go vet ./...`：通过。
+- 已知限制或后续风险：
+  - 复制正文时仍需要显式按一次 `F2` 切到复制模式；这是终端鼠标协议本身对“滚轮/拖拽选区”二选一的限制，不是本项目独有。
+  - 当前仍未提供块级复制或一键复制到系统剪贴板；后续如果频繁需要复制内容，最好补一个显式的 copy action。
+
+## 2026-07-06 - 让 TUI 输入框支持多行粘贴并按内容自动增高
+
+- 摘要：把 TUI 主输入从单行 `textinput` 改成多行 `textarea`，长文本或包含换行的粘贴内容不再被压成一行显示，输入框会按当前宽度自动增高，方便在发送前检查完整正文。同时保留原来的 Enter 提交语义，并补上 slash 命令候选的手动选择与补全，避免替换输入组件后交互退化。
+- 主要模块：
+  - `internal/tui/model.go`：将主输入模型切换为 `textarea`，补齐多行提示、slash 候选状态和与现有样式一致的输入外观。
+  - `internal/tui/model_layout.go`、`internal/tui/model_render.go`：根据输入内容和终端宽度动态计算输入框高度，并让 slash 候选继续跟随输入框渲染。
+  - `internal/tui/model_update.go`：保持 Enter 提交不变，新增 Tab 接受 slash 候选，并在多行输入时避免把上下方向键误当成历史切换。
+  - `internal/tui/model_test.go`：补充长文本自动增高、多行粘贴显示、Tab 补全 slash 命令等回归测试。
+- 验证命令和结果：
+  - `gofmt -w internal/tui/model.go internal/tui/model_render.go internal/tui/model_layout.go internal/tui/model_update.go internal/tui/model_test.go`
+  - `go test ./internal/tui ./cmd/agent`：通过。
+  - `go test ./...`：通过。
+  - `go vet ./...`：通过。
+- 已知限制或后续风险：
+  - 输入框当前会按内容自动增高，但有一个上限，避免在小终端里占满整个视口；超出上限后会改为输入框内部滚动。
+  - slash 候选仍然只看第一行且只在输入 slash 命令名时触发；如果后续要支持多行 prompt 模板或更复杂的命令参数提示，还需要继续扩展这一层逻辑。

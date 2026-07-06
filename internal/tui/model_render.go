@@ -133,7 +133,8 @@ func (m *Model) renderSuggestions() string {
 	if len(matches) > 5 {
 		matches = matches[:5]
 	}
-	selected := m.input.CurrentSuggestionIndex()
+	m.clampSlashSuggestion()
+	selected := m.slashSuggest
 	var lines []string
 	for i, match := range matches {
 		prefix := "  "
@@ -151,16 +152,24 @@ func (m *Model) renderSuggestions() string {
 }
 
 func (m *Model) matchedSlashCommands() []ui.CommandSuggestion {
-	if !strings.HasPrefix(m.input.Value(), "/") {
+	line := strings.SplitN(m.input.Value(), "\n", 2)[0]
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "/") {
 		return nil
 	}
-	raw := m.input.MatchedSuggestions()
-	if len(raw) == 0 {
+	if strings.ContainsAny(line, " \t") {
 		return nil
 	}
-	matches := make([]ui.CommandSuggestion, 0, len(raw))
-	for _, item := range raw {
-		if command, ok := m.commandByName[item]; ok {
+	if len(m.slashCommands) == 0 {
+		return nil
+	}
+	if line == "/" {
+		return append([]ui.CommandSuggestion(nil), m.slashCommands...)
+	}
+	matches := make([]ui.CommandSuggestion, 0, len(m.slashCommands))
+	for _, command := range m.slashCommands {
+		name := "/" + command.Name
+		if strings.HasPrefix(name, line) {
 			matches = append(matches, command)
 		}
 	}

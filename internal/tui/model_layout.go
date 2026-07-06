@@ -31,7 +31,10 @@ func (m *Model) syncLayout() {
 			suggestionCount = 5
 		}
 		headerHeight := lipgloss.Height(m.renderHeader())
-		inputHeight := 1 + m.inputBoxStyle.GetVerticalFrameSize() + suggestionCount
+		inputInnerWidth := max(10, m.width-m.inputBoxStyle.GetHorizontalFrameSize())
+		m.input.SetWidth(inputInnerWidth)
+		m.input.SetHeight(m.desiredInputLines(inputInnerWidth, min(8, max(3, m.height/3))))
+		inputHeight := m.input.Height() + m.inputBoxStyle.GetVerticalFrameSize() + suggestionCount
 		footerHeight := 0
 		if m.shouldRenderStatusBar(max(12, m.width-2)) {
 			footerHeight = 1
@@ -50,9 +53,6 @@ func (m *Model) syncLayout() {
 		}
 		m.viewport.Width = viewportWidth
 		m.viewport.Height = viewportHeight
-
-		inputInnerWidth := max(10, m.width-m.inputBoxStyle.GetHorizontalFrameSize())
-		m.input.Width = max(10, inputInnerWidth-lipgloss.Width(m.input.Prompt)-1)
 
 		subagentInnerWidth := max(20, m.width-m.subagentBoxStyle.GetHorizontalFrameSize())
 		subagentInnerHeight := max(1, panelHeight-m.subagentBoxStyle.GetVerticalFrameSize())
@@ -264,6 +264,24 @@ func formatRetryCountdown(remaining time.Duration) string {
 	}
 	seconds := int((remaining + time.Second - time.Nanosecond) / time.Second)
 	return fmt.Sprintf("%ds", seconds)
+}
+
+func (m *Model) desiredInputLines(innerWidth int, maxLines int) int {
+	if maxLines <= 0 {
+		maxLines = 1
+	}
+	if strings.TrimSpace(m.input.Value()) == "" {
+		return 1
+	}
+	textWidth := max(1, innerWidth-lipgloss.Width(inputPrompt))
+	lines := lipgloss.Height(wrapText(m.input.Value(), textWidth))
+	if lines <= 0 {
+		lines = 1
+	}
+	if lines > maxLines {
+		return maxLines
+	}
+	return lines
 }
 
 func (m *Model) renderBlock(block transcriptBlock, width int) string {

@@ -3,9 +3,11 @@ package tui
 import (
 	"context"
 	"os"
+	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
@@ -105,11 +107,12 @@ type Model struct {
 	snapshotSaver func(session.UISnapshot)
 	slashCommands []ui.CommandSuggestion
 	commandByName map[string]ui.CommandSuggestion
+	slashSuggest  int
 
 	width  int
 	height int
 
-	input    textinput.Model
+	input    textarea.Model
 	viewport viewport.Model
 
 	blocks                []transcriptBlock
@@ -133,6 +136,7 @@ type Model struct {
 	layoutDirty           bool
 	viewportDirty         bool
 	subagentViewportDirty bool
+	mouseEnabled          bool
 	running               bool
 	runStartBlock         int
 	interrupting          bool
@@ -180,15 +184,25 @@ type Model struct {
 func NewModel(options ui.Options, startup ui.StartupInfo, bridge *Bridge) *Model {
 	options = mergeOptions(options)
 
-	input := textinput.New()
-	input.Prompt = "› "
+	input := textarea.New()
+	input.Prompt = inputPrompt
+	input.SetPromptFunc(lipgloss.Width(inputPrompt), func(lineIdx int) string {
+		if lineIdx == 0 {
+			return inputPrompt
+		}
+		return strings.Repeat(" ", lipgloss.Width(inputPrompt))
+	})
 	input.Placeholder = "Ask the agent"
-	input.ShowSuggestions = true
-	input.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
-	input.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("255"))
-	input.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	input.CompletionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+	input.ShowLineNumbers = false
+	input.FocusedStyle.Base = lipgloss.NewStyle()
+	input.FocusedStyle.Text = lipgloss.NewStyle().Foreground(lipgloss.Color("255"))
+	input.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	input.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+	input.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	input.BlurredStyle = input.FocusedStyle
 	input.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("117"))
+	input.KeyMap.InsertNewline = key.NewBinding()
+	input.SetHeight(1)
 
 	model := &Model{
 		bridge:           bridge,
@@ -245,6 +259,7 @@ func NewModel(options ui.Options, startup ui.StartupInfo, bridge *Bridge) *Model
 	}
 	model.input.Focus()
 	model.historyPos = 0
+	model.setMouseEnabled(true)
 	model.viewport.MouseWheelEnabled = true
 	model.viewport.MouseWheelDelta = 3
 	model.subagentViewport.MouseWheelEnabled = true
@@ -272,12 +287,10 @@ func (m *Model) SetSessionSnapshotSaver(save func(session.UISnapshot)) {
 func (m *Model) SetSlashCommands(commands []ui.CommandSuggestion) {
 	m.slashCommands = append([]ui.CommandSuggestion(nil), commands...)
 	m.commandByName = make(map[string]ui.CommandSuggestion, len(commands))
-	suggestions := make([]string, 0, len(commands))
 	for _, command := range commands {
 		m.commandByName["/"+command.Name] = command
-		suggestions = append(suggestions, "/"+command.Name)
 	}
-	m.input.SetSuggestions(suggestions)
+	m.clampSlashSuggestion()
 }
 
 func (m *Model) HandleEvent(event runtimeevent.Event) {
@@ -288,7 +301,79 @@ func (m *Model) HandleEvent(event runtimeevent.Event) {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return textinput.Blink
+	return textarea.Blink
+}
+
+func (m *Model) setMouseEnabled(enabled bool) {
+	m.mouseEnabled = enabled
+	if enabled {
+		m.input.Placeholder = "Ask the agent · F2 text copy"
+		return
+	}
+	m.input.Placeholder = "Ask the agent · F2 mouse scroll"
+}
+
+func (m *Model) toggleMouseMode() tea.Cmd {
+	if m.mouseEnabled {
+		m.setMouseEnabled(false)
+		m.markLayoutDirty()
+		return disableMouseCmd()
+	}
+	m.setMouseEnabled(true)
+	m.markLayoutDirty()
+	return enableMouseCellMotionCmd()
+}
+
+func enableMouseCellMotionCmd() tea.Cmd {
+	return func() tea.Msg {
+		return tea.EnableMouseCellMotion()
+	}
+}
+
+func disableMouseCmd() tea.Cmd {
+	return func() tea.Msg {
+		return tea.DisableMouse()
+	}
+}
+
+const inputPrompt = "› "
+
+func (m *Model) clampSlashSuggestion() {
+	matches := m.matchedSlashCommands()
+	if len(matches) == 0 {
+		m.slashSuggest = 0
+		return
+	}
+	if m.slashSuggest < 0 {
+		m.slashSuggest = 0
+		return
+	}
+	if m.slashSuggest >= len(matches) {
+		m.slashSuggest = len(matches) - 1
+	}
+}
+
+func (m *Model) moveSlashSuggestion(delta int) bool {
+	matches := m.matchedSlashCommands()
+	if len(matches) == 0 {
+		m.slashSuggest = 0
+		return false
+	}
+	m.slashSuggest = (m.slashSuggest + delta + len(matches)) % len(matches)
+	m.markLayoutDirty()
+	return true
+}
+
+func (m *Model) acceptSlashSuggestion() bool {
+	matches := m.matchedSlashCommands()
+	if len(matches) == 0 {
+		return false
+	}
+	m.clampSlashSuggestion()
+	m.input.SetValue("/" + matches[m.slashSuggest].Name)
+	m.slashSuggest = 0
+	m.markLayoutDirty()
+	return true
 }
 
 func mergeOptions(options ui.Options) ui.Options {

@@ -756,6 +756,129 @@ func TestTypingSlashCommandMarksLayoutDirtyAndRendersSuggestions(t *testing.T) {
 	}
 }
 
+func TestTabAcceptsSlashSuggestion(t *testing.T) {
+	model := newSizedTestModel()
+
+	model.input.SetValue("/qu")
+	model.Update(tea.KeyMsg{Type: tea.KeyTab})
+
+	if got := model.input.Value(); got != "/quit" {
+		t.Fatalf("input value = %q, want /quit", got)
+	}
+}
+
+func TestLongInputExpandsInputBox(t *testing.T) {
+	model := newSizedTestModel()
+	model.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+	model.input.SetValue("path/filepath import .gitignore 忽略 ECHODUST.md 测试通过 cmd/agent 和 internal/memory 包均正常。")
+	model.markLayoutDirty()
+
+	model.syncLayout()
+
+	if model.input.Height() <= 1 {
+		t.Fatalf("expected input height to expand, got %d", model.input.Height())
+	}
+	view := model.View()
+	if !strings.Contains(view, "path/filepath") || !strings.Contains(view, "internal/memory") {
+		t.Fatalf("expanded input content missing from view:\n%s", view)
+	}
+}
+
+func TestPastedMultilineInputExpandsInputBox(t *testing.T) {
+	model := newSizedTestModel()
+	model.Update(tea.WindowSizeMsg{Width: 70, Height: 20})
+	model.input.SetValue("第一行内容\n第二行内容\n第三行内容")
+	model.markLayoutDirty()
+
+	model.syncLayout()
+
+	if model.input.Height() < 3 {
+		t.Fatalf("expected pasted multiline input to use at least 3 lines, got %d", model.input.Height())
+	}
+	view := model.View()
+	if !containsAll(view, "第一行内容", "第二行内容", "第三行内容") {
+		t.Fatalf("multiline input content missing from view:\n%s", view)
+	}
+}
+
+func TestDefaultPlaceholderHintsAtMouseMode(t *testing.T) {
+	model := newSizedTestModel()
+
+	if !model.mouseEnabled {
+		t.Fatal("mouse capture should start enabled")
+	}
+	if !strings.Contains(model.input.Placeholder, "F2 text copy") {
+		t.Fatalf("unexpected placeholder: %q", model.input.Placeholder)
+	}
+}
+
+func TestF2TogglesMouseModeAndPlaceholder(t *testing.T) {
+	model := newSizedTestModel()
+
+	_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyF2})
+	if model.mouseEnabled {
+		t.Fatal("expected F2 to disable mouse mode")
+	}
+	if !strings.Contains(model.input.Placeholder, "F2 mouse scroll") {
+		t.Fatalf("unexpected disabled placeholder: %q", model.input.Placeholder)
+	}
+	if cmd == nil {
+		t.Fatal("expected F2 toggle to emit a Bubble Tea command")
+	}
+
+	_, cmd = model.Update(tea.KeyMsg{Type: tea.KeyF2})
+	if !model.mouseEnabled {
+		t.Fatal("expected second F2 to enable mouse mode")
+	}
+	if !strings.Contains(model.input.Placeholder, "F2 text copy") {
+		t.Fatalf("unexpected enabled placeholder: %q", model.input.Placeholder)
+	}
+	if cmd == nil {
+		t.Fatal("expected second F2 toggle to emit a Bubble Tea command")
+	}
+}
+
+func TestMouseWheelIgnoredWhileCopyModeEnabled(t *testing.T) {
+	model := newSizedTestModel()
+	model.Update(tea.WindowSizeMsg{Width: 60, Height: 12})
+	for i := 0; i < 24; i++ {
+		model.appendBlock(transcriptBlock{
+			Kind:  blockInfo,
+			Title: "Event",
+			Body:  "line",
+		})
+	}
+	model.syncLayout()
+	model.viewport.GotoTop()
+	model.Update(tea.KeyMsg{Type: tea.KeyF2})
+	_ = model.View()
+
+	before := model.viewport.YOffset
+	model.Update(tea.MouseMsg{
+		X:      1,
+		Y:      1,
+		Button: tea.MouseButtonWheelDown,
+		Action: tea.MouseActionPress,
+		Type:   tea.MouseWheelDown,
+	})
+	if model.viewport.YOffset != before {
+		t.Fatalf("expected mouse wheel to be ignored while copy mode is active, before=%d after=%d", before, model.viewport.YOffset)
+	}
+
+	model.Update(tea.KeyMsg{Type: tea.KeyF2})
+	_ = model.View()
+	model.Update(tea.MouseMsg{
+		X:      1,
+		Y:      1,
+		Button: tea.MouseButtonWheelDown,
+		Action: tea.MouseActionPress,
+		Type:   tea.MouseWheelDown,
+	})
+	if model.viewport.YOffset <= before {
+		t.Fatalf("expected viewport to scroll after re-enabling mouse mode, before=%d after=%d", before, model.viewport.YOffset)
+	}
+}
+
 func TestEscInterruptsRunningAgent(t *testing.T) {
 	model := newSizedTestModel()
 	interrupted := false

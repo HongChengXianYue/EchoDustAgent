@@ -95,6 +95,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Quit
 	case tea.MouseMsg:
+		if !m.mouseEnabled {
+			return m, nil
+		}
 		return m, m.updateActiveViewport(msg)
 	case tea.KeyMsg:
 		if m.approval != nil {
@@ -107,6 +110,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "f2" {
+		return m, m.toggleMouseMode()
+	}
 	if m.resumePickerActive() {
 		switch msg.String() {
 		case "esc":
@@ -137,6 +143,11 @@ func (m *Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, tea.Quit
+	case "tab":
+		if m.acceptSlashSuggestion() {
+			m.syncLayout()
+			return m, nil
+		}
 	case "esc":
 		if m.running {
 			m.interruptRun()
@@ -169,22 +180,30 @@ func (m *Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.viewingSubagent {
 			return m, m.updateActiveViewport(msg)
 		}
+		if m.moveSlashSuggestion(-1) {
+			m.syncLayout()
+			return m, nil
+		}
 		if m.shouldNavigateSubagents() {
 			m.selectPreviousSubagent()
 			return m, nil
 		}
-		if len(m.input.MatchedSuggestions()) == 0 && m.historyUp() {
+		if m.input.LineCount() <= 1 && m.historyUp() {
 			return m, nil
 		}
 	case "down":
 		if m.viewingSubagent {
 			return m, m.updateActiveViewport(msg)
 		}
+		if m.moveSlashSuggestion(1) {
+			m.syncLayout()
+			return m, nil
+		}
 		if m.shouldNavigateSubagents() {
 			m.selectNextSubagent()
 			return m, nil
 		}
-		if len(m.input.MatchedSuggestions()) == 0 && m.historyDown() {
+		if m.input.LineCount() <= 1 && m.historyDown() {
 			return m, nil
 		}
 	}
@@ -194,6 +213,8 @@ func (m *Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) updateApproval(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "f2":
+		return m, m.toggleMouseMode()
 	case "ctrl+c", "esc":
 		if m.running {
 			m.resolveApproval(approval.DecisionDeny)
@@ -273,6 +294,7 @@ func (m *Model) submitInput() tea.Cmd {
 		if handled, output := m.openResumePicker(); handled {
 			m.addHistory(input)
 			m.input.Reset()
+			m.slashSuggest = 0
 			m.markLayoutDirty()
 			m.historyPos = len(m.history)
 			m.historyDraft = ""
@@ -288,6 +310,7 @@ func (m *Model) submitInput() tea.Cmd {
 		if handled {
 			m.addHistory(input)
 			m.input.Reset()
+			m.slashSuggest = 0
 			m.markLayoutDirty()
 			m.historyPos = len(m.history)
 			m.historyDraft = ""
@@ -315,6 +338,7 @@ func (m *Model) submitInput() tea.Cmd {
 	}
 	m.addHistory(input)
 	m.input.Reset()
+	m.slashSuggest = 0
 	m.markLayoutDirty()
 	m.historyPos = len(m.history)
 	m.historyDraft = ""
@@ -378,6 +402,7 @@ func (m *Model) historyUp() bool {
 	}
 	m.historyPos--
 	m.input.SetValue(m.history[m.historyPos])
+	m.slashSuggest = 0
 	m.markLayoutDirty()
 	return true
 }
@@ -389,10 +414,12 @@ func (m *Model) historyDown() bool {
 	m.historyPos++
 	if m.historyPos == len(m.history) {
 		m.input.SetValue(m.historyDraft)
+		m.slashSuggest = 0
 		m.markLayoutDirty()
 		return true
 	}
 	m.input.SetValue(m.history[m.historyPos])
+	m.slashSuggest = 0
 	m.markLayoutDirty()
 	return true
 }
@@ -402,7 +429,13 @@ func (m *Model) updateInput(msg tea.Msg) tea.Cmd {
 	beforeSuggestionCount := len(m.matchedSlashCommands())
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
-	if beforeValue != m.input.Value() || beforeSuggestionCount != len(m.matchedSlashCommands()) {
+	afterSuggestionCount := len(m.matchedSlashCommands())
+	if beforeValue != m.input.Value() {
+		m.slashSuggest = 0
+	} else {
+		m.clampSlashSuggestion()
+	}
+	if beforeValue != m.input.Value() || beforeSuggestionCount != afterSuggestionCount {
 		m.markLayoutDirty()
 	}
 	return cmd
