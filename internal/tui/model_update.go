@@ -105,8 +105,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.mouseEnabled {
 			return m, nil
 		}
+		m.armMouseProtocolFilter()
 		return m, m.updateMouse(msg)
 	case tea.KeyMsg:
+		filtered, swallowed := m.filterMouseProtocolKey(msg)
+		if swallowed {
+			return m, nil
+		}
+		msg = filtered
 		if m.approval != nil {
 			return m.updateApproval(msg)
 		}

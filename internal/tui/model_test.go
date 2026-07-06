@@ -948,6 +948,54 @@ func TestMouseDragCopiesViewportSelection(t *testing.T) {
 	}
 }
 
+func TestMouseProtocolTailDoesNotReachInput(t *testing.T) {
+	model := newSizedTestModel()
+
+	model.Update(tea.MouseMsg{
+		X:      1,
+		Y:      1,
+		Button: tea.MouseButtonWheelDown,
+		Action: tea.MouseActionPress,
+		Type:   tea.MouseWheelDown,
+	})
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("[<32;26;29M[<32;9;24M")})
+
+	if got := model.input.Value(); got != "" {
+		t.Fatalf("mouse protocol tail leaked into input: %q", got)
+	}
+
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	if got := model.input.Value(); got != "a" {
+		t.Fatalf("normal typing should still work after filtering, got %q", got)
+	}
+}
+
+func TestSplitMouseProtocolTailDoesNotReachInput(t *testing.T) {
+	model := newSizedTestModel()
+
+	model.Update(tea.MouseMsg{
+		X:      1,
+		Y:      1,
+		Button: tea.MouseButtonWheelDown,
+		Action: tea.MouseActionPress,
+		Type:   tea.MouseWheelDown,
+	})
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("[<32;26;29")})
+	if got := model.input.Value(); got != "" {
+		t.Fatalf("partial mouse protocol tail leaked into input: %q", got)
+	}
+
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("M[<32;9;24M")})
+	if got := model.input.Value(); got != "" {
+		t.Fatalf("completed split mouse protocol tail leaked into input: %q", got)
+	}
+
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+	if got := model.input.Value(); got != "b" {
+		t.Fatalf("normal typing should recover after split tail, got %q", got)
+	}
+}
+
 func TestMouseClickWithoutDragDoesNotCopy(t *testing.T) {
 	model := newSizedTestModel()
 	model.appendBlock(transcriptBlock{

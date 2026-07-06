@@ -151,6 +151,8 @@ type Model struct {
 	copyNotice            string
 	copyNoticeError       bool
 	mouseEnabled          bool
+	mouseProtocolGuard    int
+	mouseProtocolPending  string
 	running               bool
 	runStartBlock         int
 	interrupting          bool
@@ -324,6 +326,7 @@ func (m *Model) Init() tea.Cmd {
 
 func (m *Model) setMouseEnabled(enabled bool) {
 	m.mouseEnabled = enabled
+	m.resetMouseProtocolFilter()
 	if enabled {
 		m.input.Placeholder = "Ask the agent · drag to copy · F2 native select"
 		return

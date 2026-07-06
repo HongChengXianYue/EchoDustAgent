@@ -238,6 +238,13 @@
 - 验证：`git diff --check` 通过；未运行 Go 测试，因为本次仅新增和更新文档。
 - 备注：分析依据来自上游 `main-v2` Go 版本源码和 legacy 缓存基准文档；缓存命中率数字引用上游报告，未在本地独立复测。
 
+## 2026-07-06 - TUI 复制鼠标协议串泄漏修复
+
+- 摘要：修复 TUI 在拖拽复制正文时，终端偶发把 SGR 鼠标协议尾巴如 `[<32;26;29M` 注入到底部输入框的问题；新增一个短窗口的鼠标协议过滤器，在鼠标事件后拦截整段或分段泄漏的协议串，避免它们被 textarea 当作普通文本插入。
+- 主要模块：`internal/tui/model.go`、`internal/tui/model_update.go`、`internal/tui/mouse_protocol.go`、`internal/tui/model_test.go`、`docs/WORKLOG.md`。
+- 验证：`go test ./internal/tui/...` 通过；`go test ./...` 通过；`go vet ./...` 通过。
+- 备注：当前过滤器只针对 SGR 鼠标协议格式 `ESC [ < ... M/m` 及其缺失 `ESC` 的尾巴泄漏做防护；如果后续某些终端还会泄漏其他鼠标上报格式，需要继续扩展匹配规则。
+
 ## 2026-07-02 - 新增 internal/tui Bubble Tea 交互界面
 
 - 摘要：保留原始 `internal/ui` 目录不动，新增 `internal/tui` 作为新的 Bubble Tea 界面实现；TTY 交互模式默认切到新 TUI，非 TTY 继续走旧 `internal/ui`。同时把 slash 命令改成可返回文本，方便 TUI 在界面内展示 `/info`、`/model` 和未知命令输出。
