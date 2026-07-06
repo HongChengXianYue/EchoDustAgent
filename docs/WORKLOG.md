@@ -1281,3 +1281,49 @@
   - `go vet ./...`：通过。
 - 已知限制或后续风险：
   - 当前收起条件按“进入会话态”判断，包括已有 transcript、resume picker、运行态和 subagent 面板；如果后续要做“对话后完全隐藏 header”，可以继续沿用这层分支逻辑扩展。
+
+## 2026-07-06 - 强化主 Agent 对 skill 与 MCP 安装配置的系统提示词
+
+- 摘要：增强主 Agent 的系统提示词，明确要求当用户说“给当前项目安装/接入 skill 或 MCP”但没有额外说明目标 runtime 时，默认理解为“给当前 workspace 的这个 agent 配置”，不能只停留在下载仓库或拉取脚本。提示词新增项目级 skill 与 MCP 的落点规则，以及两段 few-shot 示例，教模型把文件放到正确目录、同步修改 `config.yaml`、并验证最终加载路径。
+- 主要模块：
+  - `internal/agent/agent.go`：新增 `# Skill And MCP Setup` 和 `# Examples` 段落，写清项目级 skill 默认落点 `<workspace>/skills/`、项目级 MCP 需要 workspace-local `servers.json` 与 `config.yaml` `mcp.dir` 联动配置，并补充 project skill / project MCP 两个 few-shot。
+  - `internal/agent/agent_test.go`：扩展系统提示词断言，锁定新增的 skill/MCP 安装配置规则和示例文案，防止后续回归。
+- 验证命令和结果：
+  - `gofmt -w internal/agent/agent.go internal/agent/agent_test.go`
+  - `go test ./internal/agent`：通过。
+  - `go test ./...`：通过。
+  - `go vet ./...`：通过。
+- 已知限制或后续风险：
+  - 当前改动是提示词增强，不是硬编码工作流；如果未来需要更强约束，可能还要补专门的安装/配置工具或 project bootstrap helper。
+  - few-shot 中默认把“当前项目”解释为 workspace-local 配置；如果用户明确要求全局安装，模型仍应改走 `~/.echo-dust-code/skills` 或 `~/.echo-dust-code/mcp/servers.json`。
+
+## 2026-07-06 - 校正 skill 与 MCP 安装提示词以匹配真实加载路径
+
+- 摘要：继续修正上一版 skill/MCP 安装提示词，使其严格对齐当前代码和 npm 分发后的真实运行方式。新的提示词不再把项目根 `config.yaml` 当成唯一配置入口，而是先强调配置解析优先级：`AGENT_CONFIG_FILE`、workspace `./config.yaml`、`~/.echo-dust-code/config.yaml`、最后才是内建默认值。基于这个事实，skill 安装提示改为“默认项目 skill 根目录就是 `<workspace>/skills`，多数情况下不需要额外改配置”；MCP 安装提示改为“runtime 只读取一个 `mcp.dir`，默认是 `~/.echo-dust-code/mcp`，workspace-local `servers.json` 只有在活动配置真的把 `mcp.dir` 指过去时才会生效”。同时新增一个反例 few-shot，明确“随便 clone 到某个目录但 loader 根本不会扫描”不算安装完成。
+- 主要模块：
+  - `internal/agent/agent.go`：重写 `# Skill And MCP Setup` 和 `# Examples`，加入配置源优先级、skill 双根目录加载、MCP 单目录加载，以及“不要凭空发明 workspace config 改动”的约束。
+  - `internal/agent/agent_test.go`：同步更新系统提示词断言，锁定新的加载路径事实、few-shot 文案和错误模式说明。
+  - `docs/WORKLOG.md`：追加本次修正记录。
+- 验证命令和结果：
+  - `gofmt -w internal/agent/agent.go internal/agent/agent_test.go`
+  - `go test ./internal/agent`：通过。
+  - `go test ./...`：通过。
+  - `go vet ./...`：通过。
+- 已知限制或后续风险：
+  - 当前仍然是提示词层面的工程约束，不是硬编码安装向导；模型是否总能一步到位，仍取决于上下文是否给出了足够明确的 repo/path、目标 scope 和依赖要求。
+  - MCP 的“当前项目”语义在现有实现里天然弱于 skill，因为默认 `mcp.dir` 是用户级单目录；要做到真正项目隔离，仍需要显式使用一个活动配置源把 `mcp.dir` 改到 workspace-local 目录。
+
+## 2026-07-06 - 为 skill 与 MCP 提示词补充 JSON 结构样例
+
+- 摘要：在上一版真实加载路径提示的基础上，继续补充 `skills/registry.json` 和 `mcp/servers.json` 的规范写法，避免模型只知道“该写哪个文件”，却不知道文件内容应该长什么样。系统提示词现在会要求优先参考 workspace 或 `~/.echo-dust-code` 下已有样例；若没有现成样例，则按内置的 canonical JSON 形状生成。`skills/registry.json` 明确为根对象 `{"skills":[...]}`，每项包含 `name`、`path`、`description`、`summary`、`input_schema`、`permissions.tools`、`triggers`；`mcp/servers.json` 明确优先使用对象形式 `{"servers":{"name":{...}}}`，字段包含 `command`、`args`、`env`、`cwd`、`enabled`，同时说明 array 形式也兼容但不是新文件首选。
+- 主要模块：
+  - `internal/agent/agent.go`：在 `# Skill And MCP Setup` 段落中补充“优先检查现有样例”和两个 canonical JSON 结构提示。
+  - `internal/agent/agent_test.go`：扩展系统提示词断言，锁定新的 JSON 结构说明。
+  - `docs/WORKLOG.md`：追加本次提示词增强记录。
+- 验证命令和结果：
+  - `gofmt -w internal/agent/agent.go internal/agent/agent_test.go`
+  - `go test ./internal/agent`：通过。
+  - `go test ./...`：通过。
+  - `go vet ./...`：通过。
+- 已知限制或后续风险：
+  - 提示词里给的是“规范形状”和常用字段，不替代运行时校验；模型仍然应在写入前优先读取现有示例或现有配置，避免覆盖用户已有风格或遗漏 repo 特定要求。
