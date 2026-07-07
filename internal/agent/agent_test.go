@@ -1530,8 +1530,11 @@ func TestRunExecutesWorkspaceWritesToDifferentFilesConcurrentlyAfterSessionAppro
 	if request.Scope != approval.ScopeSession || request.Key != approval.WorkspaceWriteApprovalKey() {
 		t.Fatalf("approval request = %#v, want session workspace write approval", request)
 	}
-	if len(request.Options) != 2 || request.Options[0] != approval.DecisionAlways || request.Options[1] != approval.DecisionDeny {
-		t.Fatalf("approval options = %#v, want always/deny", request.Options)
+	if len(request.Options) != 3 ||
+		request.Options[0] != approval.DecisionAllow ||
+		request.Options[1] != approval.DecisionAlways ||
+		request.Options[2] != approval.DecisionDeny {
+		t.Fatalf("approval options = %#v, want allow/always/deny", request.Options)
 	}
 }
 

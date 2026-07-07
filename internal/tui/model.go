@@ -192,6 +192,9 @@ type Model struct {
 	selectionStyle        lipgloss.Style
 	approvalSelectedStyle lipgloss.Style
 	approvalHintStyle     lipgloss.Style
+	modeApprovalStyle     lipgloss.Style
+	modeAcceptAllStyle    lipgloss.Style
+	modeFullAgreeStyle    lipgloss.Style
 	subagentTitleStyle    lipgloss.Style
 	subagentSelectedStyle lipgloss.Style
 	subagentOpenStyle     lipgloss.Style
@@ -268,6 +271,9 @@ func NewModel(options ui.Options, startup ui.StartupInfo, bridge *Bridge) *Model
 		selectionStyle:        lipgloss.NewStyle().Foreground(lipgloss.Color("16")).Background(lipgloss.Color("153")),
 		approvalSelectedStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("117")).Bold(true),
 		approvalHintStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("245")),
+		modeApprovalStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("117")).Bold(true),
+		modeAcceptAllStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true),
+		modeFullAgreeStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true),
 		subagentTitleStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Bold(true),
 		subagentSelectedStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true),
 		subagentOpenStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true),

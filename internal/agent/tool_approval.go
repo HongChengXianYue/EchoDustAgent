@@ -70,7 +70,7 @@ func approvalRequest(tool string, category approval.Category, args json.RawMessa
 		request.Reason = "workspace write requested"
 		request.Scope = approval.ScopeSession
 		request.Key = approval.WorkspaceWriteApprovalKey()
-		request.Options = []approval.Decision{approval.DecisionAlways, approval.DecisionDeny}
+		request.Options = []approval.Decision{approval.DecisionAllow, approval.DecisionAlways, approval.DecisionDeny}
 	}
 	return request
 }

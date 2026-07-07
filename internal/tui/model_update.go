@@ -113,6 +113,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		msg = filtered
+		if msg.String() == "shift+tab" {
+			return m, m.toggleApprovalMode()
+		}
 		if m.approval != nil {
 			return m.updateApproval(msg)
 		}
@@ -120,6 +123,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, m.updateInput(msg)
+}
+
+func (m *Model) toggleApprovalMode() tea.Cmd {
+	if m.bridge == nil {
+		return nil
+	}
+	mode := m.bridge.ApprovalMode().next()
+	m.bridge.SetApprovalMode(mode)
+	m.markLayoutDirty()
+	if m.approval != nil {
+		if decision, ok := mode.approvalDecision(m.approval.Request); ok {
+			m.resolveApproval(decision)
+		}
+	}
+	m.syncLayout()
+	return nil
 }
 
 func (m *Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

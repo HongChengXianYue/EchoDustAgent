@@ -34,7 +34,8 @@ func (m *Model) syncLayout() {
 		inputInnerWidth := max(10, m.width-m.inputBoxStyle.GetHorizontalFrameSize())
 		m.input.SetWidth(inputInnerWidth)
 		m.input.SetHeight(m.desiredInputLines(inputInnerWidth, min(8, max(3, m.height/3))))
-		inputHeight := m.input.Height() + m.inputBoxStyle.GetVerticalFrameSize() + suggestionCount
+		modeIndicatorHeight := 1
+		inputHeight := m.input.Height() + modeIndicatorHeight + m.inputBoxStyle.GetVerticalFrameSize() + suggestionCount
 		footerHeight := 0
 		if m.shouldRenderStatusBar(max(12, m.width-2)) {
 			footerHeight = 1

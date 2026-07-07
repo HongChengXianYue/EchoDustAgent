@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -413,6 +414,31 @@ func TestLiveRunTimerSharesStatusBarWithTokenSummary(t *testing.T) {
 	}
 	if strings.Index(statusLine, "Total · 20.6s") > strings.Index(statusLine, "Tokens 34.1k (p32.7k c1.4k, cache 800, hit 2.4%)") {
 		t.Fatalf("expected timer on the left and tokens on the right:\n%s", view)
+	}
+}
+
+func TestApprovalModeIndicatorRendersBelowInputBox(t *testing.T) {
+	model := newSizedTestModel()
+	model.bridge.SetApprovalMode(ApprovalModeFullAgree)
+	model.Update(runtimeEventMsg{Event: runtimeevent.Event{Type: runtimeevent.TypeRunStart}})
+	model.runStartedAt = time.Now().Add(-20600 * time.Millisecond)
+	model.runElapsedMS = 20600
+
+	view := model.View()
+	modeIndex := strings.LastIndex(view, "fully agree")
+	inputIndex := strings.LastIndex(view, "Ask the agent")
+	timerIndex := strings.LastIndex(view, "Total · 20.6s")
+	if modeIndex < 0 || inputIndex < 0 || timerIndex < 0 {
+		t.Fatalf("view missing mode, input, or timer:\n%s", view)
+	}
+	if modeIndex < inputIndex {
+		t.Fatalf("approval mode should render below the input box:\n%s", view)
+	}
+	if bottomBorder := strings.LastIndex(view, "└"); bottomBorder >= 0 && modeIndex < bottomBorder {
+		t.Fatalf("approval mode should render outside and below the input box border:\n%s", view)
+	}
+	if timerIndex > inputIndex {
+		t.Fatalf("live timer should remain in the status bar above the input box:\n%s", view)
 	}
 }
 
@@ -1117,6 +1143,118 @@ func TestApprovalPromptSelectsFirstOptionOnEnter(t *testing.T) {
 		}
 	default:
 		t.Fatal("expected approval decision to be sent")
+	}
+}
+
+func TestShiftTabCyclesApprovalModes(t *testing.T) {
+	model := newSizedTestModel()
+
+	if got := model.bridge.ApprovalMode(); got != ApprovalModePrompt {
+		t.Fatalf("initial approval mode = %v, want prompt", got)
+	}
+	if !strings.Contains(model.View(), "approval") {
+		t.Fatalf("initial view should render approval mode:\n%s", model.View())
+	}
+
+	model.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if got := model.bridge.ApprovalMode(); got != ApprovalModeAcceptAll {
+		t.Fatalf("approval mode after first shift+tab = %v, want accept all", got)
+	}
+	if !strings.Contains(model.View(), "accept all") {
+		t.Fatalf("view should render accept all mode:\n%s", model.View())
+	}
+
+	model.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if got := model.bridge.ApprovalMode(); got != ApprovalModeFullAgree {
+		t.Fatalf("approval mode after second shift+tab = %v, want fully agree", got)
+	}
+	if !strings.Contains(model.View(), "fully agree") {
+		t.Fatalf("view should render fully agree mode:\n%s", model.View())
+	}
+
+	model.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if got := model.bridge.ApprovalMode(); got != ApprovalModePrompt {
+		t.Fatalf("approval mode after third shift+tab = %v, want prompt", got)
+	}
+}
+
+func TestShiftTabFullAgreeResolvesOpenApproval(t *testing.T) {
+	model := newSizedTestModel()
+	response := make(chan approval.Decision, 1)
+	request := approval.Request{
+		Tool:     "run_command",
+		Category: approval.CategoryExternalOrDestructive,
+		Scope:    approval.ScopeLoop,
+		Options:  []approval.Decision{approval.DecisionAllow, approval.DecisionAlways, approval.DecisionDeny},
+	}
+
+	model.Update(approvalPromptMsg{Request: request, Response: response})
+	model.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if model.approval == nil {
+		t.Fatal("accept all should keep external/destructive approval open")
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if model.approval != nil {
+		t.Fatal("fully agree should resolve the open approval")
+	}
+	select {
+	case got := <-response:
+		if got != approval.DecisionAllow {
+			t.Fatalf("decision = %q, want %q", got, approval.DecisionAllow)
+		}
+	default:
+		t.Fatal("expected approval decision to be sent")
+	}
+}
+
+func TestBubbleApproverUsesApprovalMode(t *testing.T) {
+	bridge := NewBridge()
+	approver := NewBubbleApprover(bridge)
+
+	bridge.SetApprovalMode(ApprovalModeAcceptAll)
+	workspaceRequest := approval.Request{
+		Tool:     "write_file",
+		Category: approval.CategoryWorkspaceWrite,
+		Scope:    approval.ScopeSession,
+		Options:  []approval.Decision{approval.DecisionAllow, approval.DecisionAlways, approval.DecisionDeny},
+	}
+	if got := approver.Approve(context.Background(), workspaceRequest); got != approval.DecisionAllow {
+		t.Fatalf("accept all workspace decision = %q, want %q", got, approval.DecisionAllow)
+	}
+
+	externalRequest := approval.Request{
+		Tool:     "run_command",
+		Category: approval.CategoryExternalOrDestructive,
+		Scope:    approval.ScopeLoop,
+		Options:  []approval.Decision{approval.DecisionAllow, approval.DecisionAlways, approval.DecisionDeny},
+	}
+	if got := approver.Approve(context.Background(), externalRequest); got != approval.DecisionDeny {
+		t.Fatalf("accept all external decision without prompt = %q, want %q", got, approval.DecisionDeny)
+	}
+
+	bridge.SetApprovalMode(ApprovalModeFullAgree)
+	if got := approver.Approve(context.Background(), externalRequest); got != approval.DecisionAllow {
+		t.Fatalf("fully agree external decision = %q, want %q", got, approval.DecisionAllow)
+	}
+}
+
+func TestAutoApprovalModeDoesNotPoisonMemoryApproverCache(t *testing.T) {
+	bridge := NewBridge()
+	bridge.SetApprovalMode(ApprovalModeAcceptAll)
+	memoryApprover := approval.NewMemoryApprover(NewBubbleApprover(bridge))
+	request := approval.Request{
+		Tool:     "write_file",
+		Category: approval.CategoryWorkspaceWrite,
+		Scope:    approval.ScopeSession,
+		Key:      approval.WorkspaceWriteApprovalKey(),
+		Options:  []approval.Decision{approval.DecisionAllow, approval.DecisionAlways, approval.DecisionDeny},
+	}
+
+	if got := memoryApprover.Approve(context.Background(), request); got != approval.DecisionAllow {
+		t.Fatalf("auto approval decision = %q, want %q", got, approval.DecisionAllow)
+	}
+	if decision, cached := memoryApprover.CachedDecision(request); cached || decision != "" {
+		t.Fatalf("auto approval cached decision = %q cached=%v, want no cache", decision, cached)
 	}
 }
 

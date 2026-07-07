@@ -1374,3 +1374,21 @@
 - 已知限制或后续风险：
   - 当前优化是“程序级引导”，不是硬阻断 gate。它能显著提高模型执行前的检查质量，但仍不能完全替代针对具体功能的回归测试和代码 review。
   - 如果后续仍希望进一步提升一致性，可以把关键完成标准继续下沉为 test helper、lint 或 harness gate，让代码层面强制失败，而不是依赖模型自觉遵守提示词。
+
+## 2026-07-07 - 为 TUI 增加 fully agree 审批模式
+
+- 摘要：为 TUI 增加第三个审批模式 `fully agree`，并支持通过 `Shift+Tab` 在 `approval`、`accept all`、`fully agree` 之间循环切换。模式状态放在 `Bridge` 中，由 TUI 渲染和 `BubbleApprover` 共享，避免只显示模式但运行时审批不生效。当前模式显示在输入框外部下方，并用不同颜色区分。`accept all` 会自动同意非 external/destructive、非 system privileged 的审批；`fully agree` 会自动同意所有进入审批链路的请求，但仍不绕过审批前的黑名单拦截。自动模式优先返回一次性 `allow`，避免把 `DecisionAlways` 写入 `MemoryApprover` 的 session cache，导致切回 `approval` 后仍继续自动同意。
+- 主要模块：
+  - `internal/tui/approval_mode.go`：新增审批模式枚举、切换顺序、显示标签和自动决策逻辑。
+  - `internal/tui/bridge.go`：在 Bridge 中保存线程安全的审批模式，并让 `BubbleApprover` 根据当前模式自动返回审批决策。
+  - `internal/tui/model_update.go`：接入 `Shift+Tab` 全局快捷键；如果当前有审批弹窗，切到可自动同意的模式时会立即处理当前审批。
+  - `internal/tui/model_render.go`、`internal/tui/model_layout.go`、`internal/tui/model.go`：在输入框外部下方渲染当前模式，并为三种模式配置不同颜色，同时为模式行预留高度。
+  - `internal/agent/tool_approval.go`：workspace write 审批选项增加一次性 `allow`，保留手动 `always`，让自动模式可以不污染 session cache。
+  - `internal/tui/model_test.go`、`internal/agent/agent_test.go`：补充模式切换、打开审批时切换到 full agree、approver 自动决策、以及自动审批不写入 MemoryApprover cache 的回归测试。
+- 验证命令和结果：
+  - `gofmt -w internal/tui/approval_mode.go internal/tui/bridge.go internal/tui/model.go internal/tui/model_update.go internal/tui/model_render.go internal/tui/model_layout.go internal/tui/model_test.go internal/agent/tool_approval.go internal/agent/agent_test.go`
+  - `go test ./...`：通过。
+  - `go vet ./...`：通过。
+- 已知限制或后续风险：
+  - `fully agree` 是高信任模式，当前实现按用户显式切换生效；后续如果要跨会话保留模式，需要再设计持久化和启动默认值。
+  - 模式指示会固定占用输入框下方一行，让当前模式始终可见；如果后续 UI 空间更紧张，可以考虑把模式指示迁移到输入框边框标题。

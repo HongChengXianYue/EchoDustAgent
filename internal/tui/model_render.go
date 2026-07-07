@@ -28,6 +28,9 @@ func (m *Model) View() string {
 		parts = append(parts, suggestions)
 	}
 	parts = append(parts, m.renderInputBox())
+	if indicator := m.renderApprovalModeIndicator(); indicator != "" {
+		parts = append(parts, indicator)
+	}
 	return strings.Join(parts, "\n")
 }
 
@@ -101,16 +104,17 @@ func (m *Model) renderInputBox() string {
 
 func (m *Model) renderFooter() string {
 	width := max(20, m.width)
-	left := ""
+	leftParts := []string{}
 	if m.copyNotice != "" {
 		if m.copyNoticeError {
-			left = m.errorStyle.Render(m.copyNotice)
+			leftParts = append(leftParts, m.errorStyle.Render(m.copyNotice))
 		} else {
-			left = m.titleStyle.Render(m.copyNotice)
+			leftParts = append(leftParts, m.titleStyle.Render(m.copyNotice))
 		}
 	} else if m.shouldRenderLiveRunTimer() {
-		left = "Total · " + formatDuration(m.runElapsedMS)
+		leftParts = append(leftParts, "Total · "+formatDuration(m.runElapsedMS))
 	}
+	left := strings.Join(leftParts, "  ")
 	rightLimit := max(12, width-2)
 	if left != "" {
 		rightLimit = max(12, width-lipgloss.Width(left)-3)
@@ -141,7 +145,25 @@ func (m *Model) shouldRenderLiveRunTimer() bool {
 }
 
 func (m *Model) shouldRenderStatusBar(limit int) bool {
-	return m.copyNotice != "" || m.shouldRenderLiveRunTimer() || m.footerSummary(limit) != ""
+	return m.copyNotice != "" ||
+		m.shouldRenderLiveRunTimer() ||
+		m.footerSummary(limit) != ""
+}
+
+func (m *Model) renderApprovalModeIndicator() string {
+	mode := ApprovalModePrompt
+	if m.bridge != nil {
+		mode = m.bridge.ApprovalMode()
+	}
+	label := mode.label()
+	switch mode.normalized() {
+	case ApprovalModeAcceptAll:
+		return m.modeAcceptAllStyle.Render(label)
+	case ApprovalModeFullAgree:
+		return m.modeFullAgreeStyle.Render(label)
+	default:
+		return m.modeApprovalStyle.Render(label)
+	}
 }
 
 func (m *Model) renderSuggestions() string {
