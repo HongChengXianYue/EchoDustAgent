@@ -73,6 +73,7 @@ func (m *Model) LoadSessionSnapshot(snapshot session.UISnapshot) {
 	m.copySelection = nil
 	m.copyNotice = ""
 	m.copyNoticeError = false
+	m.ctrlCExitArmed = false
 	m.markAllDirty()
 	if m.width > 0 && m.height > 0 {
 		m.syncLayout()

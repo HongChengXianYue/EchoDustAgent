@@ -100,7 +100,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.interruptRun()
 			return m, nil
 		}
-		return m, tea.Quit
+		return m, m.handleIdleCtrlC()
 	case tea.MouseMsg:
 		if !m.mouseEnabled {
 			return m, nil
@@ -142,12 +142,16 @@ func (m *Model) toggleApprovalMode() tea.Cmd {
 }
 
 func (m *Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	m.clearCopyNotice()
-	if msg.String() == "f2" {
+	keyString := msg.String()
+	if keyString != "ctrl+c" {
+		m.clearCtrlCExitArmed()
+		m.clearCopyNotice()
+	}
+	if keyString == "f2" {
 		return m, m.toggleMouseMode()
 	}
 	if m.resumePickerActive() {
-		switch msg.String() {
+		switch keyString {
 		case "esc":
 			m.cancelResumePicker()
 			m.syncLayout()
@@ -169,13 +173,14 @@ func (m *Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
-	switch msg.String() {
+	switch keyString {
 	case "ctrl+c":
 		if m.running {
+			m.clearCtrlCExitArmed()
 			m.interruptRun()
 			return m, nil
 		}
-		return m, tea.Quit
+		return m, m.handleIdleCtrlC()
 	case "tab":
 		if m.acceptSlashSuggestion() {
 			m.syncLayout()
@@ -246,6 +251,27 @@ func (m *Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, m.updateInput(msg)
+}
+
+func (m *Model) clearCtrlCExitArmed() {
+	if m == nil || !m.ctrlCExitArmed {
+		return
+	}
+	m.ctrlCExitArmed = false
+}
+
+func (m *Model) handleIdleCtrlC() tea.Cmd {
+	if m.ctrlCExitArmed {
+		return tea.Quit
+	}
+	if m.input.Value() != "" {
+		m.input.Reset()
+		m.slashSuggest = 0
+		m.markLayoutDirty()
+	}
+	m.ctrlCExitArmed = true
+	m.syncLayout()
+	return nil
 }
 
 func (m *Model) updateApproval(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -328,6 +354,7 @@ func (m *Model) submitInput() tea.Cmd {
 	if input == "" {
 		return nil
 	}
+	input = m.slashSuggestionForSubmit(input)
 	if input == "/resume" && !m.running {
 		if handled, output := m.openResumePicker(); handled {
 			m.addHistory(input)

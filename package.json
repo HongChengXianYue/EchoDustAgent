@@ -1,6 +1,6 @@
 {
   "name": "@hongchengxianyue/echo-dust-code",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Terminal-first coding agent packaged as a global npm command.",
   "homepage": "https://github.com/HongChengXianYue/EchoDustAgent",
   "repository": {

@@ -150,6 +150,7 @@ type Model struct {
 	copySelection         *copySelectionState
 	copyNotice            string
 	copyNoticeError       bool
+	ctrlCExitArmed        bool
 	mouseEnabled          bool
 	mouseProtocolGuard    int
 	mouseProtocolPending  string
@@ -403,6 +404,18 @@ func (m *Model) acceptSlashSuggestion() bool {
 	m.slashSuggest = 0
 	m.markLayoutDirty()
 	return true
+}
+
+func (m *Model) slashSuggestionForSubmit(input string) string {
+	if input == "/" || !strings.HasPrefix(input, "/") || strings.ContainsAny(input, " \t\n") {
+		return input
+	}
+	matches := m.matchedSlashCommands()
+	if len(matches) == 0 {
+		return input
+	}
+	m.clampSlashSuggestion()
+	return "/" + matches[m.slashSuggest].Name
 }
 
 func mergeOptions(options ui.Options) ui.Options {

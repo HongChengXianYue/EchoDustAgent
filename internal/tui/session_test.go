@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"local-agent/internal/runtimeevent"
 	"local-agent/internal/session"
+	"local-agent/internal/ui"
 )
 
 func TestSessionSnapshotRoundTrip(t *testing.T) {
@@ -168,6 +169,33 @@ func TestResumePickerOpensAndSelectsSession(t *testing.T) {
 	}
 	if !strings.Contains(model.View(), "resumed 20260703T162900Z-a1b2") {
 		t.Fatalf("resume selection result missing from view:\n%s", model.View())
+	}
+}
+
+func TestEnterCompletesSlashPrefixBeforeSubmit(t *testing.T) {
+	model := newSizedTestModel()
+	model.SetSlashCommands([]ui.CommandSuggestion{
+		{Name: "resume", Desc: "list or resume saved sessions"},
+	})
+	model.SetResumePickerHandlers(
+		func() ([]session.Meta, error) {
+			return []session.Meta{
+				{SessionID: "20260703T162408Z-f81a", Title: "hello"},
+			}, nil
+		},
+		func(sessionID string) (string, error) {
+			return "resumed " + sessionID, nil
+		},
+	)
+
+	model.input.SetValue("/re")
+	model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if model.resumePicker == nil {
+		t.Fatal("expected /re + enter to complete /resume and open the resume picker")
+	}
+	if model.history[len(model.history)-1] != "/resume" {
+		t.Fatalf("history entry = %q, want /resume", model.history[len(model.history)-1])
 	}
 }
 

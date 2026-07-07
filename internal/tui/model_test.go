@@ -1081,6 +1081,46 @@ func TestSliceTextByCellsHandlesWideRunes(t *testing.T) {
 	}
 }
 
+func TestCtrlCClearsInputBeforeExit(t *testing.T) {
+	model := newSizedTestModel()
+	model.input.SetValue("draft task")
+
+	_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd != nil {
+		t.Fatal("first ctrl+c with input should not quit")
+	}
+	if got := model.input.Value(); got != "" {
+		t.Fatalf("input after first ctrl+c = %q, want empty", got)
+	}
+	if model.copyNotice != "" {
+		t.Fatalf("first ctrl+c should not show an exit notice, got %q", model.copyNotice)
+	}
+
+	_, cmd = model.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Fatal("second consecutive ctrl+c should quit")
+	}
+	msg := cmd()
+	if _, ok := msg.(tea.QuitMsg); !ok {
+		t.Fatalf("second ctrl+c command = %T, want tea.QuitMsg", msg)
+	}
+}
+
+func TestCtrlCExitArmRequiresConsecutivePress(t *testing.T) {
+	model := newSizedTestModel()
+
+	model.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+
+	if cmd != nil {
+		t.Fatal("ctrl+c after another key should clear input instead of quitting")
+	}
+	if got := model.input.Value(); got != "" {
+		t.Fatalf("input after ctrl+c = %q, want empty", got)
+	}
+}
+
 func TestEscInterruptsRunningAgent(t *testing.T) {
 	model := newSizedTestModel()
 	interrupted := false
