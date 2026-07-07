@@ -1355,3 +1355,22 @@
 - 已知限制或后续风险：
   - 这次新增的是“一次 summary-only 的额外 LLM 收尾轮”，不是额外的工具行动轮；它会超出原 action step budget 一次聊天请求，但不会再允许执行工具。
   - 如果 stop reason 是上下文已取消（例如外部主动终止），当前实现不会再补总结轮，仍保持原有终止语义。
+
+## 2026-07-07 - 强化主 Agent 的通用工程完成标准
+
+- 摘要：撤销上一轮未提交的 approval/accept-all TUI 实现后，增强主 Agent 系统提示词，但不写入某个具体问题的专用修法。新的 `Complete Change Discipline` 段落把失败经验抽象为通用工程行为：用户可见行为变更必须按端到端 workflow 处理，修改前识别状态归属、入口、决策逻辑、输出路径、副作用、资源约束和测试；新增状态、模式、配置、命令或可见输出时，必须覆盖初始化、变更、持久化或重置、用户表现、运行时副作用和异常路径。同时新增 transient `engineering_checklist` 工具，把工程建模从纯 prompt 约束升级为可调用的程序级引导：非平凡代码变更前，模型需要先明确任务、变更类型、入口、预期行为和风险区域，再获得对应 checklist。
+- 主要模块：
+  - `internal/agent/agent.go`：新增 `# Complete Change Discipline` 段落，并要求非平凡代码变更前调用 `engineering_checklist`。
+  - `internal/tools/engineering_checklist.go`：新增无副作用工程引导工具，按 bugfix、feature、UI 交互、API、配置安装、工具 I/O、重构等类型返回 checklist。
+  - `internal/agent/tool_specs.go`、`internal/agent/tool_scheduler.go`、`internal/agent/tool_engineering.go`、`internal/agent/tool_todo.go`：接入 checklist 工具，使其不占普通并行工具额度、不走审批，并像 `update_todos` 一样从长期 conversation 中裁剪。
+  - `internal/agent/agent_test.go`、`internal/tools/engineering_checklist_test.go`：补充系统提示词、工具输出、工具暴露和 transient 历史裁剪测试。
+  - `README.md`：同步内置工具数量、工具分类和并行调度规则。
+- 验证命令和结果：
+  - `gofmt -w internal/agent/agent.go internal/agent/agent_test.go internal/agent/skill.go internal/agent/subagent.go internal/agent/tool_engineering.go internal/agent/tool_scheduler.go internal/agent/tool_specs.go internal/agent/tool_todo.go internal/tools/engineering_checklist.go internal/tools/engineering_checklist_test.go internal/tools/todo.go`
+  - `go test ./internal/agent ./internal/tools`：通过。
+  - `go test ./internal/tui`：通过。
+  - `go test ./...`：通过。
+  - `go vet ./...`：通过。
+- 已知限制或后续风险：
+  - 当前优化是“程序级引导”，不是硬阻断 gate。它能显著提高模型执行前的检查质量，但仍不能完全替代针对具体功能的回归测试和代码 review。
+  - 如果后续仍希望进一步提升一致性，可以把关键完成标准继续下沉为 test helper、lint 或 harness gate，让代码层面强制失败，而不是依赖模型自觉遵守提示词。

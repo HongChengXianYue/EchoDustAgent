@@ -11,6 +11,7 @@ import (
 const UpdateTodosToolName = "update_todos"
 const DelegateTaskToolName = "delegate_task"
 const InvokeSkillToolName = "invoke_skill"
+const EngineeringChecklistToolName = "engineering_checklist"
 
 type TodoStatus string
 
@@ -49,6 +50,10 @@ func IsDelegateTaskTool(name string) bool {
 
 func IsInvokeSkillTool(name string) bool {
 	return name == InvokeSkillToolName
+}
+
+func IsEngineeringChecklistTool(name string) bool {
+	return name == EngineeringChecklistToolName
 }
 
 func (t *UpdateTodosTool) Name() string {

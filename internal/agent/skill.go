@@ -191,7 +191,7 @@ func skillSystemPrompt(workspace string, maxParallelToolCalls int, selected skil
 		"Follow the provided skill instructions exactly for this run.",
 		"Use only the tools exposed to you. The runtime already restricted them to the skill's declared permissions.",
 		"Do not call delegate_task or invoke_skill. They are intentionally unavailable inside a skill run.",
-		fmt.Sprintf("Do not return more than %d non-update_todos tool calls in one assistant turn. Multiple calls to the same tool with different arguments count separately.", maxParallelToolCalls),
+		fmt.Sprintf("Do not return more than %d non-planning tool calls in one assistant turn. update_todos and engineering_checklist are planning/guidance tools and do not count toward this limit. Multiple calls to the same non-planning tool with different arguments count separately.", maxParallelToolCalls),
 		"",
 		"# Skill Metadata",
 		"Description: " + selected.Description,

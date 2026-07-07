@@ -501,9 +501,11 @@ func TestRunUsesPromptGuidanceInsteadOfHidingToolsForGreeting(t *testing.T) {
 		"Do not inspect the workspace for greetings",
 		"Only call tools when the user asks for a concrete workspace action",
 		"For multi-step coding, debugging, editing, or cross-file work",
+		"For non-trivial code changes, call engineering_checklist before editing",
+		"Do not call engineering_checklist for simple reads",
 		"Simple single-step reads, lookups, or one-off commands do not need a todo list",
 		"multiple tool calls in one assistant turn",
-		"more than 10 non-update_todos tool calls",
+		"more than 10 non-planning tool calls",
 		"claiming a feature or behavior is missing",
 		"stale docs, missing regression tests, partial migration, or unreachable code path",
 		"Classify implementation problems precisely",
@@ -519,6 +521,14 @@ func TestRunUsesPromptGuidanceInsteadOfHidingToolsForGreeting(t *testing.T) {
 		"first try to disprove that hypothesis",
 		"Prefer the smallest complete fix",
 		"simpler configurable or directly wired solution",
+		"Complete Change Discipline",
+		"end-to-end workflow changes",
+		"Use engineering_checklist as executable guidance",
+		"state owner, entrypoint, decision logic, output path",
+		"wire the complete lifecycle",
+		"easiest path while another valid state, caller, or execution mode bypasses",
+		"screen space, context budget, concurrency slots, file paths, config scope, or step budget",
+		"real entrypoint, the externally visible result, the important state transitions, and the side effects",
 		"broad codebase analysis",
 		"delegate before personally inspecting many files",
 		"split it into focused delegate_task calls",
@@ -622,17 +632,52 @@ func TestRunExposesToolsForWorkspaceTask(t *testing.T) {
 		t.Fatalf("tools were not exposed for workspace task: %#v", client.tools)
 	}
 	foundTodoTool := false
+	foundChecklistTool := false
 	for _, tool := range client.tools[0] {
 		if tool.Name == tools.UpdateTodosToolName {
 			foundTodoTool = true
+		}
+		if tool.Name == tools.EngineeringChecklistToolName {
+			foundChecklistTool = true
 		}
 	}
 	if !foundTodoTool {
 		t.Fatalf("update_todos was not exposed: %#v", client.tools[0])
 	}
+	if !foundChecklistTool {
+		t.Fatalf("engineering_checklist was not exposed: %#v", client.tools[0])
+	}
 	for _, name := range []string{"read_file_range", "find_symbol", "find_references", "find_callers", "find_callees", "git_status", "git_diff", "git_log"} {
 		if !toolListContains(client.tools[0], name) {
 			t.Fatalf("%s was not exposed: %#v", name, client.tools[0])
+		}
+	}
+}
+
+func TestEngineeringChecklistToolIsTransient(t *testing.T) {
+	client := &fakeClient{responses: []*llm.ChatResponse{
+		{
+			ToolCalls: []llm.ToolCall{
+				testToolCall("check", tools.EngineeringChecklistToolName, `{"task":"add mode","change_type":"feature","expected_behavior":"mode toggles and affects runtime behavior"}`),
+			},
+		},
+		{Content: "finished"},
+	}}
+	agent := New(client, tools.NewRegistry(), 3)
+	if _, err := agent.Run(context.Background(), "implement a mode"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	for _, message := range agent.ConversationMessages() {
+		if message.Role == "assistant" {
+			for _, call := range message.ToolCalls {
+				if call.Function.Name == tools.EngineeringChecklistToolName {
+					t.Fatalf("engineering_checklist tool call leaked into conversation: %#v", agent.ConversationMessages())
+				}
+			}
+		}
+		if message.Role == "tool" && message.ToolCallID == "check" {
+			t.Fatalf("engineering_checklist tool result leaked into conversation: %#v", agent.ConversationMessages())
 		}
 	}
 }

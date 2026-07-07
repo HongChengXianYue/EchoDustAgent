@@ -36,6 +36,7 @@ type Agent struct {
 	approver        approval.Approver
 	emitMu          sync.Mutex
 	todoTool        *tools.UpdateTodosTool
+	checklistTool   *tools.EngineeringChecklistTool
 	autoTodoText    string
 	subagentMu      sync.Mutex
 	nextSubagentID  int
@@ -82,13 +83,15 @@ func newAgent(client llm.Client, registry *tools.Registry, maxSteps int, workspa
 	}
 	options = normalizeOptions(options)
 	todoTool := tools.NewUpdateTodosTool()
+	checklistTool := tools.NewEngineeringChecklistTool()
 	agent := &Agent{
-		client:    client,
-		registry:  registry,
-		maxSteps:  maxSteps,
-		workspace: strings.TrimSpace(workspace),
-		todoTool:  todoTool,
-		options:   options,
+		client:        client,
+		registry:      registry,
+		maxSteps:      maxSteps,
+		workspace:     strings.TrimSpace(workspace),
+		todoTool:      todoTool,
+		checklistTool: checklistTool,
+		options:       options,
 		messages: []llm.Message{
 			{
 				Role:    "system",
@@ -141,11 +144,13 @@ func systemPrompt(workspace string, maxParallelToolCalls int) string {
 		"Use tools to verify concrete workspace claims before presenting them as facts.",
 		"Do not use tools just to appear thorough. Prefer the smallest set of tool calls that can answer the user's real question.",
 		"You may return multiple tool calls in one assistant turn when they are independent.",
-		fmt.Sprintf("Do not return more than %d non-update_todos tool calls in one assistant turn. Multiple calls to the same tool with different arguments count separately.", maxParallelToolCalls),
+		fmt.Sprintf("Do not return more than %d non-planning tool calls in one assistant turn. update_todos and engineering_checklist are planning/guidance tools and do not count toward this limit. Multiple calls to the same non-planning tool with different arguments count separately.", maxParallelToolCalls),
 		"Do not write JSON tool calls in assistant text. Tool calls must use native function calling only.",
 		"",
 		"# Todo Discipline",
 		"For multi-step coding, debugging, editing, or cross-file work, call update_todos before using other tools.",
+		"For non-trivial code changes, call engineering_checklist before editing to model the entrypoint, state, outputs, side effects, shared resources, and verification path.",
+		"Do not call engineering_checklist for simple reads, one-off status checks, or purely conversational answers.",
 		"Keep the todo list small and outcome-oriented.",
 		"Maintain exactly one in_progress todo unless coordinating delegated work as described below.",
 		"Mark completed items as completed before moving the next item to in_progress.",
@@ -221,6 +226,15 @@ func systemPrompt(workspace string, maxParallelToolCalls int) string {
 		"Keep canonical names, legacy compatibility names, tests, docs, and ignore rules aligned before considering the work complete.",
 		"Prefer the smallest complete fix that solves the user's real problem.",
 		"Do not introduce a more complex mode, workflow, abstraction, or configuration surface when a simpler configurable or directly wired solution fully satisfies the request.",
+		"",
+		"# Complete Change Discipline",
+		"Treat user-facing behavior changes as end-to-end workflow changes, not isolated edits to one field, label, handler, or branch.",
+		"Use engineering_checklist as executable guidance for non-trivial edits; treat its output as a checklist to satisfy, not as proof that the work is done.",
+		"Before editing, identify the state owner, entrypoint, decision logic, output path, side effects, resource or layout constraints, and existing tests for the behavior.",
+		"When adding a state, mode, flag, command, shortcut, config option, or visible output, wire the complete lifecycle: initialization, mutation, persistence or reset semantics when relevant, user-facing representation, runtime side effects, and error or cancellation paths.",
+		"Do not consider a change complete if it only works on the easiest path while another valid state, caller, or execution mode bypasses or intercepts it.",
+		"When a change consumes shared resources such as screen space, context budget, concurrency slots, file paths, config scope, or step budget, update the accounting that allocates or reserves that resource.",
+		"Before finalizing, add or update tests that exercise the real entrypoint, the externally visible result, the important state transitions, and the side effects. If one of those cannot be tested, state the manual verification gap.",
 		"",
 		"# Review And Editing",
 		"When reviewing code, present findings first.",

@@ -43,7 +43,7 @@ func (a *Agent) pruneTransientToolHistory() {
 		if message.Role == "assistant" && len(message.ToolCalls) > 0 {
 			toolCalls := make([]llm.ToolCall, 0, len(message.ToolCalls))
 			for _, call := range message.ToolCalls {
-				if tools.IsUpdateTodosTool(call.Function.Name) {
+				if tools.IsUpdateTodosTool(call.Function.Name) || tools.IsEngineeringChecklistTool(call.Function.Name) {
 					if call.ID != "" {
 						transientToolIDs[call.ID] = true
 					}

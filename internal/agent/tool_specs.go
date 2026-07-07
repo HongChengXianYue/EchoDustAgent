@@ -7,8 +7,9 @@ import (
 
 func (a *Agent) functionTools() []llm.FunctionTool {
 	specs := a.registry.Specs()
-	out := make([]llm.FunctionTool, 0, len(specs)+3)
+	out := make([]llm.FunctionTool, 0, len(specs)+4)
 	out = append(out, functionToolFromTool(a.todoTool))
+	out = append(out, functionToolFromTool(a.checklistTool))
 	if a.subagentTool != nil {
 		out = append(out, functionToolFromTool(a.subagentTool))
 	}
@@ -26,6 +27,9 @@ func (a *Agent) functionTools() []llm.FunctionTool {
 }
 
 func (a *Agent) lookupTool(name string) (tools.Tool, bool) {
+	if tools.IsEngineeringChecklistTool(name) && a.checklistTool != nil {
+		return a.checklistTool, true
+	}
 	if tools.IsDelegateTaskTool(name) && a.subagentTool != nil {
 		return a.subagentTool, true
 	}

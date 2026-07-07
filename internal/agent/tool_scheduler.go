@@ -36,6 +36,8 @@ func (a *Agent) executeToolCalls(ctx context.Context, step int, calls []llm.Tool
 	for i, call := range calls {
 		if tools.IsUpdateTodosTool(call.Function.Name) {
 			results[i] = a.executeTodoTool(ctx, step, i, call)
+		} else if tools.IsEngineeringChecklistTool(call.Function.Name) {
+			results[i] = a.executeEngineeringChecklistTool(ctx, step, i, call)
 		}
 	}
 
@@ -47,11 +49,11 @@ func (a *Agent) executeToolCalls(ctx context.Context, step int, calls []llm.Tool
 	acceptedToolCalls := 0
 	plans := make([]preparedToolCall, 0, len(calls))
 	for i, call := range calls {
-		if tools.IsUpdateTodosTool(call.Function.Name) {
+		if tools.IsUpdateTodosTool(call.Function.Name) || tools.IsEngineeringChecklistTool(call.Function.Name) {
 			continue
 		}
 		if acceptedToolCalls >= maxParallel {
-			result := tools.Error(fmt.Sprintf("too many parallel tool calls: maximum is %d non-update_todos tool call(s) per assistant turn", maxParallel))
+			result := tools.Error(fmt.Sprintf("too many parallel tool calls: maximum is %d non-planning tool call(s) per assistant turn", maxParallel))
 			a.emit(runtimeevent.Event{
 				Step:   step,
 				Type:   runtimeevent.TypeToolResult,

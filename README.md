@@ -202,9 +202,9 @@ This means a global npm install can keep shared defaults in `~/.echo-dust-code/c
 
 ## 内置工具 | Built-in Tools
 
-当前包含 22 个内置工具，以及运行时自动发现的 MCP 工具。
+当前包含 23 个内置工具，以及运行时自动发现的 MCP 工具。
 
-There are currently 22 built-in tools, plus MCP tools discovered at runtime.
+There are currently 23 built-in tools, plus MCP tools discovered at runtime.
 
 | 类别 Category | 工具 Tools |
 |---|---|
@@ -213,13 +213,13 @@ There are currently 22 built-in tools, plus MCP tools discovered at runtime.
 | Shell 与补丁 Shell & patching | `run_command`, `apply_patch`, `git_status`, `git_diff`, `git_log` |
 | 委托 Delegation | `delegate_task`, `invoke_skill` |
 | 记忆 Memory | `memory`, `remember`, `forget` |
-| UI 控制 UI control | `update_todos` |
+| 工程引导与 UI 控制 Engineering guidance & UI control | `engineering_checklist`, `update_todos` |
 | MCP | `mcp__<server>__<tool>` |
 
 ### 调度策略 | Scheduling Rules
 
-- 单轮 assistant 回复最多允许 10 个非 `update_todos` 工具调用。
-  A single assistant turn may schedule up to 10 non-`update_todos` tool calls.
+- 单轮 assistant 回复最多允许 10 个非 planning/guidance 工具调用；`update_todos` 和 `engineering_checklist` 不计入该限制。
+  A single assistant turn may schedule up to 10 non-planning/guidance tool calls; `update_todos` and `engineering_checklist` do not count toward that limit.
 - 只读、搜索、构建测试类调用尽量并行执行。
   Read-only, search, and build/test calls are parallelized when possible.
 - 不同文件的工作区写入可以并发。

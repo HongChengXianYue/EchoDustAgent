@@ -189,7 +189,7 @@ func subagentSystemPrompt(workspace string, maxParallelToolCalls int) string {
 		"",
 		"# Tool Use",
 		"An internal todo is initialized for your delegated task. Use update_todos only if you need to revise that plan, and keep at most one item in_progress.",
-		fmt.Sprintf("Do not return more than %d non-update_todos tool calls in one assistant turn. Multiple calls to the same tool with different arguments count separately.", maxParallelToolCalls),
+		fmt.Sprintf("Do not return more than %d non-planning tool calls in one assistant turn. update_todos and engineering_checklist are planning/guidance tools and do not count toward this limit. Multiple calls to the same non-planning tool with different arguments count separately.", maxParallelToolCalls),
 		"",
 		"# Final Answer",
 		"Return only your final conclusion with concise evidence such as relevant paths, symbols, or command results.",
